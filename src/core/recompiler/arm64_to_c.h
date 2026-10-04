@@ -350,6 +350,13 @@ inline const char* g_chain_mod = nullptr;
 // the executed-block count from how much of this budget was spent.
 inline constexpr int kChainBudget = 256;
 
+// Generated-unit size limits. Smaller units cut per-compile memory so more
+// compiles fit in RAM in parallel. The previous 32 MiB / 20000-block limits
+// produced ~22 MB units needing ~1.3 GB each with clang-cl. Exact values are
+// to be tuned by measurement.
+inline constexpr size_t kDefaultUnitSourceBytes = size_t{8} << 20;
+inline constexpr size_t kDefaultUnitBlocks = 5000;
+
 // Conditional branches deliberately do not chain. Measured: chaining them too
 // takes 2.00 ms/frame against 1.80, and turns a tight distribution into one
 // spanning 1.70-2.54 across six reps while the dynarmic arm stays at 2.905 in
@@ -5096,8 +5103,11 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
                                   // block discovery seeds a root at each even when nothing in
                                   // this module's own .text branches there directly.
                                   const std::vector<u64>* extra_roots = nullptr,
-                                  // Internal fixture control; production exports use 32 MiB.
-                                  size_t unit_source_limit = 32u << 20) {
+                                  // Per-unit source byte cap. Production exports use
+                                  // kDefaultUnitSourceBytes unless the exporter overrides it.
+                                  size_t unit_source_limit = kDefaultUnitSourceBytes,
+                                  // Per-unit block cap; 0 is treated as 1.
+                                  size_t unit_block_limit = kDefaultUnitBlocks) {
     RecompileStats stats;
     auto blocks = DiscoverBlocks(text, n_bytes, base, entry_pc, extra_roots);
     const u32* p = reinterpret_cast<const u32*>(text);
@@ -5109,7 +5119,7 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
     // enough that a compiler needs hours and a great deal of memory, or gives
     // up outright. Splitting keeps each unit to a sane size and lets the build
     // compile them in parallel.
-    constexpr size_t kBlocksPerUnit = 20000;
+    const size_t effective_unit_block_limit = unit_block_limit ? unit_block_limit : 1;
     // Retain only the current bounded unit and one block's rendered body.
     // Buffering a whole module would require gigabytes on top of game data.
     const auto make_dir = [](const std::string& dir) {
@@ -5315,7 +5325,8 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
         // The actual table lines fit in emit_seg's 160-byte buffer.
         const size_t projected = unit_body.size() + rcu.size() +
                                  (unit_blocks + 1) * 160 + 512;
-        if (unit_blocks && (unit_blocks == kBlocksPerUnit || projected > unit_source_limit)) {
+        if (unit_blocks &&
+            (unit_blocks >= effective_unit_block_limit || projected > unit_source_limit)) {
             finish_unit();
         }
         if (EmitGuardGen()) {
@@ -5554,25 +5565,44 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
        << "# else consumes it, and it recompiles every generated unit a third time,\n"
        << "# so a standalone build of this project turns it off.\n"
        << "option(RECOMP_BUILD_STATIC_LIB \"build the static library for a host link\" ON)\n\n"
-       // Job count has to be bounded by memory, not cores. A single generated
-       // unit here reaches 100+ MB of C, and the compiler needs several GB of
-       // heap to get through one; handing a 32-core machine 32 of them at once
-       // is how a build dies with "C1060: compiler is out of heap space" after
-       // an hour of work. Budget ~8 GB per concurrent compile and take the
-       // lower of that and the core count.
+       // Job count has to be bounded by memory, not cores. Real MSVC cl.exe
+       // failed with "C1060: compiler is out of heap space" on large units, so
+       // it keeps an 8 GB per-compile budget. Measured with clang-cl, ~22 MB
+       // units peak at ~1.3 GB, so other compilers get 1.5 GB per compile.
+       // 4 GB stays reserved for the OS and the running emulator. Overrides:
+       // SUYU_RECOMP_JOB_MEMORY_MB (budget), SUYU_RECOMP_JOBS (job count), or
+       // -DRECOMP_JOBS.
        << "cmake_host_system_information(RESULT _recomp_ram_mb QUERY TOTAL_PHYSICAL_MEMORY)\n"
        << "cmake_host_system_information(RESULT _recomp_cores QUERY NUMBER_OF_LOGICAL_CORES)\n"
-       << "math(EXPR _recomp_ram_jobs \"${_recomp_ram_mb} / 8192\")\n"
+       << "if(MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL \"Clang\")\n"
+       << "  set(_recomp_job_mb 8192)\n"
+       << "else()\n"
+       << "  set(_recomp_job_mb 1536)\n"
+       << "endif()\n"
+       << "if(DEFINED ENV{SUYU_RECOMP_JOB_MEMORY_MB} AND\n"
+          "   \"$ENV{SUYU_RECOMP_JOB_MEMORY_MB}\" MATCHES \"^[1-9][0-9]*$\")\n"
+       << "  set(_recomp_job_mb $ENV{SUYU_RECOMP_JOB_MEMORY_MB})\n"
+       << "endif()\n"
+       << "set(_recomp_reserved_mb 4096)\n"
+       << "if(_recomp_ram_mb GREATER _recomp_reserved_mb)\n"
+       << "  math(EXPR _recomp_ram_jobs \"(${_recomp_ram_mb} - ${_recomp_reserved_mb}) / ${_recomp_job_mb}\")\n"
+       << "else()\n"
+       << "  set(_recomp_ram_jobs 1)\n"
+       << "endif()\n"
        << "if(_recomp_ram_jobs LESS 1)\n  set(_recomp_ram_jobs 1)\nendif()\n"
        << "if(_recomp_ram_jobs LESS _recomp_cores)\n"
        << "  set(_recomp_default_jobs ${_recomp_ram_jobs})\n"
        << "else()\n"
        << "  set(_recomp_default_jobs ${_recomp_cores})\n"
        << "endif()\n"
+       << "if(DEFINED ENV{SUYU_RECOMP_JOBS} AND \"$ENV{SUYU_RECOMP_JOBS}\" MATCHES \"^[1-9][0-9]*$\")\n"
+       << "  set(_recomp_default_jobs $ENV{SUYU_RECOMP_JOBS})\n"
+       << "endif()\n"
        << "set(RECOMP_JOBS ${_recomp_default_jobs} CACHE STRING\n"
           "    \"concurrent compiles of the generated units (memory-bound, not core-bound)\")\n"
        << "message(STATUS \"recompiled: building generated units with ${RECOMP_JOBS} \"\n"
-          "    \"concurrent compiles (${_recomp_ram_mb} MB RAM, ${_recomp_cores} cores)\")\n"
+          "    \"concurrent compiles (${_recomp_ram_mb} MB RAM, ${_recomp_cores} cores, \"\n"
+          "    \"${_recomp_job_mb} MB per compile budget)\")\n"
        // /MP is an MSVC compiler flag and means nothing to Ninja, which
        // schedules with its own -j and would happily start one compile per core.
        // A job pool caps these targets alone, so the surrounding build (suyu's

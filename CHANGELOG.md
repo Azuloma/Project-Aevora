@@ -2,6 +2,21 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev4 - Unreleased
+
+*Development commit 4 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Changed
+- Hybrid and static exports now compile generated game code in parallel according to available memory and the compiler. Previously the build allowed one compile per 8 GB of RAM, so a 16 GB PC compiled one file at a time (about 3.4 hours of compilation for Pokemon Legends: Arceus). With clang-cl the budget is 1.5 GB per compile with 4 GB reserved (7 parallel compiles on 16 GB); MSVC keeps 8 GB per compile.
+- Generated code is split into smaller files (at most 5,000 blocks or 8 MiB each, previously 20,000 blocks or 32 MiB) so that more compiles fit in memory.
+- New environment overrides for tuning: `SUYU_RECOMP_JOBS`, `SUYU_RECOMP_JOB_MEMORY_MB`, `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`.
+
+### Known issues
+- The new limits are not yet measured on a full export; export time, memory use, and in-game performance still need to be compared with the previous settings.
+- The Linux/macOS Source-export build script still limits jobs to one per 8 GB of RAM.
+- A Pokemon Legends: Arceus Hybrid export (clang-cl) now builds and links with no module left to JIT, but the resulting launcher (about 1.87 GB) does not start. Under investigation.
+- Export reports record the compiler as "O2" instead of the compiler name.
+
 ## v0.0.1-dev3 - Unreleased
 
 *Development commit 3 toward v0.0.1. Not a release; no build artifacts are published.*

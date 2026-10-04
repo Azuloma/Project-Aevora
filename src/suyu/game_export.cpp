@@ -50,7 +50,9 @@
 #include <array>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <chrono>
 #include <cstring>
@@ -118,6 +120,23 @@ static std::filesystem::path ToFsPath(const QString& path) {
 
 static QString FromFsPath(const std::filesystem::path& path) {
     return QDir::fromNativeSeparators(QString::fromStdU16String(path.u16string()));
+}
+
+// Reads a positive integer from the environment. Returns nullopt when the
+// variable is unset; an invalid value is logged and treated as unset.
+static std::optional<size_t> ReadPositiveSizeFromEnv(const char* name) {
+    const QByteArray raw = qgetenv(name).trimmed();
+    if (raw.isEmpty()) {
+        return std::nullopt;
+    }
+    bool parsed_ok = false;
+    const qulonglong value = raw.toULongLong(&parsed_ok);
+    if (!parsed_ok || value == 0 || value > std::numeric_limits<size_t>::max()) {
+        LOG_WARNING(Frontend, "Ignoring invalid {}='{}' (expected a positive integer)", name,
+                    raw.constData());
+        return std::nullopt;
+    }
+    return static_cast<size_t>(value);
 }
 
 #ifdef _WIN32
@@ -3806,6 +3825,29 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
 
         suyu::recomp::RecompileStats stats{};
         bool emit_ok = false;
+        // Unit size limits, overridable from the environment for tuning. Read
+        // and logged once per process; every module uses the same values.
+        struct UnitLimits {
+            size_t blocks;
+            size_t source_bytes;
+        };
+        static const UnitLimits unit_limits = [] {
+            constexpr size_t kBytesPerKiB = 1024;
+            UnitLimits limits{
+                ReadPositiveSizeFromEnv("SUYU_RECOMP_UNIT_BLOCKS")
+                    .value_or(suyu::recomp::kDefaultUnitBlocks),
+                suyu::recomp::kDefaultUnitSourceBytes};
+            if (const auto unit_kib = ReadPositiveSizeFromEnv("SUYU_RECOMP_UNIT_KB")) {
+                if (*unit_kib <= std::numeric_limits<size_t>::max() / kBytesPerKiB) {
+                    limits.source_bytes = *unit_kib * kBytesPerKiB;
+                } else {
+                    LOG_WARNING(Frontend, "Ignoring SUYU_RECOMP_UNIT_KB={} (too large)", *unit_kib);
+                }
+            }
+            LOG_INFO(Frontend, "Generated unit limits: {} blocks, {} KiB of source",
+                     limits.blocks, limits.source_bytes / kBytesPerKiB);
+            return limits;
+        }();
         try {
             stats = suyu::recomp::EmitProject(
                 mod.name.toStdString(), mod.text_bytes.data(), mod.text_bytes.size(),
@@ -3813,7 +3855,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 mod.rodata_bytes.empty() ? nullptr : mod.rodata_bytes.data(),
                 mod.rodata_bytes.size(),
                 mod.data_bytes.empty() ? nullptr : mod.data_bytes.data(), mod.data_bytes.size(),
-                mod.entry_vaddr, game_name.toStdString(), &exported_roots);
+                mod.entry_vaddr, game_name.toStdString(), &exported_roots,
+                unit_limits.source_bytes, unit_limits.blocks);
             emit_ok = true;
 
             // Report coverage, not just volume. Block and instruction counts say
@@ -4453,9 +4496,11 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                         QProcess p;
                         p.setProcessEnvironment(vs_env);
                         // No --parallel cap here: the generated CMakeLists put
-                        // every unit in a Ninja pool sized by RAM (8 GB per
-                        // compile). cl.exe spreads one unit's code generation
-                        // over several threads and clang-cl does not, so at
+                        // every unit in a Ninja pool sized by RAM minus a 4 GB
+                        // reserve, at 8 GB per cl.exe compile or 1.5 GB per
+                        // clang compile (see SUYU_RECOMP_JOBS). cl.exe spreads
+                        // one unit's code generation over several threads and
+                        // clang-cl does not, so at
                         // the MSVC path's 2 jobs clang-cl took ~40% longer.
                         const int rc = RunProcessDrained(
                             p, clang_cmake,

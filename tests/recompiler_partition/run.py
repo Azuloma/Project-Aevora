@@ -5,6 +5,10 @@ import re
 import subprocess
 
 
+# Must match suyu::recomp::kDefaultUnitBlocks in src/core/recompiler/arm64_to_c.h.
+DEFAULT_UNIT_BLOCKS = 5000
+
+
 def run(*args):
     subprocess.run([str(arg) for arg in args], check=True)
 
@@ -52,10 +56,10 @@ if __name__ == '__main__':
     run('cmake', '--build', emitter)
     run(executable(emitter, 'partition_export'), generated)
     counted_bodies, counted_entries, counted_units = inspect(generated / 'counted', 'counted', 32 << 20)
-    assert len(counted_bodies) == len(counted_entries) == 20001
+    assert len(counted_bodies) == len(counted_entries) == DEFAULT_UNIT_BLOCKS + 1
     assert counted_units == 2
     counted_first = (generated / 'counted/src/recompiled_counted_0.c').read_text()
-    assert 'const unsigned _segn_counted_0 = 20000U;' in counted_first
+    assert f'const unsigned _segn_counted_0 = {DEFAULT_UNIT_BLOCKS}U;' in counted_first
     for module in ['smoke', 'second']:
         baseline = generated / 'baseline' / ('second' if module == 'second' else '')
         partitioned = generated / 'partitioned' / ('second' if module == 'second' else '')
