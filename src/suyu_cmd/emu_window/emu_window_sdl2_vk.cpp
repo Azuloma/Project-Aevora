@@ -17,6 +17,7 @@
 
 #include <fmt/format.h>
 
+#include "common/fs/fs_util.h"
 #include "common/logging/log.h"
 #include "common/scm_rev.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2_vk.h"
@@ -56,7 +57,9 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
         }
 #endif
         // A generic name beats an empty title bar when the lookup fails.
-        return exe.empty() ? std::string{"suyu"} : exe.stem().string();
+        // path::string() converts through the Windows ANSI code page and throws
+        // for characters it cannot represent (e.g. "é" under code page 932).
+        return exe.empty() ? std::string{"suyu"} : Common::FS::PathToUTF8String(exe.stem());
     }();
 #else
     const std::string window_title = fmt::format("suyu {} | {}-{} (Vulkan)", Common::g_build_name,

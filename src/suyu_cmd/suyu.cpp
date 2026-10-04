@@ -2683,7 +2683,9 @@ int main(int argc, char** argv) {
         discord_title = discord_exe_path.stem().string();
 #endif
         if (discord_title == "suyu-cmd" || discord_title == "suyu-cmd-static") {
-            discord_title = std::filesystem::path(filepath).stem().string();
+            // filepath is UTF-8; avoid the ANSI code page in both directions.
+            discord_title = Common::FS::PathToUTF8String(
+                std::filesystem::path(Common::FS::ToU8String(filepath)).stem());
         }
     }
     const auto limit_discord_text = [](std::string& value) {

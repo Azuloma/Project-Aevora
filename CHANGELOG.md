@@ -2,6 +2,17 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev5 - Unreleased
+
+*Development commit 5 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Fixed
+- Exported launchers whose file name contains characters outside the Windows ANSI code page (for example `é` in "Pokémon" on a Japanese system) exited immediately with "No mapping for the Unicode character exists in the target multi-byte code page". The window title and Discord title are now converted from paths as UTF-8.
+
+### Known issues
+- The fix needs a new export to take effect; existing packages cannot be relinked.
+- When run from a source build, the exporter leaves export-specific CMake cache entries in the build tree; they must be cleared before packaging an export build kit.
+
 ## v0.0.1-dev4 - Unreleased
 
 *Development commit 4 toward v0.0.1. Not a release; no build artifacts are published.*
