@@ -44,6 +44,9 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `kChainBudget` | `arm64_to_c.h:351` (v) | Blocks run before control returns to the dispatcher. |
 | `EmitProject()` | `arm64_to_c.h:5084` (v) | Per-module entry point. Emits C sources, `GuestContext`, the module `CMakeLists.txt`, and returns `RecompileStats`. |
 | `SUYU_RECOMP_STRICT` read in emitted code | `arm64_to_c.h:7374` (v) | Generated runtime honours strict mode. |
+| `kDefaultUnitSourceBytes` / `kDefaultUnitBlocks` | after `kChainBudget`, ~`arm64_to_c.h:357` (v, 2026-10-05) | Generated-unit limits (8 MiB / 5,000 blocks). `EmitProject()` takes `unit_source_limit` and `unit_block_limit`; split condition ~`:5328`. |
+| Generated module CMake job pool | ~`arm64_to_c.h:5574-5615` (v, 2026-10-05) | `RECOMP_JOBS` from RAM minus 4 GB, 8 GB per cl.exe or 1.5 GB per clang compile; `SUYU_RECOMP_JOBS`, `SUYU_RECOMP_JOB_MEMORY_MB`, `-DRECOMP_JOBS` overrides; Ninja pool `recomp_compile`. |
+| AdvSIMD shift-by-immediate emitters | ~`arm64_to_c.h:1719-1830` (v, 2026-10-05) | `SSHR`/`USHR`/`SHRN` at ~`:1795`. `SHL` (vector, immediate) is not implemented; PLA hits it (see WORK_PLAN session handoff). |
 
 ### 2.2 Exporter (Qt)
 
@@ -62,6 +65,9 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `PackageNativeExport()` | `game_export.cpp:5059` (v) | Stages the final export package. |
 | Gap-seeded discovery | around `game_export.cpp:220`, `3220-3330` | Reads `<user dir>/recomp/gaps/<title>.json` to seed blocks at Hybrid gap addresses. |
 | Runtime DLL list | around `game_export.cpp:193-200` | FFmpeg, DXC, OpenSSL, and Discord RPC copied into packages. |
+| Unit-limit environment overrides | `ReadPositiveSizeFromEnv()` ~`game_export.cpp:124`; read before `EmitProject()` ~`:3828` (v, 2026-10-05) | `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`. |
+| clang-cl module build and launcher link | ~`game_export.cpp:4400-4560` (v, 2026-10-05) | Configures `<build-dir>/recomp_clang`, builds `recomp_static_<module>`, then reconfigures the source build tree with `SUYU_CMD_RECOMP_DIR` etc. and links `suyu-cmd-static` at `--parallel 2`. Running from a source build therefore rebuilds and pollutes that tree. |
+| Recorded compiler name | `last_recomp_compiler`, ~`game_export.cpp:4560`, `:4790`, `:4985`, `:5370` | Known defect: reports record `O2` instead of the compiler. |
 
 Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:1788` (v). `SUYU_RECOMP_DIR` auto-loads a recompiled image at `main.cpp:746-782` and `:2109` (v).
 
@@ -83,7 +89,9 @@ Key runtime facts:
 - Backend selection is in `KProcess::InitializeInterfaces()`, `src/core/hle/kernel/k_process.cpp:1311` (v). If the process is the application and `Core::GetRecompLookup()` is set, each core gets an `ArmRecomp` (`:1325-1333` (v)). Otherwise it uses NCE or `ArmDynarmic64`.
 - Strict mode: `StrictNoFallback()` reads `SUYU_RECOMP_STRICT`, `arm_recomp.cpp:197` (v). A non-zero value makes JIT entry fatal and names the PC.
 - Fallback: `ArmRecomp::EnterFallback()`, `arm_recomp.cpp:1715` (v), lazily creates an `ArmDynarmic64` and marks GG1 via `RecompGuardGen::OnJitFallback()`. It always refuses when built with `SUYU_NO_JIT`. Call sites are around `:2241` and `:2346` (v).
-- Chain budget override: `SUYU_RECOMP_CHAIN_BUDGET` (1-8192), `arm_recomp.cpp:202` (v).
+- Chain budget: defaults `kShortSliceChainBudget = 32` and `kLongSliceChainBudget = 256`, `arm_recomp.cpp:209-210` (v). `SetRecompLongSlices()` selects between them (~`:750` (v)). Override: `SUYU_RECOMP_CHAIN_BUDGET` (1-8192) read at startup, `arm_recomp.cpp:220` (v).
+- `RecompGuardGen::OnJitFallback()`, `recomp_guard_gen.cpp:481` (v, 2026-10-05), pins every module to verify-always the first time a JIT fallback is created. Pin causes are logged by `EnsureGuardGenPinLogger()` in `arm_recomp.cpp` (~`:815`). The cited design document (`diagnostics/suyu-guard-generation-20260923/DESIGN.md`) is not in this repository.
+- Exported packages write `user/log/recomp_coverage.txt` (static/JIT transitions, unimplemented opcodes, SVC counts) and `recomp_gaps.json`.
 - `suyu_cmd` sets `SUYU_RECOMP_STRICT` explicitly, at `src/suyu_cmd/suyu.cpp:1351-1359` (v).
 
 ### 2.4 End-to-end flows (*inference* from survey; verify before relying on details)
@@ -122,6 +130,13 @@ Key runtime facts:
 | IR and passes | `frontend/ir/program.h:17`, `ir_emitter.h:19`; `ir_opt/passes.h:15` (constant propagation, DCE, SSA, `RescalingPass`, lowering, texture/position/layer passes). |
 | Shader backends | `backend/spirv/emit_spirv.h:36`, `backend/glsl/emit_glsl.h:15`, `backend/glasm/`, MSL. |
 
+Fork-specific Vulkan areas checked on 2026-10-04:
+
+| Area | Location | Notes |
+|---|---|---|
+| Graphics pipeline libraries (GPL) | `renderer_vulkan/vk_graphics_pipeline.h:66` (`GraphicsPipelineLibraryKey`, `GraphicsPipelineLibraryCache`); part creation and per-part key masking from `vk_graphics_pipeline.cpp:1107` (v) | Causes wrong textures/state in PLA; disabled by default (`use_graphics_pipeline_library`, `src/common/settings.h` ~`:597`). Device gating in `vulkan_common/vulkan_device.cpp` ~`:717`. Root cause unfixed. |
+| VMA implementation | `video_core/vulkan_common/vma.cpp` | Compiled per executable (not in `video_core`); the Qt frontend skips it with static Qt, which already contains VMA 3.2.1. |
+
 `renderer_vulkan.h:68` (v) declares `InterpolateFrames(Frame*, Frame*)`. Its purpose and origin (fork versus upstream) are unverified. `TurboMode` (`vk_turbo_mode.h`) is an upstream yuzu feature, not HisuiWake-specific.
 
 **Candidate starting points for Milestone 5 (all *inference*; confirm the responsible layer before you implement):**
@@ -140,7 +155,8 @@ Key runtime facts:
 |---|---|
 | `src/suyu` (Qt) | `GMainWindow` (`main.h:170`, `main.cpp` ~8,500 lines), `BootGame`/`LoadROM`, `bootmanager.h` (`EmuThread`, `GRenderWindow`), `game_list.h`, `configuration/`. Recompiled-image actions: `OnLoadRecompiledImage`, `LoadRecompiledImagesFrom`, `OnLaunchRecompiledBuild`, `OnLaunchStaticBuild`. |
 | MCP server in Qt app | `src/suyu/mcp_server.{h,cpp}`, created at `main.cpp:5346-5445` (v). Port comes from `SUYU_MCP_PORT`. There are also "Hacker"/"Gamer" modes (`main.cpp:585-590` (v), `gamer_environment.*`). Fork-specific; purpose and security exposure not yet reviewed. |
-| `src/suyu_cmd` | SDL command-line frontend (`suyu.cpp`). Also used as the static launcher host (export build kit). |
+| `src/suyu_cmd` | SDL command-line frontend (`suyu.cpp`). Also used as the static launcher host (export build kit). The launcher's window title comes from the executable name in `emu_window/emu_window_sdl2_vk.cpp` (~`:35-62`); convert paths with `Common::FS::PathToUTF8String`, never `path::string()`, on Windows. |
+| Qt configuration tabs | `src/suyu/configuration/` (`configure_dialog.cpp`, `configure_per_game.cpp`, `configure_graphics_extensions.cpp` for `Category::RendererExtensions`). Labels and tooltips come from `src/suyu/configuration/shared_translation.cpp`; `src/qt_common/config/shared_translation.cpp` is a separate copy. |
 | `src/qt_common`, `src/frontend_common` | Shared Qt utilities; cross-frontend config, content/firmware/mod/playtime managers. |
 | `src/libretro_core` | Libretro core (`SUYU_BUILD_LIBRETRO_CORE`, default OFF). |
 | `src/nintendo_library` | `Nintendo::Library` with authentication/purchase-history types. Fork-specific; no confirmed UI use. Review before any release. |
@@ -150,10 +166,10 @@ Key runtime facts:
 ## 6. Build system and dependencies
 
 - Root `CMakeLists.txt` requires CMake 3.22 and C++20. Main options include `ENABLE_QT`, `ENABLE_SDL3`, `YUZU_USE_BUNDLED_{QT,FFMPEG,SDL3}`, `YUZU_CMD`, `SUYU_BUILD_LIBRETRO_CORE`, `SUYU_NO_JIT`, `YUZU_TESTS`, `YUZU_ROOM`, and `ENABLE_WEB_SERVICE`.
-- CPM (`CMakeModules/CPMUtil.cmake` + `cpmfile.json`, about 40 entries such as boost 1.90.0, fmt 12.1.0, openssl 3.6.2, SDL3 3.4.8, sirit v1.0.5, Vulkan 1.4.x, catch2 v3.13.0) is the main acquisition path. The cache is `.cache/cpm`. `SUYU_USE_LOCAL_EXTERNALS` (`LocalDependencies.cmake`) switches to local checkouts, in which case `.patch/` may not apply.
+- CPM (`CMakeModules/CPMUtil.cmake` + `cpmfile.json`, about 40 entries such as boost 1.90.0, fmt 12.1.0, openssl 3.6.2, SDL3 3.4.8, sirit v1.0.5, Vulkan 1.4.x, catch2 v3.13.0) is the main acquisition path. The cache defaults to `.cache/cpm` and can be moved with `-DCPM_SOURCE_CACHE`. Archives are extracted with `cmake -E tar` (`file(ARCHIVE_EXTRACT)` fails on non-ASCII entries under a non-UTF-8 ANSI code page). Patching needs Git for Windows (`patch`, found relative to `GIT_EXECUTABLE`); host shaders need `glslangValidator` (`src/video_core/host_shaders/CMakeLists.txt`). `SUYU_USE_LOCAL_EXTERNALS` (`LocalDependencies.cmake`) switches to local checkouts, in which case `.patch/` may not apply.
 - `CMakeModules/ExportBuildKit.cmake`: `SUYU_EXPORT_BUILD_KIT=ON` (Windows, MSVC, Ninja, Release only; needs Python 3) produces the export build kit. See `tools/export_build_kit/` (`package.py`, `registry_probe.c`, `README.md`; kit revision string `suyu-aot-kit-abi6-fm1-gg1-fpx1-control-r3` per survey).
 - Version string: `GenerateSCMRev.cmake` (`HEAD-<hash>-<ref>` or the tag). Note the hard-coded `v0.0.11 (mk8-recomp)` full name above.
-- Bundled Qt is downloaded from an external CI source (survey mentions Eden-CI, Qt 6.11.1). Availability and pinning are unverified.
+- Bundled Qt on MSVC is `AddQt(Eden-CI/Qt 6.11.1)` (root `CMakeLists.txt` ~`:638`), verified on 2026-10-04 as a static build with the `/MD` CRT and without Svg/Test modules.
 - Targets (`src/CMakeLists.txt`): `common`, `network`, `core`, `audio_core`, `video_core`, `hid_core`, `input_common`, `frontend_common`, `shader_recompiler`, `nintendo_library`, `dynarmic` (unless `SUYU_NO_JIT`), `suyu`, `suyu_cmd`, `tests`, optional `libretro_core`, `web_service`, and room servers.
 
 Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success, Qt source and pinning, the dynarmic `mk8-recomp` revision, and whether vcpkg/conan are unused.
@@ -172,7 +188,10 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 
 | Investigation | Start here |
 |---|---|
-| `LNK1181` on `recomp_registration.c.obj` | `game_export.cpp:3991` (file creation), generated CMake around `:3920-3960`, configure/build around `:4229`, registration pruning around `:4701`; QString→path conversion in those blocks. |
+| `LNK1181` on `recomp_registration.c.obj` | Not reproduced on 2026-10-05 (clang-cl, ASCII parent path). `game_export.cpp:3991` (file creation), generated CMake around `:3920-3960`, configure/build around `:4229`, registration pruning around `:4701`; QString→path conversion in those blocks. |
+| Hybrid performance (17 vs 30 FPS) | `SHL` gap in `arm64_to_c.h` shift-by-immediate emitters; `RecompGuardGen::OnJitFallback()`; package `user/log/recomp_coverage.txt`. |
+| Export pipeline time and memory | `game_export.cpp` clang-cl module build and launcher link (~`:4400-4560`); generated job pool in `arm64_to_c.h`. |
+| GPL rendering defect | `vk_graphics_pipeline.{h,cpp}` part keys. |
 | `C1002` heap exhaustion | `EmitProject()` unit splitting in `arm64_to_c.h`, `tests/recompiler_partition`, compiler flags in the generated module CMake. |
 | Hybrid fallback accounting | `ArmRecomp::EnterFallback` / `RunFallback`, `recomp_gaps*`, `recomp_gap_session*`. |
 | Strict static verification | `SUYU_RECOMP_STRICT`, `SUYU_NO_JIT`, `KProcess::InitializeInterfaces`. |

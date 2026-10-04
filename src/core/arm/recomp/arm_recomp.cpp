@@ -191,6 +191,24 @@ static_assert(sizeof(std::atomic<u64>) == sizeof(u64) && std::atomic<u64>::is_al
 // Keep the bound: one title not overflowing is not proof that a deeper-
 // recursing one cannot. But do not treat a raised budget as known-dangerous on
 // MSVC, because that is not what the measurement says.
+//
+// That fixture replay measured throughput, not how quickly a core answers an
+// interrupt. The budget also bounds that latency: the dispatcher checks
+// `interrupted` only between slices, and recomp_image_run_slice does not check
+// it. A core that wants a guest thread still running on another core spins in
+// KScheduler::ScheduleImplFiber until that core reaches the check. Measured on
+// Pokemon Legends: Arceus (Hybrid, every module static, zero JIT transitions,
+// overworld, 6-core/12-thread host) by setting SUYU_RECOMP_CHAIN_BUDGET:
+//
+//   4096 -> about 14 FPS, 21-24% of the two busiest core threads' samples
+//           spinning in ScheduleImplFiber
+//    256 -> 15-20 FPS, 8-10% spinning
+//    128 and 512 -> same as 256      1024 -> about 1 FPS below 256
+//
+// So long slices use 256, the middle of that plateau.
+constexpr int kShortSliceChainBudget = 32;
+constexpr int kLongSliceChainBudget = 256;
+
 // Refuse the JIT entirely. Without this, "the JIT was never reached" is an
 // observation about one run; with it, reaching the JIT is a loud, fatal failure
 // that names the address, which is the difference between evidence and proof.
@@ -207,7 +225,7 @@ const int kChainBudgetOverride = [] {
     const int v = std::atoi(e);
     return (v >= 1 && v <= 8192) ? v : 0;
 }();
-std::atomic<int> g_recomp_chain_budget{32};
+std::atomic<int> g_recomp_chain_budget{kShortSliceChainBudget};
 
 int RecompChainBudget() {
     return kChainBudgetOverride ? kChainBudgetOverride
@@ -730,7 +748,8 @@ void SetRecompLookup(RecompLookupFn lookup) {
 }
 
 void SetRecompLongSlices(bool enabled) {
-    g_recomp_chain_budget.store(enabled ? 4096 : 32, std::memory_order_relaxed);
+    g_recomp_chain_budget.store(enabled ? kLongSliceChainBudget : kShortSliceChainBudget,
+                                std::memory_order_relaxed);
 }
 
 void SetRecompCodeGuardReady(bool ready) {

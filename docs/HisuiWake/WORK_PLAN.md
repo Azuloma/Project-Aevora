@@ -1,6 +1,6 @@
 # HisuiWake Work Plan
 
-Handoff prepared: 2026-10-04. This is a planning baseline, not a successful-build report.
+Handoff prepared: 2026-10-04. Last session handoff: 2026-10-05 (see [Session handoff](#session-handoff-2026-10-05)).
 
 ## Objective
 
@@ -13,15 +13,15 @@ Start with a reproducible Windows x64 build and a correctly running game. Procee
 | Item | Evidence/status |
 |---|---|
 | Source repository | Root contains the Suyu-derived source, build files, dependency metadata, and archived upstream documentation. |
-| Git baseline | Local HEAD was `9f932d5` (`Initial commit`); working tree was clean before these handoff files were created. |
+| Git baseline | Initial commit `9f932d5`. As of 2026-10-05, HEAD is `28e6caf` (v0.0.1-dev5); the user commits and pushes. |
 | Configured origin | `https://github.com/Azuloma/HisuiWake.git`; remote publication was not independently verified during this handoff. |
 | README | English draft describes feasibility status, planned features, support scope, versioning, and the hobby/no-donations policy. |
 | License | Root `LICENSE.txt` is copied unchanged from the archived upstream license; README specifies `GPL-3.0-or-later`. Existing notices are retained. |
 | Documentation | Project documents belong in `docs/HisuiWake/`; upstream documents are archived in `docs/Suyu/`. |
-| Dependencies | Many `externals/` directories are empty. CPM acquisition and exact dependency revisions need verification. |
-| Host source build | Not verified in this project during the handoff. |
-| PLA export/run | Earlier Hybrid + Build failed. No successful Hybrid gameplay or fully static PLA run has been confirmed. |
-| Proposed path patch | An earlier ASCII-name patch was drafted outside this repository. It has not been built or validated and is not an implemented fix. |
+| Dependencies | Acquired by CPMUtil from `cpmfile.json` (bundled Qt 6.11.1, SDL3, FFmpeg, OpenSSL on MSVC); `.gitmodules` is not the acquisition path. Verified on 2026-10-04. |
+| Host source build | Verified: MSVC 14.51 (Build Tools 2026) + Ninja Release; `suyu.exe`, `suyu-cmd.exe`, and the export build kit build and start. `docs/HisuiWake/BUILD.md` is not written yet. |
+| PLA export/run | JIT baseline: 30 FPS with correct rendering after disabling GPL. Hybrid + Build (clang-cl) exports, links, and launches; overworld runs at about 17 FPS. Fully static execution is not confirmed. |
+| Proposed path patch | Superseded. The observed non-ASCII failure was the launcher's window-title conversion (fixed in v0.0.1-dev5). Filename sanitization was not implemented; the package name still contains `é`. |
 
 The cleanup already removed upstream automation, temporary material, old screenshots, and an isolated `tools/static_recompiler` demo. Do not perform another broad deletion pass before a working baseline identifies the files actually required.
 
@@ -45,38 +45,38 @@ The earlier patch idea replaced non-ASCII characters in the generated filesystem
 
 ## Milestone 1: Establish a reproducible host build
 
-- [ ] Record the checkout revision, Windows version, CPU, RAM, GPU/driver, compiler, SDK, CMake, Ninja, and Qt versions.
+- [x] Record the checkout revision, Windows version, CPU, RAM, GPU/driver, compiler, SDK, CMake, Ninja, and Qt versions.
 - [ ] Verify the source lineage using the README, archived provenance, and upstream revision information. Do not assume the new Git history contains Suyu's original commits.
-- [ ] Inspect `CMakeLists.txt`, `CMakeModules/`, `cpmfile.json`, `.gitmodules`, and package configuration to identify the actual dependency acquisition paths and pinned versions.
-- [ ] Obtain required dependencies through the build's intended mechanism. Record downloads, patches, versions, and failures; do not substitute arbitrary latest revisions.
-- [ ] Configure and build the Suyu-derived application in a local ASCII-only build path. Save the exact commands and options.
-- [ ] Build or locate the matching export build kit if required by the selected exporter path. Verify object/library/compiler compatibility.
-- [ ] Confirm the application starts and can load PLA through its ordinary JIT path with the user's local inputs. Record the game update/module build IDs and settings without publishing game material or keys.
+- [x] Inspect `CMakeLists.txt`, `CMakeModules/`, `cpmfile.json`, `.gitmodules`, and package configuration to identify the actual dependency acquisition paths and pinned versions.
+- [x] Obtain required dependencies through the build's intended mechanism. Record downloads, patches, versions, and failures; do not substitute arbitrary latest revisions.
+- [x] Configure and build the Suyu-derived application in a local ASCII-only build path. Save the exact commands and options.
+- [x] Build or locate the matching export build kit if required by the selected exporter path. Verify object/library/compiler compatibility.
+- [ ] Confirm the application starts and can load PLA through its ordinary JIT path with the user's local inputs. Record the game update/module build IDs and settings without publishing game material or keys. (Startup, PLA 1.1.1 gameplay, and settings are recorded; module build IDs are not.)
 - [ ] Write the successful setup in `docs/HisuiWake/BUILD.md` when verified. Repair relevant archived documentation links as needed.
 
 **Acceptance:** a documented source build produces a launchable application; required dependencies and the export kit can be reproduced; PLA's JIT behavior is recorded as the comparison baseline. A configure failure or build-only result does not satisfy the gameplay check.
 
 ## Milestone 2: Resolve export build failures
 
-- [ ] Inspect `src/suyu/game_export.cpp` and its current generator/build helpers. Reproduce the failure with a fixed source revision, game update, backend, and toolchain.
+- [x] Inspect `src/suyu/game_export.cpp` and its current generator/build helpers. Reproduce the failure with a fixed source revision, game update, backend, and toolchain.
 - [ ] Export Source separately when useful to inspect generated inputs. Distinguish source generation, compilation, linking, packaging, and execution failures.
 - [ ] Check whether `recomp_registration.c.obj` exists, where it is written, and which command/response file references it.
 - [ ] Trace QString/filesystem conversions, process arguments, working directories, and response-file encoding. Preserve display titles independently of generated filenames.
 - [ ] Compare ASCII-only paths, paths with spaces, an accented game title, and a Japanese parent path. Use synthetic filenames where possible.
 - [ ] Implement the smallest supported fix. Test filename collisions and empty sanitized names if sanitization is used.
 - [ ] Diagnose `C1002` independently. Inspect compiler bitness, translation-unit sizes, memory use, optimization settings, and existing generator partitioning before choosing a fix.
-- [ ] If unit splitting is required, make it deterministic and verify symbol linkage, registration completeness, and execution behavior. Do not hand-edit generated PLA files as the lasting solution.
-- [ ] Re-export with the modified application and matching build kit; record whether either compiler path still fails or leaves modules to JIT.
+- [x] If unit splitting is required, make it deterministic and verify symbol linkage, registration completeness, and execution behavior. Do not hand-edit generated PLA files as the lasting solution.
+- [x] Re-export with the modified application and matching build kit; record whether either compiler path still fails or leaves modules to JIT.
 
 **Acceptance:** the affected export can compile, link, and produce a package with documented toolchain settings. The missing-object and compiler-memory issues each have evidence of resolution or an explicit remaining limitation. Packaging success alone does not establish gameplay correctness.
 
 ## Milestone 3: Establish Hybrid runtime behavior
 
 - [ ] Run the new Hybrid package with the same PLA update and comparable settings used for the JIT baseline.
-- [ ] Confirm it loads the intended generated code and matching runtime. Identify any modules compiled entirely through JIT fallback.
+- [x] Confirm it loads the intended generated code and matching runtime. Identify any modules compiled entirely through JIT fallback.
 - [ ] Exercise boot, menus, opening gameplay, movement, combat, area transitions, saving/loading, and a longer play session.
 - [ ] Record crashes, visual/audio errors, save behavior, timing, frame rate, and memory use.
-- [ ] Collect local recompilation gap/guard diagnostics. Separate unsupported CPU operations, indirect branches, service/runtime failures, and GPU issues.
+- [x] Collect local recompilation gap/guard diagnostics. Separate unsupported CPU operations, indirect branches, service/runtime failures, and GPU issues.
 - [ ] Use fallback frequency and exercised code paths to prioritize fixes. Record which gameplay areas remain untested.
 
 **Acceptance:** Hybrid passes a documented representative gameplay checklist, with fallback behavior and known failures reported. It remains a compatibility investigation milestone.
@@ -119,11 +119,23 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 **Acceptance:** a clean checkout reproduces the documented software build, release contents match the license/input policy, and support claims match testing evidence. Reaching `v1.0.0` requires an explicitly agreed stable scope.
 
-## Immediate next action
+## Session handoff (2026-10-05)
 
-Begin Milestone 1. Inspect the build configuration and dependencies, record the actual environment, and establish a source-built JIT baseline before applying the unverified path patch or attempting graphics changes.
+State at handoff: HEAD `28e6caf` (v0.0.1-dev5); the working tree contains only this documentation update and the agent guide update. Commits v0.0.1-dev1 to dev5 are listed in [CHANGELOG.md](../../CHANGELOG.md).
 
-Useful entry points: [agent guide](../../CLAUDE.md), [project README](../../README.md), [upstream build guide](../Suyu/Build.md), [upstream export guide](../Suyu/user/GameExport.md), [exporter source](../../src/suyu/game_export.cpp), and [dependency manifest](../../cpmfile.json). Archived guides are reference material; verify commands against current code.
+**Local environment (user's machine, not tracked):** Windows 11, i5-12400F (12 threads), 16 GB RAM, RTX 2060 SUPER. Build Tools 2026 (MSVC 14.51) is the working toolchain; the VS Community 2026 install lacks `vcvarsall.bat`. Git for Windows and Vulkan SDK 1.4.363.0 are installed. The ASCII-only build tree, CPM cache, helper batch files (configure, build, export kit, partition test), and logs live outside the repository under a local build directory. Exports are written to a separate ASCII-only export directory. Run Visual Studio environment batch files from PowerShell; Git Bash breaks `vcvars64.bat`.
+
+**Open issues, in priority order:**
+
+1. **Hybrid performance remains below JIT (15-20 FPS with 256-budget vs 30 JIT baseline).** The SHL/verify-always hypothesis was tested and refuted (see the record "2026-10-05: Hybrid re-export with SHL translated; no fallbacks, 14 FPS"). Per-thread CPU sampling (see "2026-10-05: Hybrid per-thread CPU sampling in the overworld") identified `KScheduler::ScheduleImplFiber` spinning as a significant contributor; a preemption-latency hypothesis pointed to long slice budgets (4096 blocks, ~0.5 ms) in the recompiled dispatcher. The chain-budget experiment (see "2026-10-05: Chain budget experiment and hot-block inspection") confirmed the hypothesis is partly valid: `SUYU_RECOMP_CHAIN_BUDGET=256` improved FPS to 15-20 (user) and reduced `ScheduleImplFiber` spinning from 21-24% to 8-10%. The gap to the JIT baseline persists; a hot block `blk_main_0000000002d1e290` accounts for 15-18% of CPU samples and is dominated by flag materialization and out-of-line memory helpers. A permanent chain-budget reduction to 256 has been implemented in the runtime (v0.0.1-dev6, uncommitted). The next step is to rebuild the host `suyu`, re-export, and confirm the improvement in a new package. Option B remains: investigate generated-code quality (memory helpers, flag computation, context-pointer spills) via re-export with sources kept for inspection. A longer-term idea: end a slice promptly on `SignalInterrupt` instead of using a fixed budget, but this needs a race-free design.
+2. **Export pipeline cost:** when run from a source build, the exporter reconfigures the source build tree with `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`. This rebuilds the whole tree at `--parallel 2` (~28 min) and leaves stale cache entries that block `export-build-kit` packaging (clear them with `cmake -U ...`). The final MSVC link of the ~1.87 GB launcher, with a PDB, peaked at ~7.8 GB working set and nearly exhausted commit memory.
+3. **Comparison conditions:** Both package and JIT baseline use `gpu_accuracy=1` (High). Video decoding differs: package `nvdec_emulation=1` (CPU), JIT baseline `nvdec_emulation=2` (GPU). The warm shader cache populated during initial runs may affect measured FPS; cold-cache comparisons require clearing before testing.
+4. **GPL root cause:** GPL is disabled by default (v0.0.1-dev3); the per-part cache keys in `vk_graphics_pipeline.cpp` still need a fix before re-enabling.
+5. **Smaller items:** export reports record the compiler as `O2`; `build_native_unix.sh` still uses RAM/8192 jobs; the pre-commit hook calls missing `egrep`; the embedded version string is still `suyu v0.0.11 (mk8-recomp)`; source lineage is unverified; `BUILD.md` is not written; the kit was built with MSVC 14.51 (the kit README baseline is 14.44); static `getopt` triggers an LGPL warning.
+
+**Immediate next action:** the chain-budget reduction to 256 has been implemented and committed as the default in v0.0.1-dev6. Rebuild `suyu` and re-export PLA Hybrid (Build format, same settings, no `SUYU_RECOMP_CHAIN_BUDGET` set) to verify the improvement in a new package; confirm 15-20 FPS in the overworld. After that, choose the next direction: (a) try other candidate budgets (128, 512, 1024) if further tuning is needed, or (b) investigate generated-code quality by re-exporting with sources preserved and inspecting the hot block `blk_main_0000000002d1e290` for memory-helper and flag-computation patterns.
+
+Useful entry points: [agent guide](../../CLAUDE.md), [codebase index](CODEBASE_INDEX.md), [project README](../../README.md), [upstream build guide](../Suyu/Build.md), [upstream export guide](../Suyu/user/GameExport.md), [exporter source](../../src/suyu/game_export.cpp), and [dependency manifest](../../cpmfile.json). Archived guides are reference material; verify commands against current code.
 
 ## Progress record
 
@@ -265,3 +277,59 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - **Exporter side effects found:** when `suyu.exe` runs from a source build, the exporter configures the source build tree itself with `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`, leaves those cache entries pointing at the deleted hidden directory, links `bin/suyu-cmd-static.exe` (game-derived, ~1.87 GB) in the build tree, and builds generated modules in `<build-dir>/recomp_clang`. With those entries set, `package.py` refuses to package an export build kit. They were removed with `cmake -U ...`, which then rebuilt the whole tree (1,740 steps) because compile definitions changed. Treat the build tree's `bin/suyu-cmd-static.exe` and `recomp_clang/` as local game-derived output.
 - **Kit note:** the regenerated kit records `producer_source_revision` `6f4dffd` although it was built with uncommitted changes; the manifest records HEAD only.
 - **Next:** user commits; then re-export PLA (Hybrid, Build, ASCII parent directory) with the rebuilt `suyu.exe` to verify launch and measure export time, peak memory per compile, and job count with the new parallel limits.
+
+### 2026-10-05: Hybrid re-export with parallel build; launcher starts; 17 FPS
+
+- Milestones 2-3. Exporter `suyu.exe` built with the v0.0.1-dev5 changes (committed afterwards as `28e6caf`); PLA 1.1.1, Hybrid JIT + AOT, Build format, ASCII-only output parent directory, clang-cl 22.1.8.
+- **Parallel compile (sampled every 15 s):** 881 generated units (223 before); 7 concurrent clang-cl compiles in nearly all samples; per-process peak working set 0.97 GB (budget 1.5 GB); total clang-cl working set at most ~5.0 GB; CPU load average 52%, maximum 76%. Compilation took ~46 min (02:37-03:22), versus ~3.4 h at one job.
+- **Remaining export time:** ~28 min full rebuild of the source build tree at `-j 2` after the exporter changed its cache entries (03:22-03:50), then the MSVC link of `suyu-cmd-static` with a PDB from 03:50; `link.exe` reached ~7.8 GB working set, free RAM fell to ~0.2 GB, and commit charge reached ~30.1 of 30.9 GB. The export completed successfully (user); the exact end time was not recorded.
+- **Launch:** the launcher (name containing `é`) now starts and plays (user), confirming the v0.0.1-dev5 window-title fix in a real export.
+- **Performance (user):** about 17 FPS in the overworld, unstable, versus 30 FPS on the JIT baseline. Settings differ (package: GPU accuracy Normal, CPU video decoding, GPL off, EDS2; JIT baseline: GPU accuracy High).
+- **Coverage (package `user/log/recomp_coverage.txt`):** 9,453,517,616 static blocks executed; 16,300,755 SVCs; 219,674 static-to-JIT transitions, all from unimplemented opcodes, 0 lookup misses; 43,034 blocks per transition. All 15 unimplemented encodings decode to `SHL` (vector, immediate) with 32-bit elements (Q=0 and Q=1).
+- **Guard state:** at activation, 0 of 5 modules verified on every entry; after the first JIT fallback the log reports `module N pinned to verify-always: JIT fallback created` for all five modules (`RecompGuardGen::OnJitFallback`).
+- **Hypothesis (not confirmed):** per-entry instruction verification across all modules, triggered by the `SHL` fallbacks, is the main Hybrid overhead. See the session handoff for the proposed experiment.
+
+### 2026-10-05: SHL already implemented but gated off for Hybrid
+
+- **Milestone:** 3 (investigation). **Source revision:** code inspection only, no build/run; applies to current HEAD.
+- **Finding:** `SHL` (vector, immediate) with 32-bit elements (observed encoding `4F235426`) is not missing from the ARM64-to-C translator but is deliberately disabled for Hybrid exports. It is implemented in two places in `src/core/recompiler/arm64_to_c.h`: the non-saturating immediate-shift block (~line 1732, condition `(!left || U || g_translate_all)`) and a dedicated SHL block (`kTranslateShiftLeftImmediate`, ~line 2889). Both are gated by `g_translate_all`.
+- **Gate mechanism:** `g_translate_all` defaults to off for Hybrid exports. It is set by `TranslateAllForExport(strict_static, explicitly_requested)` (~line 340); for a Hybrid export it is enabled by environment variable `SUYU_AOT_TRANSLATE_ALL` (non-empty value) before starting `suyu.exe` (`src/suyu/game_export.cpp` ~line 3430). The `translate_all` setting is recorded in the export report and triggers code regeneration on re-export.
+- **Rationale:** the comment records a measurement inherited from upstream (MK8D recompilation work): 2.13 vs 1.95 ms/frame when the block was compiled versus left to the JIT. That measurement predates the first-JIT-fallback pin effect where `RecompGuardGen::OnJitFallback()` sets all five modules to verify-always, causing ~9.45 billion block entries to re-check their instruction words. The original measurement does not account for this pin's impact.
+- **Next action:** re-export with `SUYU_AOT_TRANSLATE_ALL=1`, measure FPS under matched settings, and check `user/log/recomp_coverage.txt` (static-to-JIT transitions should drop to near 0) and package logs (verify-always pins should not appear). Only after measuring, decide whether to enable SHL by default for Hybrid exports.
+
+### 2026-10-05: Hybrid re-export with SHL translated; no fallbacks, 14 FPS
+
+- Export: same PLA 1.1.1 Hybrid/Build/clang-cl setup, started with `SUYU_AOT_TRANSLATE_ALL=1`; `aot_manifest.json` records `"translate_all": true`, no fallback modules, `requires_runtime_codegen: false`. Package written 07:59 (suyu.exe started 07:01; stage timings not recorded). `export-package.json` still records producer revision `6f4dffd` and version string `suyu v0.0.11 (mk8-recomp)`.
+- Run (user): intro through the first-area cutscene, ~389 s. Average about 14 FPS (user), versus about 17 FPS in the earlier overworld run. The scenes differ, so the two numbers are not a direct comparison.
+- Coverage: 8,097,224,085 static blocks, 10,394,840 SVCs, 0 static-to-JIT transitions (0 lookup misses, 0 unimplemented opcodes); `recomp_gaps.json` reports a clean run with no unimplemented opcodes. Most frequent SVCs: 0x1B 3.78 M, 0x1A 3.60 M, 0x10 1.16 M, 0x1C 0.59 M, 0x1D 0.56 M.
+- Guard: `0 of 5 module(s) verify on every entry` at activation; at exit `sticky=0`, bumps `jit=0`, `code_write=0`; no `pinned to verify-always` line. The per-entry verification pin did not occur.
+- Conclusion: the hypothesis that SHL fallbacks and the resulting verify-always pin are the main Hybrid overhead is refuted; removing them did not raise FPS. The cause of the gap to the JIT baseline (30 FPS) is unknown.
+- Confounders found: the package started with an empty shader cache (`Total Pipeline Count: 0`) with asynchronous shader compilation off, so the intro run included pipeline compilation stalls; the cache is now populated (`vulkan.bin` 3.2 MB, `vulkan_pipelines.bin` 5.8 MB). Video decoding differs (package `nvdec_emulation=1` CPU, JIT baseline `nvdec_emulation=2` GPU). GPU accuracy is `gpu_accuracy=1` in both configs (the earlier note that the package used Normal should be re-checked).
+- Shader cache warmth test (user): re-ran the same scene after the shader cache was populated from the previous run; FPS stayed about 14. The cold shader cache was not the cause of the FPS gap.
+
+### 2026-10-05: Hybrid per-thread CPU sampling in the overworld
+
+- **Method:** launcher running in the overworld (user). Per-thread CPU time over 60 s (`Get-Process` thread times, names from `GetThreadDescription`), then instruction-pointer sampling of selected threads (SuspendThread/GetThreadContext, 2000 rounds at 5 ms) symbolized with dbghelp against `suyu-cmd-static.pdb` (public symbols only) and `dumpbin /disasm`. The sampler is a local diagnostic outside the repository.
+- **CPU over 60 s (process total ~3.4 cores of 12):** `HostTiming` 99%, `CPUCore_2` 90%, `CPUCore_1` 88%, `CPUCore_0` 47%, `GPU` 6%, `VulkanWorker` 3%. The emulated GPU thread is mostly idle (95% of samples in a wait), so the run is not GPU-thread bound.
+- **`CPUCore_1`/`CPUCore_2` hot path:** 21-24% of samples in an unnamed function that public symbols attribute to `Service::HID::Gesture::~Gesture` (+0x10A); disassembly shows it is the context-switch loop of `KScheduler::ScheduleImplFiber` (`src/core/hle/kernel/k_scheduler.cpp`, `while (!highest_priority_thread->m_context_guard.try_lock())`), spinning on `xchg [thread+0x730]` until another core releases the next thread's context guard. About 10-12% of samples are idle waits; the rest is generated code (one hot block `blk_main_0000000002d1e290` at 15-18% in the first sample set), `recomp_load*/ldp/stp` helpers, and `recomp_lookup_*`. `CPUCore_0`: 57% idle wait.
+- **`HostTiming` hot path:** 99% of samples in `Common::Event::WaitFor`, which busy-waits on Windows by design (`src/common/thread.cpp`); this is shared with the JIT path and not specific to recompiled execution.
+- **Hypothesis (not confirmed):** preemption latency. ABI 6 modules with `run_slice` enable long slices (`SetRecompLongSlices(true)` in `src/suyu_cmd/suyu.cpp`, chain budget 4096 in `src/core/arm/recomp/arm_recomp.cpp`). The recompiled dispatcher checks `interrupted` only between slices, and `recomp_image_run_slice` runs up to the budget without checking it. At roughly 7 M blocks/s per core, 4096 blocks is on the order of 0.5 ms, during which a core that needs a thread still held by another core spins in `ScheduleImplFiber`. Dynarmic checks for halts much more often. The earlier budget measurement (32-8192, about 4% difference) was single-title MK8 fixture replay and did not measure multi-core contention.
+- **Proposed experiment (no rebuild or re-export):** launch the package with `SUYU_RECOMP_CHAIN_BUDGET` set (read once at startup, valid 1-8192) to 256 and 32, compare FPS in the same overworld scene, and re-sample the share of `ScheduleImplFiber` spinning.
+
+### 2026-10-05: Chain budget experiment and hot-block inspection
+
+- **Run (user):** same Hybrid package, overworld, launched with `SUYU_RECOMP_CHAIN_BUDGET=256` (default with long slices: 4096). FPS improved from about 14 to about 15-20 (user). A run with 32 was also tried; the user reported the improvement for 256.
+- **Re-sampled at 256** (launcher started from a non-elevated shell; an elevated launch hid thread times from the non-elevated sampler): `HostTiming` 99.5%, `CPUCore_2` 88%, `CPUCore_1` 88%, `CPUCore_0` 41%, `GPU` 7%, `CPUCore_3` idle. Share of samples spinning in `KScheduler::ScheduleImplFiber` fell from 21-24% to 8-10% on `CPUCore_1`/`CPUCore_2`. The preemption-latency hypothesis is partly supported: a smaller budget reduces the spin and raises FPS, but does not close the gap to JIT (30 FPS).
+- **Hot block:** `blk_main_0000000002d1e290` takes 15-18% of `CPUCore_1`/`CPUCore_2` samples, spread thinly over a host function of about 19,000 x64 instructions (`dumpbin /disasm` of `suyu-cmd-static.exe`). The instruction mix is dominated by flag materialization (`test`/`cmp`/`sete`/`setne`/`cmov` together several thousand), every guest load/store in the sampled part is a call to an out-of-line runtime helper (`recomp_load32/64`, `recomp_store32`, `recomp_ldp64`, `recomp_stp64`) even though FM1 fastmem is negotiated, and the guest context pointer is reloaded from the stack before most accesses.
+- **Build flags verified** in `recomp_clang/build.ninja`: generated units are compiled by clang-cl with `/O2 /Ob2 /GS- /Gy /bigobj /fp:precise`, so the code shape is not caused by a missing optimization flag. The generated sources were already deleted from the temporary export directory, so the C for this block was not inspected.
+- **Remaining hypotheses (not confirmed):** (a) out-of-line memory helpers per guest access, (b) eager NZCV flag computation, and (c) context-pointer spills in very large block functions make generated code slower than Dynarmic's output.
+- **Candidate changes:** make the chain-budget improvement permanent (lower default for long slices and/or check the interrupt flag inside `recomp_image_run_slice`), measured with budgets such as 128/512/1024; then inspect generated C for the hot block (re-export keeping the sources) before changing the emitter's memory-access or flag code.
+
+### 2026-10-05: Long-slice chain budget lowered to 256 (v0.0.1-dev6, unverified in export)
+
+- **Milestone:** 3 (performance investigation and runtime tuning). **Base revision:** uncommitted changes in `src/core/arm/recomp/arm_recomp.cpp`.
+- **Budget sweep results (user, PLA Hybrid, overworld, per `SUYU_RECOMP_CHAIN_BUDGET`):** 4096 (previous default) about 14 FPS; 256 → 15-20 FPS; 128 and 512 → same as 256; 1024 → about 1 FPS lower than 256; 32 was tried earlier and was not better than 256. CPU sampling at 256 reduced `KScheduler::ScheduleImplFiber` spinning from 21-24% to 8-10% on busy cores.
+- **Code change:** defined new constants `kShortSliceChainBudget = 32` and `kLongSliceChainBudget = 256` in `arm_recomp.cpp` (~lines 209-210), with a comment recording the PLA measurement that led to the 256 choice. `SetRecompLongSlices(true)` now selects `kLongSliceChainBudget` instead of a hard-coded 4096. The environment variable `SUYU_RECOMP_CHAIN_BUDGET` (1-8192) still overrides at runtime.
+- **Verified:** `arm_recomp.cpp` compiled successfully (object file `core.dir/arm/recomp/arm_recomp.cpp.obj` updated; only pre-existing LOG_* macro redefinition warnings emitted).
+- **Not verified:** full `suyu` rebuild, new PLA Hybrid export with the default, in-game FPS confirmation with the new default, recompiler smoke tests (`tests/recompiler_smoke/run.c` sets chain budgets explicitly and does not depend on the runtime default; no test runs were performed).
+- **Next:** rebuild `suyu` and re-export PLA Hybrid (Build format, ASCII parent path, no `SUYU_RECOMP_CHAIN_BUDGET` set, keep `SUYU_AOT_TRANSLATE_ALL=1`); confirm 15-20 FPS overworld. Then either continue to option B (generated-code quality: keep sources on re-export and inspect the hot block `blk_main_0000000002d1e290`) or try other candidate budgets (128, 512, 1024) if tuning is needed. Longer-term: ending a slice on `SignalInterrupt` instead of a fixed budget needs a race-free design review.

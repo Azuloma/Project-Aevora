@@ -4,11 +4,17 @@
 
 HisuiWake is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-A working PLA Hybrid export and a fully static PLA export have not been confirmed in this project. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+As of 2026-10-05, the source build works on Windows x64, the JIT path runs PLA, and a PLA Hybrid export builds, launches, and runs below JIT speed. A fully static PLA export and a complete Hybrid gameplay checklist have not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
-Read [README.md](README.md) and [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, and acceptance criteria. Update it after meaningful progress.
+Read [README.md](README.md) and [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, acceptance criteria, and the latest session handoff with open issues and the next action. Update it after meaningful progress.
+
+## Finding files
+
+- To locate a file, symbol, or subsystem inside this repository, consult [CODEBASE_INDEX.md](docs/HisuiWake/CODEBASE_INDEX.md) first, then open the referenced files directly. Fall back to repository-wide search only when the index does not cover the topic.
+- Verify an index reference against the current code before relying on it; line numbers drift.
+- When you locate an important file or entry point that the index lacks, or find an index entry is stale, update the index in the same change.
 
 ## Architecture and scope
 
@@ -22,7 +28,8 @@ Read [README.md](README.md) and [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md) befo
 
 | Location | Purpose |
 |---|---|
-| `src/suyu/game_export.cpp` | Export dialog, package generation, and generated-code build orchestration; first entry point for the current export failure. |
+| `src/suyu/game_export.cpp` | Export dialog, package generation, and generated-code build orchestration (configure, compile, link, packaging). |
+| `src/core/recompiler/arm64_to_c.h` | ARM64-to-C emitter, unit splitting, and the generated module CMake (job pool sizing). |
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
 | `src/core/` | Game loading, memory, and system-service runtime. |
@@ -57,9 +64,12 @@ Read [README.md](README.md) and [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md) befo
 
 Continue work within the user's authorized scope. Ask for missing information only when it blocks the next dependent step; continue independent work where possible. Creating these handoff files does not authorize publishing additional commits or releases.
 
+The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`, or `git push`. For each coherent change, add a `## vX.Y.Z-devN - Unreleased` section (or extend the current one) in [CHANGELOG.md](CHANGELOG.md), then give the user the list of files to commit and a suggested commit message.
+
 ## Build and verification rules
 
-- The inspected root build requires CMake 3.22 or newer and C++20. Exact compiler, SDK, Qt, and dependency requirements still need a verified baseline.
+- The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's progress record; `docs/HisuiWake/BUILD.md` has not been written yet.
+- When `suyu.exe` from a source build runs an export, the exporter reuses and reconfigures that build tree. Afterwards, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before packaging an export build kit, and treat `bin/suyu-cmd-static.exe` and `recomp_clang/` in that tree as local game-derived output.
 - Many `externals/` directories were empty at handoff. The active CMake code uses CPM helpers and `cpmfile.json`; `.gitmodules` alone neither supplies dependencies nor records all required pinned revisions in a new repository.
 - Do not assume `git submodule update --init --recursive` repairs a source archive. Determine the actual acquisition path and pinned versions for each required dependency.
 - Keep build directories and game exports outside tracked source. Use an ASCII-only local build/export path for a controlled reproduction, then test non-ASCII paths where relevant.

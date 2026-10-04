@@ -2,6 +2,18 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev6 - Unreleased
+
+*Development commit 6 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Changed
+- Recompiled code now returns to the dispatcher every 256 CPU blocks instead of 4096 on current export images (ABI 6 with `run_slice` enabled). The CPU core answers rescheduling requests sooner, reducing the time other cores spend waiting. In a Pokemon Legends: Arceus Hybrid export this reduced contention in the fiber scheduler and raised overworld FPS from about 14 to 15-20. The override `SUYU_RECOMP_CHAIN_BUDGET` (1-8192) still takes precedence.
+
+### Known issues
+- The reduction needs a new export to take effect; existing packages continue to use the 4096-block budget.
+- Hybrid performance is still below the JIT baseline (30 FPS). Profiling points at generated-code quality (flag computation, out-of-line memory accesses, context-pointer reloads) as a possible cause; this is not yet confirmed.
+- The new default was chosen from environment-variable runs on one game and one PC and has not yet been confirmed in a rebuilt export.
+
 ## v0.0.1-dev5 - Unreleased
 
 *Development commit 5 toward v0.0.1. Not a release; no build artifacts are published.*
