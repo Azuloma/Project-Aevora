@@ -1,0 +1,174 @@
+// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include <cstdlib>
+#include <memory>
+#include <string>
+
+#ifdef SUYU_CMD_STATIC_RECOMP
+#include <cstdint>
+#include <filesystem>
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+#endif
+
+#include <fmt/format.h>
+
+#include "common/logging/log.h"
+#include "common/scm_rev.h"
+#include "suyu_cmd/emu_window/emu_window_sdl2_vk.h"
+#include "video_core/renderer_vulkan/renderer_vulkan.h"
+
+#include <SDL3/SDL.h>
+
+EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsystem_,
+                                     Core::System& system_, bool fullscreen)
+    : EmuWindow_SDL2{input_subsystem_, system_} {
+#ifdef SUYU_CMD_STATIC_RECOMP
+    // Standalone exports are named after the game already (game_export.cpp
+    // renames the exe at packaging time), so use that instead of the
+    // generic "suyu ..." title that would otherwise flash for a moment
+    // before the game's own title gets set later in the boot sequence.
+    const std::string window_title = [] {
+        std::filesystem::path exe;
+#if defined(_WIN32)
+        wchar_t exe_w[MAX_PATH]{};
+        GetModuleFileNameW(nullptr, exe_w, MAX_PATH);
+        exe = exe_w;
+#elif defined(__APPLE__)
+        // Ask for the length first; the answer can exceed PATH_MAX once
+        // symlinks and bundle nesting are in play.
+        std::uint32_t size = 0;
+        _NSGetExecutablePath(nullptr, &size);
+        std::string buffer;
+        buffer.resize(size);
+        if (size != 0 && _NSGetExecutablePath(buffer.data(), &size) == 0) {
+            exe = buffer.c_str();
+        }
+#else
+        std::error_code ec;
+        exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (ec) {
+            exe.clear();
+        }
+#endif
+        // A generic name beats an empty title bar when the lookup fails.
+        return exe.empty() ? std::string{"suyu"} : exe.stem().string();
+    }();
+#else
+    const std::string window_title = fmt::format("suyu {} | {}-{} (Vulkan)", Common::g_build_name,
+                                                 Common::g_scm_branch, Common::g_scm_desc);
+#endif
+    // A binary launched outside an .app bundle is treated as a background
+    // application on macOS, so its window opens behind whatever has focus and the
+    // compositor throttles it. Asking for foreground treatment before the window
+    // exists is what makes the later raise take effect.
+    const bool headless_capture = std::getenv("SUYU_CMD_CAPTURE_HEADLESS") != nullptr;
+    if (!headless_capture) {
+        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
+    }
+
+    auto window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    if (headless_capture) {
+        window_flags |= SDL_WINDOW_HIDDEN;
+    }
+
+    render_window =
+        SDL_CreateWindow(window_title.c_str(),
+                         Layout::ScreenUndocked::Width, Layout::ScreenUndocked::Height,
+                         window_flags);
+
+    if (render_window == nullptr) {
+        LOG_CRITICAL(Frontend, "Failed to create SDL3 window: {}", SDL_GetError());
+        std::exit(EXIT_FAILURE);
+    }
+
+    SetWindowIcon();
+
+    if (fullscreen) {
+        Fullscreen();
+        ShowCursor(false);
+    }
+
+    // Retrieve native window handles via SDL3 property system
+    SDL_PropertiesID props = SDL_GetWindowProperties(render_window);
+
+#if defined(SDL_PLATFORM_WIN32)
+    window_info.type = Core::Frontend::WindowSystemType::Windows;
+    window_info.render_surface = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+    if (!window_info.render_surface) {
+        LOG_CRITICAL(Frontend, "Failed to get Win32 HWND from window properties: {}", SDL_GetError());
+        std::exit(EXIT_FAILURE);
+    }
+#elif defined(SDL_PLATFORM_LINUX) || defined(SDL_PLATFORM_FREEBSD)
+    {
+        const char* driver = SDL_GetCurrentVideoDriver();
+        if (driver && SDL_strcmp(driver, "x11") == 0) {
+            window_info.type = Core::Frontend::WindowSystemType::X11;
+            window_info.display_connection = SDL_GetPointerProperty(
+                props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
+            window_info.render_surface = reinterpret_cast<void*>(
+                SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
+        } else if (driver && SDL_strcmp(driver, "wayland") == 0) {
+            window_info.type = Core::Frontend::WindowSystemType::Wayland;
+            window_info.display_connection = SDL_GetPointerProperty(
+                props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nullptr);
+            window_info.render_surface = SDL_GetPointerProperty(
+                props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, nullptr);
+        } else {
+            LOG_CRITICAL(Frontend, "Unsupported video driver: {}", driver ? driver : "(null)");
+            std::exit(EXIT_FAILURE);
+        }
+    }
+#elif defined(SDL_PLATFORM_MACOS)
+    window_info.type = Core::Frontend::WindowSystemType::Cocoa;
+    // VK_EXT_metal_surface takes a CAMetalLayer. The view SDL_Metal_CreateView returns is an
+    // NSView, and MoltenVK raises an Objective-C exception for anything that is not a layer.
+    metal_view = SDL_Metal_CreateView(render_window);
+    window_info.render_surface = metal_view ? SDL_Metal_GetLayer(metal_view) : nullptr;
+    if (window_info.render_surface == nullptr) {
+        LOG_CRITICAL(Frontend, "Failed to get the CAMetalLayer for the window: {}", SDL_GetError());
+        std::exit(EXIT_FAILURE);
+    }
+#elif defined(SDL_PLATFORM_ANDROID)
+    window_info.type = Core::Frontend::WindowSystemType::Android;
+    window_info.render_surface = SDL_GetPointerProperty(
+        props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+#else
+    LOG_CRITICAL(Frontend, "Window manager subsystem not implemented for this platform");
+    std::exit(EXIT_FAILURE);
+#endif
+    (void)props;
+
+    // Diagnostic captures can run without entering the user's active desktop.
+    // The Vulkan surface still exists and the renderer supplies frame captures.
+    if (!headless_capture) {
+        SDL_ShowWindow(render_window);
+        // Showing a window does not focus it. Without this the window sits behind the
+        // launching terminal, and on macOS a non-frontmost window has its CAMetalLayer
+        // throttled, which looks like an emulator performance problem rather than a
+        // window management one.
+        SDL_RaiseWindow(render_window);
+    }
+    OnResize();
+    OnMinimalClientAreaChangeRequest(GetActiveConfig().min_client_area_size);
+    SDL_PumpEvents();
+    LOG_INFO(Frontend, "suyu Version: {} | {}-{} (Vulkan)", Common::g_build_name,
+             Common::g_scm_branch, Common::g_scm_desc);
+}
+
+EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
+#if defined(SDL_PLATFORM_MACOS)
+    if (metal_view) {
+        SDL_Metal_DestroyView(metal_view);
+        metal_view = nullptr;
+    }
+#endif
+}
+
+std::unique_ptr<Core::Frontend::GraphicsContext> EmuWindow_SDL2_VK::CreateSharedContext() const {
+    return std::make_unique<DummyContext>();
+}

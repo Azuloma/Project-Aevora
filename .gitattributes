@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2018 yuzu Emulator Project
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+dist/languages/* linguist-vendored
+dist/qt_themes/* linguist-vendored
+externals/* linguist-vendored
+*.h linguist-language=cpp
+
+# Developer-machine caches and generated proof outputs are retained in Git for
+# historical reproducibility, but they are not release source artifacts.
+tools-local export-ignore
+tools/static_recompiler/out export-ignore
+tools/static_recompiler/*.exe export-ignore
+tools/static_recompiler/*.obj export-ignore
+tools/static_recompiler/*.bin export-ignore
