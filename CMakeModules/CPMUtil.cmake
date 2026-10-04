@@ -322,9 +322,19 @@ function(fetch_package)
 
     # Extract
     echo("Extracting ${file}...")
-    file(ARCHIVE_EXTRACT
-        INPUT ${file}
-        DESTINATION ${abs_path})
+    # Use `cmake -E tar` instead of file(ARCHIVE_EXTRACT): the latter fails on
+    # non-ASCII entry names (e.g. Boost's wave test directories) when the Windows
+    # ANSI code page is not UTF-8 ("Invalid empty pathname").
+    file(MAKE_DIRECTORY "${abs_path}")
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E tar xf "${file}"
+        WORKING_DIRECTORY "${abs_path}"
+        RESULT_VARIABLE extract_result
+        ERROR_VARIABLE extract_error)
+    if (NOT extract_result EQUAL 0)
+        fatal("Failed to extract archive '${file}' to '${abs_path}' "
+            "(result: ${extract_result}): ${extract_error}")
+    endif()
 
     # This is copied near-verbatim from ExternalProject/extractfile.cmake.in
 
