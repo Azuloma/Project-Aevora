@@ -594,14 +594,11 @@ struct Values {
 
     SwitchableSetting<bool> use_asynchronous_shaders{linkage, false, "use_asynchronous_shaders",
                                                      Category::RendererHacks};
+    // Disabled by default because the current GPL part caching can bind wrong pipeline
+    // state/textures (observed in Pokemon Legends: Arceus). Re-enable after the part-cache keys
+    // are fixed.
     SwitchableSetting<bool> use_graphics_pipeline_library{
-        linkage,
-#ifdef __ANDROID__
-        false,
-#else
-        true,
-#endif
-        "use_graphics_pipeline_library", Category::RendererExtensions};
+        linkage, false, "use_graphics_pipeline_library", Category::RendererExtensions};
 
     SwitchableSetting<GpuUnswizzleSize> gpu_unswizzle_texture_size{linkage,
                                                   GpuUnswizzleSize::Large,

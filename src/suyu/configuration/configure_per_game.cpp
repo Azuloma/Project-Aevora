@@ -34,6 +34,7 @@
 #include "suyu/configuration/configure_cpu.h"
 #include "suyu/configuration/configure_graphics.h"
 #include "suyu/configuration/configure_graphics_advanced.h"
+#include "suyu/configuration/configure_graphics_extensions.h"
 #include "suyu/configuration/configure_input_per_game.h"
 #include "suyu/configuration/configure_linux_tab.h"
 #include "suyu/configuration/configure_per_game.h"
@@ -63,6 +64,8 @@ ConfigurePerGame::ConfigurePerGame(QWidget* parent, u64 title_id_, const std::st
     cpu_tab = std::make_unique<ConfigureCpu>(system_, tab_group, *builder, this);
     graphics_advanced_tab =
         std::make_unique<ConfigureGraphicsAdvanced>(system_, tab_group, *builder, this);
+    graphics_extensions_tab =
+        std::make_unique<ConfigureGraphicsExtensions>(system_, tab_group, *builder, this);
     graphics_tab = std::make_unique<ConfigureGraphics>(
         system_, vk_device_records, [&]() { graphics_advanced_tab->ExposeComputeOption(); },
         [](Settings::AspectRatio, Settings::ResolutionSetup) {}, tab_group, *builder, this);
@@ -77,6 +80,7 @@ ConfigurePerGame::ConfigurePerGame(QWidget* parent, u64 title_id_, const std::st
     ui->tabWidget->addTab(cpu_tab.get(), tr("CPU"));
     ui->tabWidget->addTab(graphics_tab.get(), tr("Graphics"));
     ui->tabWidget->addTab(graphics_advanced_tab.get(), tr("Adv. Graphics"));
+    ui->tabWidget->addTab(graphics_extensions_tab.get(), tr("GPU Extensions"));
     ui->tabWidget->addTab(audio_tab.get(), tr("Audio"));
     ui->tabWidget->addTab(input_tab.get(), tr("Input Profiles"));
 

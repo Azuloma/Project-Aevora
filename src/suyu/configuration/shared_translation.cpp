@@ -244,7 +244,8 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QWidget* parent) {
               "files internally."));
     INSERT(Settings, use_graphics_pipeline_library, tr("Use graphics pipeline libraries"),
            tr("Builds Vulkan graphics pipelines from reusable parts when supported by the driver. "
-              "Disable this if a driver shows rendering issues. Requires a restart."));
+              "Disabled by default because it can currently cause rendering errors. "
+              "Requires a restart."));
     INSERT(
         Settings, enable_compute_pipelines, tr("Enable Compute Pipelines (Intel Vulkan Only)"),
         tr("Enable compute pipelines, required by some games.\nThis setting only exists for Intel "
@@ -259,6 +260,18 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QWidget* parent) {
               "unlocked."));
     INSERT(Settings, barrier_feedback_loops, tr("Barrier feedback loops"),
            tr("Improves rendering of transparency effects in specific games."));
+
+    // Renderer (Extensions)
+    INSERT(Settings, dyna_state, tr("Extended Dynamic State"),
+           tr("Controls the number of features that can be used in Extended Dynamic State.\n"
+              "Higher states allow for more features and can increase performance, but may cause "
+              "additional graphical issues."));
+    INSERT(Settings, vertex_input_dynamic_state, tr("Vertex Input Dynamic State"),
+           tr("Enables vertex input dynamic state feature for better quality and performance."));
+    INSERT(Settings, sample_shading, tr("Sample Shading"),
+           tr("Allows the fragment shader to execute per sample in a multi-sampled fragment "
+              "instead of once per fragment. Improves graphics quality at the cost of performance.\n"
+              "Higher values improve quality but degrade performance."));
 
     // Renderer (Debug)
 
@@ -388,6 +401,13 @@ std::unique_ptr<ComboboxTranslationMap> ComboboxEnumeration(QWidget* parent) {
                               PAIR(GpuFenceBehavior, Balanced, tr("Balanced")),
                               PAIR(GpuFenceBehavior, Accurate, tr("Accurate")),
                               PAIR(GpuFenceBehavior, Strict, tr("Strict")),
+                          }});
+    translations->insert({Settings::EnumMetadata<Settings::ExtendedDynamicState>::Index(),
+                          {
+                              PAIR(ExtendedDynamicState, Disabled, tr("Disabled")),
+                              PAIR(ExtendedDynamicState, EDS1, tr("ExtendedDynamicState 1")),
+                              PAIR(ExtendedDynamicState, EDS2, tr("ExtendedDynamicState 2")),
+                              PAIR(ExtendedDynamicState, EDS3, tr("ExtendedDynamicState 3")),
                           }});
     translations->insert({Settings::EnumMetadata<Settings::VramUsageMode>::Index(),
                           {

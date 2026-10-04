@@ -2,6 +2,17 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev3 - Unreleased
+
+*Development commit 3 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Fixed
+- Graphics pipeline libraries (Vulkan GPL) are now disabled by default. With GPL enabled, some objects in Pokemon Legends: Arceus rendered with wrong or missing textures, and the affected objects changed after clearing the pipeline cache. The same defect occurs in Suyu v0.0.12.
+- The Qt frontend now shows the renderer extension settings (graphics pipeline libraries, Extended Dynamic State, Vertex Input Dynamic State, Sample Shading) in a new GraphicsExtensions tab and in per-game configuration. These settings were previously only editable in the configuration file.
+
+### Known issues
+- The underlying GPL defect is not fixed; enabling GPL can still cause rendering errors.
+
 ## v0.0.1-dev2 - Unreleased
 
 *Development commit 2 toward v0.0.1. Not a release; no build artifacts are published.*

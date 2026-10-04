@@ -17,6 +17,7 @@
 #include "suyu/configuration/configure_general.h"
 #include "suyu/configuration/configure_graphics.h"
 #include "suyu/configuration/configure_graphics_advanced.h"
+#include "suyu/configuration/configure_graphics_extensions.h"
 #include "suyu/configuration/configure_hotkeys.h"
 #include "suyu/configuration/configure_input.h"
 #include "suyu/configuration/configure_input_player.h"
@@ -45,6 +46,8 @@ ConfigureDialog::ConfigureDialog(QWidget* parent, HotkeyRegistry& registry_,
       general_tab{std::make_unique<ConfigureGeneral>(system_, nullptr, *builder, this)},
       graphics_advanced_tab{
           std::make_unique<ConfigureGraphicsAdvanced>(system_, nullptr, *builder, this)},
+      graphics_extensions_tab{
+          std::make_unique<ConfigureGraphicsExtensions>(system_, nullptr, *builder, this)},
       ui_tab{std::make_unique<ConfigureUi>(system_, this)},
       graphics_tab{std::make_unique<ConfigureGraphics>(
           system_, vk_device_records, [&]() { graphics_advanced_tab->ExposeComputeOption(); },
@@ -70,6 +73,7 @@ ConfigureDialog::ConfigureDialog(QWidget* parent, HotkeyRegistry& registry_,
     ui->tabWidget->addTab(general_tab.get(), tr("General"));
     ui->tabWidget->addTab(graphics_tab.get(), tr("Graphics"));
     ui->tabWidget->addTab(graphics_advanced_tab.get(), tr("GraphicsAdvanced"));
+    ui->tabWidget->addTab(graphics_extensions_tab.get(), tr("GraphicsExtensions"));
     ui->tabWidget->addTab(hotkeys_tab.get(), tr("Hotkeys"));
     ui->tabWidget->addTab(input_tab.get(), tr("Controls"));
     ui->tabWidget->addTab(profile_tab.get(), tr("Profiles"));
@@ -125,6 +129,7 @@ void ConfigureDialog::ApplyConfiguration() {
     cpu_tab->ApplyConfiguration();
     graphics_tab->ApplyConfiguration();
     graphics_advanced_tab->ApplyConfiguration();
+    graphics_extensions_tab->ApplyConfiguration();
     audio_tab->ApplyConfiguration();
     debug_tab_tab->ApplyConfiguration();
     web_tab->ApplyConfiguration();
@@ -170,7 +175,9 @@ void ConfigureDialog::PopulateSelectionList() {
           {system_tab.get(), profile_tab.get(), network_tab.get(), filesystem_tab.get(),
            applets_tab.get()}},
          {tr("CPU"), {cpu_tab.get()}},
-         {tr("Graphics"), {graphics_tab.get(), graphics_advanced_tab.get()}},
+         {tr("Graphics"), {graphics_tab.get(),
+                       graphics_advanced_tab.get(),
+                       graphics_extensions_tab.get()}},
          {tr("Audio"), {audio_tab.get()}},
          {tr("Controls"), input_tab->GetSubTabs()}},
     };
