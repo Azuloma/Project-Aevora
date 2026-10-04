@@ -211,7 +211,8 @@ add_library(video_core STATIC
     vulkan_common/vulkan_wrapper.h
     vulkan_common/nsight_aftermath_tracker.cpp
     vulkan_common/nsight_aftermath_tracker.h
-    vulkan_common/vma.cpp
+    # vma.cpp (the VMA implementation) is compiled by each executable instead of here,
+    # because a static Qt already provides VMA and would clash in the Qt frontend.
     vulkan_common/vma.h
     vulkan_common/vulkan.h
 

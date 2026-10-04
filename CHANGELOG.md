@@ -2,6 +2,18 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev2 - Unreleased
+
+*Development commit 2 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Fixed
+- `suyu.exe` (Qt frontend) now links with the default bundled static Qt 6.11.1 on Windows x64. The VulkanMemoryAllocator implementation (`video_core/vulkan_common/vma.cpp`) is no longer compiled into `video_core`; each executable compiles it, and the Qt frontend uses Qt's built-in copy when Qt is static (except on Apple). Approach follows Eden PR #2994.
+
+### Known issues
+- With static Qt, the Qt frontend uses Qt's VMA 3.2.1 (built with `VMA_DEDICATED_ALLOCATION 0`) instead of the bundled VMA 3.3.0; runtime behavior has not been tested.
+- Application startup, game loading, export build kit, and libretro builds have not been tested.
+- Export build kits generated before this change must be regenerated.
+
 ## v0.0.1-dev1 - 2026-10-04
 
 *Development commit 1 toward v0.0.1. Not a release; no build artifacts are published.*

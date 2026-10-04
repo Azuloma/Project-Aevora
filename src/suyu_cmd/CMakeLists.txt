@@ -30,6 +30,8 @@ if (SUYU_CMD OR YUZU_CMD)
         sdl_config.h
         suyu.cpp
         suyu.rc
+        # video_core does not compile the VMA implementation; every executable does.
+        ../video_core/vulkan_common/vma.cpp
     )
 
     add_executable(suyu-cmd ${SUYU_CMD_SOURCES})

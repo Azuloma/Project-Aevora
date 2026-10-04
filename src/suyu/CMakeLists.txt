@@ -440,6 +440,14 @@ elseif(WIN32)
 endif()
 
 target_link_libraries(suyu PRIVATE common core input_common frontend_common network video_core frozen::frozen-headers)
+
+# A static Qt (except on Apple, where it has no Vulkan) already contains VMA in qrhivulkan;
+# compiling ours too causes duplicate symbols. Qt's copy uses the same function-loading
+# configuration as video_core/vulkan_common/vma.h.
+get_target_property(qt_core_type Qt${QT_MAJOR_VERSION}::Core TYPE)
+if (APPLE OR NOT qt_core_type STREQUAL "STATIC_LIBRARY")
+    target_sources(suyu PRIVATE ../video_core/vulkan_common/vma.cpp)
+endif()
 target_link_libraries(suyu PRIVATE Boost::headers glad Qt${QT_MAJOR_VERSION}::Widgets)
 target_link_libraries(suyu PRIVATE Qt${QT_MAJOR_VERSION}::Network)
 target_link_libraries(suyu PRIVATE ${PLATFORM_LIBRARIES} Threads::Threads)

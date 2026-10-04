@@ -6,9 +6,12 @@ add_library(suyu_libretro SHARED
     retro_core.cpp
     retro_emu_window.cpp
     retro_emu_window.h
+    # video_core does not compile the VMA implementation; every executable does.
+    ../video_core/vulkan_common/vma.cpp
 )
 
 target_link_libraries(suyu_libretro PRIVATE common core input_common frontend_common audio_core network)
+target_link_libraries(suyu_libretro PRIVATE Vulkan::Headers GPUOpen::VulkanMemoryAllocator)
 target_link_libraries(suyu_libretro PRIVATE ${PLATFORM_LIBRARIES} Threads::Threads)
 
 if (ANDROID)
@@ -24,8 +27,10 @@ create_target_directory_groups(suyu_libretro)
 
 if (NOT ANDROID)
     add_executable(libretro_tas_frame_smoke EXCLUDE_FROM_ALL
-        tas_frame_smoke.cpp retro_emu_window.cpp)
+        tas_frame_smoke.cpp retro_emu_window.cpp
+        ../video_core/vulkan_common/vma.cpp)
     target_link_libraries(libretro_tas_frame_smoke PRIVATE
         common core input_common frontend_common audio_core network
+        Vulkan::Headers GPUOpen::VulkanMemoryAllocator
         ${PLATFORM_LIBRARIES} Threads::Threads)
 endif()
