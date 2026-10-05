@@ -15,7 +15,9 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 
 ### Documentation
 - Added the main-module DLL split design plan (Milestone 4a) to the work plan and archived the sixth-session progress entries to `docs/Aevora/OLD_HISTORY.md`.
+- Recorded the reviewed Milestone 4a main-module DLL split design note (D1-D7) in the work plan and closed the eighth session.
 - Added the "Modding and QoL readiness" rule to `CLAUDE.md`: recompiler changes must keep mods and QoL additions easy to add, resolve references from one authoritative source, and fail fast on mismatches so a small change cannot break the recompiler tool; the Code reviewer role now checks it.
+- Disabled Claude Code auto memory for the project (`.claude/settings.json`) and moved the Orca worker operating notes that existed only in agent memory (spec preamble, wait timeout, worker release and acknowledgement, unsubmitted-spec recovery, re-checking `git status`) into `CLAUDE.md`.
 
 ## v0.0.1-dev9 - Unreleased
 

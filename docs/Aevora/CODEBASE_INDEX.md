@@ -116,7 +116,7 @@ Key runtime facts:
 | CPU interface | `core/arm/arm_interface.h:48` (`ArmInterface`); dynarmic glue in `core/arm/dynarmic/`. |
 | Kernel | `hle/kernel/kernel.h:87` (`KernelCore`); `k_process`, `k_thread`, `k_scheduler`, `k_memory_manager`. |
 | Services/IPC | `hle/service/service.h:49` (`ServiceFrameworkBase`), `hle_ipc.h`, `server_manager.h`, `sm/`. Major services include `acc`, `am`, `apm`, `audio`, `filesystem`, `hid`, `ns`, `nvdrv` (GPU driver ioctls), and `vi` (display). |
-| Loading | `loader/loader.h:164` (`AppLoader`; NSP/XCI/NCA/NSO/NRO/KIP). `ReadNSOModules` (~`:341`) feeds the recomp prepare step. `file_sys/patch_manager.h` handles updates. `crypto/key_manager.h` handles keys. |
+| Loading | `loader/loader.h:164` (`AppLoader`; NSP/XCI/NCA/NSO/NRO/KIP). Canonical NSO inventory comes from `loader/deconstructed_rom_directory.cpp:191-265` and `ReadNSOModules` ~`:334`; NCA/NAX/NSP/XCI loaders forward it. Standalone NSO records its file name in `loader/nso.cpp:242-252`. The launcher registration/DLL loader is `src/suyu_cmd/suyu.cpp:1889-2187` (static registry v4 path, legacy DLL probe, base setter). `file_sys/patch_manager.h` handles updates. `crypto/key_manager.h` handles keys. |
 | Shared libraries | `src/common` (settings, logging, `string_util` UTF-8 helpers, `fs/` paths), `src/hid_core`, `src/audio_core`, `src/input_common`, `src/network`. |
 
 **Boot sequence (*inference*):** `System::Load` → loader → `CreateApplicationProcess` → `ReadNSOModules` → recomp prepare (if registered) → `InitializeInterfaces` chooses the backend → GPU/audio/services setup → `AppletManager` starts the main thread → `System::Run`.

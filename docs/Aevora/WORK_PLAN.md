@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-04. HEAD: `a3063a2` (docs commit after `c2c921e` `v0.0.1-dev9`). Last session handoff: 2026-10-05, seventh session (see [Session handoff](#session-handoff-2026-10-05-seventh-session-complete)).
+Handoff prepared: 2026-10-06. HEAD: `e66f19c` (docs commit after `74b959c` `v0.0.1-dev10`). Last session handoff: 2026-10-06, eighth session (see [Session handoff](#session-handoff-2026-10-06-eighth-session-complete)).
 Older history (2026-10-04 handoff through the fourth session close on 2026-10-05, plus earlier export evidence) is archived in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
@@ -14,7 +14,7 @@ Start with a reproducible Windows x64 build and a correctly running game. Procee
 | Item | Evidence/status |
 |---|---|
 | Source repository | Root contains the Suyu-derived source, build files, dependency metadata, and archived upstream documentation. |
-| Git baseline | Initial commit `9f932d5`. As of 2026-10-05, HEAD is `a3063a2`; the user commits and pushes. |
+| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `e66f19c`; the user commits and pushes. |
 | Configured origin | `https://github.com/Azuloma/Aevora.git`; remote publication was not independently verified during this handoff. |
 | README | English draft describes feasibility status, planned features, support scope, versioning, and the hobby/no-donations policy. |
 | License | Root `LICENSE.txt` is copied unchanged from the archived upstream license; README specifies `GPL-3.0-or-later`. Existing notices are retained. |
@@ -125,14 +125,129 @@ The cleanup already removed upstream automation, temporary material, old screens
 
 **Design work steps:**
 
-1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3.
-2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change.
-3. Prototype measurement before full implementation: link main alone as a DLL from the existing dev8 module objects (local, outside the repository) to measure its real image size and confirm the 2 GB margin; record it.
+1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3. (done 2026-10-06)
+2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change. (done 2026-10-06)
+3. Prototype measurement before full implementation: from a Source-format export, build the generated `main` module's existing SHARED target with `RECOMP_STATIC_ONLY` off, without and with FMI; measure the DLL image and dependency evidence, then record it.
 4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode, (b) registry + launcher loading, (c) exporter packaging/manifest/wording, (d) build-kit decision. Code reviewer reviews each step.
 5. Tests: extend `tests/recompiler_smoke` with a mixed static+DLL variant (synthetic modules) covering load order, base routing, cross-module dispatch, guard checks, GG1, and FPX; keep existing goldens unchanged for non-split exports; run the fastmem and FPX harnesses.
 6. PLA verification: export static AOT (fallback disabled) without FMI, then with FMI; record per-image sizes, link time, zero JIT transitions, FPS in the same overworld scene, and sampling; compare with dev8 (25-30 FPS) and JIT (30 FPS).
 
 **Acceptance:** design note reviewed with no unresolved findings; main DLL and launcher each link under 2 GB for PLA with FMI; strict static mode shows zero JIT transitions and no lookup misses in the exercised scene; synthetic mixed-mode tests pass; packaging, manifest, and documentation describe the two-file layout; remaining limits (main margin, build-kit support) are documented.
+
+### Design note (accepted 2026-10-06, draft 3)
+
+Review history: draft 1: 1 blocker/9 major/1 minor (R1-R11); draft 2: 0/2/1; draft 3: 0/0/0, implementation may start.
+
+#### Verified starting facts
+
+- The shared-module shape already exists: `add_library(recompiled_image SHARED recomp_export.c recomp_runtime.c ...)` with `SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1` (`src/core/recompiler/arm64_to_c.h` ~5718-5730). Without `RECOMP_STATIC_HOST`, the DLL's own `recomp_runtime.c` defines `g_module_base` (~7798-7804) and the load/store/exclusive/SVC helpers.
+- The static shape builds `recomp_runtime.c` once as `recomp_runtime_shared` (`RECOMP_STATIC_HOST=1`) and renames each module's image symbols through `-D` (~5733-5785).
+- Generated code reaches the emulator through `GuestContext::host_mem` (`RecompHostMem`) callbacks for memory, exclusive, and counter operations (mapped fastmem executes locally) and through `GuestContext::pending_svc` plus a return to the host for SVCs; the callbacks are installed per `ArmRecomp::Impl` (`src/core/arm/recomp/arm_recomp.cpp` ~909-926, ~1020-1050); there are no native imports of host C++ symbols and direct chains are intra-module (~380-410). A null exclusive/counter callback makes generated code use private fallbacks (`arm64_to_c.h` ~7633-7671).
+- Launcher (`src/suyu_cmd/suyu.cpp`): the static path calls `suyu_recomp_static_modules_v4` (~1933-2017); the DLL path runs only if `s_recomp_modules.empty()` (~2025), probes fixed file names, silently skips missing files and DLLs without `recomp_image_lookup`, and warns-and-continues on `LoadLibraryW` failure. `SuyuRecompStaticModule` is declared separately in `suyu.cpp` (~196) and emitted as text by `game_export.cpp` (~4108).
+- Base routing: `ArmRecomp::ModuleBaseFor` (~1187-1201) calls the setter with `(index, name, base)` over `FindModules` results (`src/core/arm/debug.cpp` ~254-313), which drop modules whose embedded path is unreadable; the launcher routes by index (`suyu.cpp` ~2181). Embedded names do not match exporter names (`arm_recomp.h` ~100-110).
+- The loader keeps a canonical inventory: `AppLoader_DeconstructedRomDirectory` records `rtld`, `main`, `subsdk0..9`, `sdk` by load address (`src/core/loader/deconstructed_rom_directory.cpp` ~191-265, `ReadNSOModules` ~334); NCA/NAX forward it, and NSP (`nsp.cpp` ~263) and XCI (`xci.cpp` ~211) forward to their nested loaders `[R12]`; a standalone NSO records `file->GetName()` rather than a canonical name (`nso.cpp` ~242-252); classes that do not override it return `ErrorNotImplemented` (`src/core/loader/loader.h` ~339). `FindModules` results also feed the host pre-relocator through `Impl::modules` (`arm_recomp.cpp` ~1191, ~1883). `Core::Load` already reads this inventory before process publication on the explicit-prepare path (`src/core/core.cpp` ~355-365); that path also changes relocation behavior (`arm_recomp.cpp` ~1715-1730) and is not reused here.
+
+#### D1 Runtime placement
+
+Decision: the main DLL carries its own `recomp_runtime.c`, compiled exactly as the existing shared shape. Static modules keep `recomp_runtime_shared`. Rationale: helpers are per-access and intentionally out of line (~7692); the DLL copy needs no new exe-export ABI. Cost is measured in step 3.
+
+Constraint `[R10]`: hosted code must never take the private fallbacks. The host validates bridge completeness itself: when each `ArmRecomp::Impl` builds its `RecompHostMem`, it checks that every exclusive (single and pair), clear-exclusive, and counter callback is non-null and fails initialization with a named diagnostic otherwise. This is a host-side check after per-core bridge construction, not a DLL export, and applies to all bundles.
+
+#### D2 Per-image globals
+
+| State | Placement | Reason |
+|---|---|---|
+| `g_module_base`, `g_recomp_guard_host_v2`, `g_recomp_gg_word`, `g_recomp_gg_host`, `recomp_gg_seen[]`, lookup index `_idx*` | Per image | One image's base, handshake, generation epoch, or address range; the host already keeps per-image pointers. |
+| FPX shadow statics/TLS | Per image | Diagnostics only; mixed layout yields one report per runtime copy. Documented, not aggregated. |
+| `g_excl_addr`, `g_excl_valid`, standalone `base_ns` | Never used in hosted mode | Guaranteed by the D1 bridge check. |
+| Chain budget, combined lookup, readiness flags, GG1 registry, counters | Process-wide host state | Already host-owned; unchanged. |
+
+No global moves into `GuestContext`. Step 3 records the DLL's exports and imports (`dumpbin /exports /imports /dependents`).
+
+#### D3 Topology contract, loading, and base binding
+
+**Topology contract `[R2]`.** A new shared C header (proposed `src/core/arm/recomp/recomp_topology.h`, plain C, included by the launcher and by the generated `recomp_registration.c`) defines a versioned registry: entry point `suyu_recomp_topology_v1()` returning a header `{abi_version, struct_size, entry_count, static_count, dll_count, bundle_abi, bundle_id[32]}` and an entry array `{canonical_name, binding (static|dll), dll_file_utf8, image_abi, expected_features, static function pointers (null for dll)}` in NSO order. The struct layout is defined once in that header; the exporter emits only values. Old all-static exports and the existing `suyu_recomp_static_modules_v4` path are unchanged: the exporter emits v1 only when a split is requested, and the launcher prefers v1 when present, otherwise v4. Each entry's features are checked individually against `expected_features` (not only the bundle OR). Static-registry handshakes (GG1, FPX, FM1, guard v2) gain v1 forms that report results per entry index so a mixed bundle has separate total/static/DLL counts and GG1 descriptors are placed at their full topology index.
+
+**Single source.** The exporter computes one topology value (module list in NSO order, binding, DLL file name from one helper, bundle ABI, expected features, bundle id). The generated CMake binding list, `recomp_registration.c`, package file list, AOT cache manifest, and package manifest are all written from that value, and each carries `topology_version` and `bundle_id`; consumers compare them and fail with the mismatched item named.
+
+**Bundle and module identity `[R3]`.** `bundle_id` is SHA-256 over the source ExeFS digest already used for cache identity (`game_export.cpp` ~3594), the generator revision, and the generation options. In split mode the generator emits an extra export in each shared module, `recomp_image_identity_v1(const char** canonical_name, const uint8_t** bundle_id)`, with values from compile definitions written from the topology. The launcher accepts a DLL only if name and bundle id match its table entry. The package manifest also records each DLL's SHA-256 for integrity checks.
+
+**Transactional loading `[R11]`.** The launcher builds a pending bundle: static entries are taken from v1; each DLL entry is loaded (see D3 paths), its exports resolved (`lookup`, `set_base`, `run_slice`, `abi`, `features`, `fastmem_v1`, `guard_gen_v1` if GG1, `fpx_v1` if FPX1, `guard_v2`, `identity_v1`), and checked. Any failure releases all uncommitted handles and exits with the module name, file, and cause (missing file, Win32 error, missing export, identity, ABI, feature, or handshake refusal). Only after the whole bundle succeeds are `SetRecompLookup`, readiness flags, `SetRecompGuardGenModules`, and the binding callback published. Accepted DLL handles are owned by the bundle object and intentionally retained for the process lifetime (no `FreeLibrary` after commit, because lookup/GG1/base pointers stay installed). Strict static mode never continues with a missing slot and never falls back to JIT.
+
+**Base binding `[R1]`.** Bases are bound by canonical identity, not by debug-name index. A new host callback `SetRecompBindCallback(bool (*)(const RecompModules& inventory))` is invoked from `Core::Load` after `MakeApplicationProcess` and before process publication, using `app_loader->ReadNSOModules` (the inventory already used at `core.cpp` ~359), without enabling the explicit-prepare relocation path. The launcher's bind callback matches the inventory's canonical names (`rtld`, `main`, `subsdkN`, `sdk`) against the topology entries; it rejects count mismatch, duplicates, missing slots, and extra slots, then calls each image's `set_base` and records the canonical name and base. Failure makes `Core::Load` stop with `ErrorLoader` and a diagnostic naming the module, before any block runs; the failure path releases the service process before kernel shutdown, as the existing load error path does (`core.cpp` ~320-325).
+
+Per-core module map `[R1b]`: binding is a process-aware host stage (proposed `BindRecompProcess(KProcess&, const RecompModules& inventory)` in `arm_recomp.cpp`). After the launcher callback validates and binds the inventory, the stage installs the same canonical inventory into every application `ArmRecomp::Impl` as `modules` and sets `modules_read`, without setting `rela_applied` or `explicitly_prepared`, so the existing host pre-relocation (`ApplyAllRelocations`, ~1883) still runs and sees every module, including one whose embedded path `FindModules` cannot read. `ModuleBaseFor` then neither calls `FindModules` nor the index setter. Debug/display names are kept separately (from `FindModules`, for logs and `recomp_gaps.json` only). The bound state belongs to that process; a new process starts unbound and runs the stage again. `PrepareRecompProcess` is not reused, because it disables pre-relocation (~1727).
+
+Inventory sources `[R12]`: ExeFS directory, NCA, NAX, NSP, and XCI loaders already supply the canonical inventory through existing delegation; no new forwarding is added, and tests cover the existing delegation. Any `ReadNSOModules` error fails a split bundle fast with the loader named. A standalone NSO's inventory name is its file name and is not normalized; it fails the canonical-name match with a diagnostic, so split exports are not supported for standalone NSO loading. All-static v4 exports keep today's index routing unchanged.
+
+**Legacy all-DLL probe.** Kept unchanged for exports without a registry; not used by Build exports.
+
+**Windows paths `[R9]`.** Registry strings are UTF-8 and converted with the existing `Common::UTF8ToUTF16W`. The executable directory is read with a growing-buffer `GetModuleFileNameW` loop that checks truncation and errors. Each `dll_file_utf8` must be a plain basename (no separators, no `..`, no drive), unique case-insensitively; the exporter validates this when writing the topology and the launcher re-validates. DLLs are loaded with `LoadLibraryExW(absolute_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)`; step 3 confirms the DLL depends only on the CRT and OS DLLs already required by the launcher. Filesystem errors name the module and path.
+
+#### D4 Build `[R6]`
+
+- Generator: split mode is an opt-in emitter path. With the split off, emitted files are byte-identical to today (smoke goldens unchanged) `[R10]`. With it on, the generated module CMake receives the binding list from the topology; DLL-bound modules build only the `SHARED` target plus the identity definitions, static modules build as today.
+- Exporter: both build loops (`game_export.cpp` ~4561, ~4782) take target names and artifact paths from the topology (`recomp_static_<m>` or `recompiled_image`). The in-tree MSVC path (`src/suyu_cmd/CMakeLists.txt`) and clang-cl prebuild (`src/suyu_cmd/recomp_modules/CMakeLists.txt`) both read the same binding list; the DLL is built as its own target, copied next to the launcher, and not linked into it.
+- Failure stages are logged separately: module compile, DLL link, launcher link, package. LNK1248 (or any link failure) of the DLL in the module-target branch stops the export with the image name and saved output; it does not prune a strict slot and does not retry with MSVC. The dev10 launcher-link stop stays as is.
+- Size reporting: after each successful link, read PE `SizeOfImage` from the image header (not file length) and log it against the hard limit constant `kPeImageLimitBytes` (2 GiB) with the remaining margin; record it in the manifest.
+- Flags: `/MD`; the DLL uses the same generator variables for FM1/GG1/FPX/FMI defines, and features are still verified per entry at load. Separate PDB, not packaged.
+
+#### D5 Packaging, cache, and manifest `[R5]`
+
+- `ValidateLocalExport` / package policy (`game_export.cpp` ~6625, `src/common/package_policy.cpp` ~1167-1240) receive the required module-DLL set derived from the topology; listed DLLs are required and non-empty, unlisted DLLs remain rejected.
+- AOT cache (`aot_manifest.json`, ~3416-3574) stores `topology_version`, `bundle_id`, binding list, and each DLL's path, size, and SHA-256. Reuse requires all of them to match and every required DLL to exist with the recorded digest; otherwise rebuild.
+- Package staging copies and verifies DLLs (digest) before the cache is removed (~5393). Cache failure policy `[R5b]`: unchanged from today for both all-static and split exports. The AOT cache lives inside package staging, and a failed, cancelled, or exception-terminated package discards the whole staging directory, including the cache (`StagingCleanup`, ~6368-6374); the next export rebuilds. This milestone does not add cache retention across failed packages; a recoverable cache outside staging would be a separate change with its own ownership and promotion rules.
+- `export-package.json` gains `module_topology` (`name`, `binding`, `file`, `size_bytes`, `size_of_image`, `sha256`) and `bundle_id`, written from the same topology value.
+- README_NATIVE_EXPORT and UI text describe "launcher plus module DLL(s) in the same folder" for split exports only.
+
+#### D6 Export build kit `[R4]`
+
+The kit stays static-only in this milestone. Rejection happens in the consumer: the kit CMake (`tools/export_build_kit/CMakeLists.txt` ~78-105) rejects a topology with a `dll` entry before creating targets, and exporter preflight rejects a split request on a kit-only installation (`game_export.cpp` ~4319) before compiling modules, with a message that the split requires a source build. The split is never silently undone. `package.py` keeps rejecting game-specific inputs as today. All-static kit exports keep using v4 and are unaffected; the kit revision check is unchanged for them.
+
+#### D7 Selection `[R7]`
+
+Explicit opt-in only in this milestone: the documented generator option `SUYU_AOT_SPLIT_MAIN=1` splits `main` for Windows static AOT exports. On other export types or platforms the option fails the export with a clear message. No automatic size-based selection; it may be proposed later as a separate auto mode with its own decision phase. Reports show each image's `SizeOfImage` against the hard limit and the remaining margin for the main DLL.
+
+#### Load-time data flow
+
+Exporter -> topology value -> (a) generated CMake binding list, (b) `recomp_registration.c` v1, (c) AOT cache manifest, (d) package file list and `export-package.json`. Launcher start -> read v1 -> pending bundle (static entries + DLL loads + identity/ABI/feature/handshake checks) -> commit (publish lookup, readiness, GG1, bind callback) -> `Core::Load` -> loader inventory -> bind callback validates and sets bases -> process published -> guest runs.
+
+#### Failure modes
+
+| Failure | Stage | Behaviour |
+|---|---|---|
+| DLL missing, unloadable, export missing | Launcher, before commit | Exit; names module, file, Win32 error or export. |
+| Identity, ABI, or per-entry feature mismatch | Launcher, before commit | Exit; names module and both values. |
+| FM1/GG1/FPX refusal or guard v2 disagreement | Launcher, before commit | Exit (guard v2 "not negotiated" kept only if every entry agrees). |
+| Inventory unavailable, count/duplicate/missing/extra slot | `Core::Load`, before publication | `ErrorLoader`; names loader or module. |
+| Bridge callback null | `ArmRecomp` init | Fail initialization; names callback. |
+| DLL or launcher image over limit / link failure | Export build | Stop; names image, stage, saved log; no retry, no pruning. |
+| Packaged DLL missing, empty, digest mismatch, or extra DLL | Export package | Export fails. |
+| Split requested with kit-only install | Exporter preflight / kit CMake | Fails with "requires source build". |
+
+#### Test plan `[R10]`
+
+- Refactor the launcher's bundle loading and binding into a testable unit (for example `src/core/arm/recomp/recomp_bundle.{h,cpp}`) used by `suyu.cpp`, so tests run production logic.
+- Mixed synthetic fixture (new, alongside `tests/recompiler_smoke`): three or more modules with one real DLL in a middle slot, loaded through the production unit. Checks: NSO order, inventory-based base binding, cross-module dispatch, guard v2, GG1 descriptors at full indices, FPX agreement, single and pair exclusive reservation across the static/DLL boundary, CLREX, counter continuity.
+- Negative cases, each asserting the named diagnostic and that no block executes: missing DLL, unloadable DLL, missing export, same-ABI/same-feature DLL from another synthetic bundle or module (identity), ABI mismatch, per-entry feature mismatch, individual FM1/GG1/FPX refusal, guard v2 disagreement, empty and duplicate topology, inventory missing a middle module, extra inventory module, valid loader inventory with an unreadable embedded name in a middle module (all cores keep it for relocation and dispatch, no index setter call) `[R1b]`, standalone NSO inventory rejected by name, NSP/XCI delegation returning the canonical inventory `[R12]`, null bridge callback, strict lookup miss without JIT.
+- Paths: Japanese parent directory, spaces, brackets, different current directory, path beyond `MAX_PATH` (works or explicit diagnostic).
+- Exporter: package success, extra DLL rejection, missing/empty DLL, cache reuse in both binding directions, stale cached DLL digest, failure injected after DLL verification and before promotion (staging and cache discarded, no partial package promoted) `[R5b]`, kit-only split rejection, unchanged all-static kit exports (strict and Hybrid), injected DLL-link and launcher-link LNK1248 on both compiler paths.
+- Regression: existing smoke goldens byte-identical with the split off; `tests/recompiler_fastmem` and `tests/recompiler_fpx` (reduced and full); existing ABI5/ABI6 all-static coverage.
+- PLA (step 6): static AOT without FMI, then with FMI; per-image `SizeOfImage`, link time, zero JIT transitions, loader inventory names, FPS in the same overworld scene, sampling.
+
+#### Step 3 prototype measurement (revised) `[R8]`
+
+Do not link static dev8 objects (they carry static renames and no runtime). Instead, from a Source-format export generated outside the repository, configure the generated `main` module CMake with `RECOMP_STATIC_ONLY` off so the existing `recompiled_image` SHARED target builds with the real shared definitions. Measure without FMI and with FMI: `SizeOfImage`, file size, PDB size, exports, imports, dependents, compiler and link flags, link time. Record this as evidence for the main DLL only; the launcher size remains an estimate until a split launcher links.
+
+#### Modifiability and reference correctness
+
+One exporter-owned topology value is the source for module names, bindings, DLL file names, bundle id, ABI, and features; every consumer is written from it and verified at build or load. Moving a module between static and DLL binding is a one-entry change. Generated code is not edited; the split is an opt-in generator/exporter option, and the default output is unchanged.
+
+#### Open questions
+
+1. Real main-DLL `SizeOfImage` without and with FMI (step 3).
+2. (Resolved in draft 3 `[R12]`: NSP/XCI already forward `ReadNSOModules`.)
+3. Whether the base-binding callback should also replace index routing for all-static exports later (out of scope now; v4 unchanged).
 
 ## Milestone 5: Implement improvements one at a time
 
@@ -162,13 +277,13 @@ For each feature, identify the responsible layer, add a clear setting where appr
 **Acceptance:** a clean checkout reproduces the documented software build, release contents match the license/input policy, and support claims match testing evidence. Reaching `v1.0.0` requires an explicitly agreed stable scope.
 
 
-## Session handoff (2026-10-05, seventh session, complete)
+## Session handoff (2026-10-06, eighth session, complete)
 
 ### State at handoff
 
 - **Current local state:** The host build tree was rebuilt with export variables cleared; no working static Build export exists locally. Clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before host builds, then re-export without FMI to obtain a package; the dev8 module libraries remain available for image inspection outside the repository.
 
-- **Repository:** HEAD is `a3063a2`. The README edit flagged last session was committed in `a3063a2`; the project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename in this change. The local repository folder remains named HisuiWake. Uncommitted: v0.0.1-dev10 exporter change and agent-role documentation (Orca Code Explorer added; Claude `code-explorer` subagent removed; `code-quick-implementer` now does all code implementation).
+- **Repository:** HEAD is `e66f19c`. The project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename. The local repository folder remains named HisuiWake. Uncommitted: auto-memory disable plus Orca notes in `CLAUDE.md`, `CHANGELOG.md`, and `.claude/settings.json`, and this session's documentation.
 - **Local environment:** The dev8 module libraries built for the image measurement are in a local directory outside the repository; the host build tree was rebuilt with export variables cleared (dev10 `suyu.exe`/`suyu-cmd.exe`). No working static Build export exists locally.
 - **Diagnostics:** the local diag directory outside the repository contains `sample_static.ps1` and `RipSampler2.cs`, with `asm_probe` and `fmi_probe` material. Launch from a non-elevated shell; use `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out <file>`.
 - **Build/test:** in the Build Tools 2026 `vcvars64` environment, run `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls` (about 100.6 M cases; reduced: add `--cases 1000 --adv 2000 --legs 13`), `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`, and `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`. Python must read generated files as UTF-8. `rebuild-suyu.bat` clears export variables and builds with `-j 8`; incremental builds use `cmake --build <build-dir> --target suyu suyu-cmd -j 8`.
@@ -176,11 +291,8 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 ### What this session did
 
-1. [Image budget measurement](#2026-10-05-static-launcher-image-budget-dev8-no-fmi-versus-fmi-section-totals): measured dev8 and FMI module section totals and estimated the dev8 launcher image.
-2. Renamed project documentation to Aevora and moved it from `docs/HisuiWake/` to `docs/Aevora/`.
-3. [Exporter LNK1248 stop and failure logs](#2026-10-05-exporter-stops-on-lnk1248-and-keeps-build-failure-logs-v001-dev10-unverified-by-export): documented the dev10 exporter change and its unverified paths.
-4. Updated agent roles: added the Orca Code Explorer role, removed the Claude `code-explorer` subagent, and assigned all code implementation to `code-quick-implementer`.
-5. Planned the main-module DLL split design (Milestone 4a) and archived the sixth-session progress entries to OLD_HISTORY.md.
+1. Completed Milestone 4a step 1: Orca Code Explorer surveyed globals/TLS, exe<->module symbol dependencies, and the launcher DLL loader/ABI6 handshake.
+2. Completed step 2: wrote the draft-3 design note and received three reviews: draft 1 (blocker 1, major 9, minor 1; R1-R11), draft 2 (blocker 0, major 2, minor 1; residual R1/R5 and new R12), and draft 3 (blocker 0, major 0, minor 0; implementation may start).
 
 ### Where things stand
 
@@ -201,15 +313,14 @@ Key conclusions: static AOT ran without fallback in the exercised scenario; Dyna
 
 ### Open issues, in priority order
 
-1. Main-module DLL split: follow Milestone 4a design steps (user decision 2026-10-05).
-2. Exercise the dev10 failure paths synthetically.
-3. Optionally confirm the dev8 image estimate by an actual link.
-4. Re-measure FPS and sampling for the chosen variant.
-5. Keep code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
+1. Milestone 4a step 3: measure the main DLL without and with FMI via a Source-format export and the existing SHARED target.
+2. Milestone 4a step 4: implement the design in reviewable steps.
+3. Exercise the dev10 failure paths synthetically.
+4. Remaining items from the old list item 5: code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
 
 ### Immediate next action
 
-Milestone 4a step 1: Code Explorer survey of globals/TLS and exe-module dependencies, then write the design note.
+Milestone 4a step 3: measure the main DLL without and with FMI via a Source-format export, using the generated SHARED target with `RECOMP_STATIC_ONLY` off.
 
 ### How to work
 
@@ -248,6 +359,15 @@ Keep raw logs, machine-specific paths, and game-derived artifacts local. Link on
 
 
 - **Archive rule:** At each session close, move progress entries older than the previous session (and their session-close entry) verbatim to OLD_HISTORY.md, and add any still-relevant fact to Key facts from archived history.
+
+### 2026-10-06: Milestone 4a design note reviewed and accepted (steps 1-2)
+
+- **Milestone and revision:** Milestone 4a, HEAD `e66f19c`.
+- **Problem and evidence:** The dev9 FMI static launcher exceeded the 2 GB x64 image limit; step 1 surveyed globals/TLS, exe<->module dependencies, and the launcher ABI6/DLL path, and the design note was reviewed through draft 3 with no unresolved findings.
+- **Files changed:** `docs/Aevora/WORK_PLAN.md` records the accepted D1-D7 design, review history, and handoff; `docs/Aevora/CODEBASE_INDEX.md` records the verified inventory and launcher paths; `CHANGELOG.md` records the documentation closure.
+- **Commands/settings:** No build, test, export, or runtime command was run in this session; design review used read-only source inspection and the local report outside the repository.
+- **Result and untested behavior:** The design specifies a DLL-local runtime copy; versioned topology registry v1 as the single source (v4 unchanged); bundle identity export; transactional loading; inventory-based base binding via `BindRecompProcess` before process publication; opt-in `SUYU_AOT_SPLIT_MAIN`; kit static-only with consumer-side rejection; package/cache derived from topology; and default output byte-identical. Implementation correctness, DLL image size, dependencies, performance, and PLA compatibility remain untested.
+- **Next action:** Milestone 4a step 3 measurement of the main DLL without and with FMI via a Source-format export and the generated SHARED target.
 
 
 

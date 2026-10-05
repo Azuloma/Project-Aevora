@@ -347,3 +347,71 @@ Rewrote the session handoff for a new session, recording the dev8 static AOT res
 ### 2026-10-05: Session close (sixth session)
 
 The sixth-session handoff records the dev8/JIT sampling, FMI verification, and the failed PLA FMI export; the next priority is measuring the no-FMI image margin and improving LNK1248 diagnostics.
+## Session handoff (2026-10-05, seventh session, complete)
+
+### State at handoff
+
+- **Current local state:** The host build tree was rebuilt with export variables cleared; no working static Build export exists locally. Clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before host builds, then re-export without FMI to obtain a package; the dev8 module libraries remain available for image inspection outside the repository.
+
+- **Repository:** HEAD is `a3063a2`. The README edit flagged last session was committed in `a3063a2`; the project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename in this change. The local repository folder remains named HisuiWake. Uncommitted: v0.0.1-dev10 exporter change and agent-role documentation (Orca Code Explorer added; Claude `code-explorer` subagent removed; `code-quick-implementer` now does all code implementation).
+- **Local environment:** The dev8 module libraries built for the image measurement are in a local directory outside the repository; the host build tree was rebuilt with export variables cleared (dev10 `suyu.exe`/`suyu-cmd.exe`). No working static Build export exists locally.
+- **Diagnostics:** the local diag directory outside the repository contains `sample_static.ps1` and `RipSampler2.cs`, with `asm_probe` and `fmi_probe` material. Launch from a non-elevated shell; use `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out <file>`.
+- **Build/test:** in the Build Tools 2026 `vcvars64` environment, run `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls` (about 100.6 M cases; reduced: add `--cases 1000 --adv 2000 --legs 13`), `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`, and `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`. Python must read generated files as UTF-8. `rebuild-suyu.bat` clears export variables and builds with `-j 8`; incremental builds use `cmake --build <build-dir> --target suyu suyu-cmd -j 8`.
+- **Switches:** `SUYU_FPCR_STATS=1` logs guest FPCR and adds a lock per save; never use it for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode. `SUYU_AOT_FM_INLINE=1` enables FMI at export only when FM1 is enabled, but currently breaks the PLA static export with LNK1248 and remains off.
+
+### What this session did
+
+1. [Image budget measurement](#2026-10-05-static-launcher-image-budget-dev8-no-fmi-versus-fmi-section-totals): measured dev8 and FMI module section totals and estimated the dev8 launcher image.
+2. Renamed project documentation to Aevora and moved it from `docs/HisuiWake/` to `docs/Aevora/`.
+3. [Exporter LNK1248 stop and failure logs](#2026-10-05-exporter-stops-on-lnk1248-and-keeps-build-failure-logs-v001-dev10-unverified-by-export): documented the dev10 exporter change and its unverified paths.
+4. Updated agent roles: added the Orca Code Explorer role, removed the Claude `code-explorer` subagent, and assigned all code implementation to `code-quick-implementer`.
+5. Planned the main-module DLL split design (Milestone 4a) and archived the sixth-session progress entries to OLD_HISTORY.md.
+
+### Where things stand
+
+| Observation | Result |
+|---|---|
+| JIT baseline | 30 FPS. |
+| Hybrid first / translate-all / budget 256 | 17 / 14 / 15-20 FPS. |
+| Dev6 static AOT | 16-20 FPS, no fallback. |
+| Dev8 static AOT | 25-30 FPS, no fallback. |
+| [Dev8 static sampling](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld) | Hot block 2-3.5% (was 15-19%), scheduler-fiber symbol about 1% (was 10-12.5%), CPU cores waiting 35-49% of samples. |
+| [Same-scene JIT sampling](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
+| [FMI export](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248) | FMI tests passed, but the PLA static launcher image was about 2.19 GB and failed LNK1248 against the 2 GB x64 limit. |
+| Image budget | Dev8 about 1,820 MiB estimated (about 228 MiB margin); FMI +421 MiB does not fit. |
+| FPCR measurement | FZ set in about 96% of 3,473,408 JIT context saves; do not measure FPS with `SUYU_FPCR_STATS=1`. |
+| Sampling profile | Hot block was 15-19% of busy-core RIP samples; `ScheduleImplFiber` was 10-12.5%. The FZ finding is confirmed, not a hypothesis. |
+
+Key conclusions: static AOT ran without fallback in the exercised scenario; Dynarmic remains linked for Hybrid and GPU macro JIT/shader compilation remain runtime generation. The SHL fallback hypothesis was refuted, and budget 256 addressed long-slice interrupt delay. The FZ-closed FPX1 gate was the main remaining static AOT cost; the smoke golden mismatch came from MSVC without `/utf-8` in the test only, so real exports were unaffected. Build exports delete `aot_cache`; use Source format to inspect generated C. The FPS comparison is not under fully matched conditions.
+
+### Open issues, in priority order
+
+1. Main-module DLL split: follow Milestone 4a design steps (user decision 2026-10-05).
+2. Exercise the dev10 failure paths synthetically.
+3. Optionally confirm the dev8 image estimate by an actual link.
+4. Re-measure FPS and sampling for the chosen variant.
+5. Keep code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
+
+### Immediate next action
+
+Milestone 4a step 1: Code Explorer survey of globals/TLS and exe-module dependencies, then write the design note.
+
+### How to work
+
+- Measure FPS in the same overworld scene and record backend, settings, cache state, and chain-budget condition; never use `SUYU_FPCR_STATS` during FPS measurements.
+- Use the test commands above and Source format when generated C must be inspected. Keep build/export paths and diagnostics outside the repository.
+- Do not export PLA with `SUYU_AOT_FM_INLINE=1` until the image budget is solved. Read generated files as UTF-8 in Python on Windows, and copy `suyu_log.txt` before restarting suyu after a failed export.
+- Follow [CLAUDE.md](../../CLAUDE.md), [CODEBASE_INDEX.md](CODEBASE_INDEX.md), and the Orca coordination notes.
+
+Useful entry points: [agent guide](../../CLAUDE.md), [codebase index](CODEBASE_INDEX.md), [project README](../../README.md), [upstream build guide](../Suyu/Build.md), [upstream export guide](../Suyu/user/GameExport.md), [exporter source](../../src/suyu/game_export.cpp), and [dependency manifest](../../cpmfile.json).
+
+After each meaningful change, add a dated entry with:
+
+- Milestone and source revision.
+- Problem and supporting evidence.
+- Files changed and reason for the chosen approach.
+- Exact build/test commands and relevant settings.
+- Observed result, comparison baseline, and untested behavior.
+- Next action or blocking information.
+
+Keep raw logs, machine-specific paths, and game-derived artifacts local. Link only to sanitized, shareable evidence from public documentation.

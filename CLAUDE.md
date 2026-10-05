@@ -79,6 +79,8 @@ Continue work within the user's authorized scope. Ask for missing information on
 
 The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`, or `git push`. For each coherent change, add a `## vX.Y.Z-devN - Unreleased` section (or extend the current one) in [CHANGELOG.md](CHANGELOG.md), then give the user the list of files to commit and a suggested commit message.
 
+Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false` in `.claude/settings.json`). Record lasting rules in this guide and project state in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md), not in agent memory.
+
 ## Agent orchestration
 
 - Codex loads [AGENTS.md](AGENTS.md), which points it to this guide; keep AGENTS.md as a pointer and put project rules in CLAUDE.md.
@@ -88,11 +90,15 @@ The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`
   - Code Explorer: `--model gpt-5.6-luna --effort medium`; explores and checks the codebase (locating files, symbols, call sites, build configuration, dependency definitions) and reports `path:line` references with a concise conclusion; read-only, does not edit files or run builds/exporters/cleanup scripts.
 - Use the matching role whenever a task needs it: codebase exploration goes to Code Explorer, Markdown changes go to md Implementer, and code changes are reviewed by Code reviewer.
 - Run Orca workers one at a time; start the next worker only after the previous one reports completion.
-- Do not poll a running Orca worker. Wait with a single blocking `orca orchestration check --wait`, then process the result.
+- Every Codex worker specification tells the worker to read CLAUDE.md first; Code reviewer specifications require citing the CLAUDE.md rule for each finding.
+- Do not poll a running Orca worker. Wait with a single blocking `orca orchestration check --wait`, then process the result; the default wait timeout is about 2 minutes, so pass a long `--timeout-ms` (for example `--timeout-ms 3600000`) on that single blocking wait.
 - Besides the three Orca roles, the only Claude subagent is `code-quick-implementer`, which carries out all code implementation and fixes once the cause and approach are decided; the parent Claude session handles investigation, design, and verification of results and does not edit source itself; no other agents or subagent types are launched.
 - Workers follow this guide, record only verified facts, and never commit, tag, or push.
 - For long worker specifications, write the spec with a file tool and start from Bash with `--spec "$(cat <file>)"`; Windows PowerShell 5.1 can break quoted native arguments, and very long heredocs can be truncated.
 - A Run permits only one active `check --wait` waiter. Wait with `--types worker_done,escalation` so heartbeat/status messages do not end the wait, and pass `--ack` for the previously processed delivery. Read Orca JSON output as UTF-8.
+- After `worker_done`, verify the result yourself, then release the worker with `orca orchestration worker-release --dispatch <dispatch id>` and acknowledge the delivery with `--ack <delivery id>` on the next `check`.
+- If `worker-start` reports `start_unknown` or `turn_start_unobserved`, read the worker terminal; a Codex update banner can leave the spec pasted but unsubmitted, and `orca terminal send --terminal <terminal handle> --enter` submits it.
+- The user may also hand work to Codex directly; re-check `git status` and the diff before editing.
 
 ## Build and verification rules
 
