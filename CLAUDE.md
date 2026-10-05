@@ -26,6 +26,16 @@ Read [README.md](README.md) and [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md) before 
 - Separate runtime/exporter fixes from game-specific changes to timing, camera, shaders, LoD, or assets. Identify the responsible layer before implementing a feature.
 - Keep changes focused on PLA. Broader game compatibility is outside the initial support scope.
 
+## Modding and QoL readiness
+
+Aevora's improvements (Milestone 5 and later QoL features) depend on a recompilation that can be changed safely. Before substantial recompiler work such as the Milestone 4a main-module DLL split, and in every change to the exporter, generator, or recompiled runtime:
+
+- Make modifications and QoL features attach through defined extension points (settings, runtime hooks/callbacks, documented generator options) instead of editing generated code or hard-coding guest addresses, offsets, or module layouts in the generator or runtime.
+- Resolve every reference (guest addresses and module bases, function entries, symbols and renames, registry/registration entries, ABI fields and versions, file and package names) from one authoritative source. Do not duplicate a reference in a second place that can drift; when a value must be shared across the generator, generated code, launcher, build kit, and exporter, derive it from the same definition or verify it at load/build time.
+- A small, local change (one hook, one setting, one module, one generated unit) must not break the recompiler tool or unrelated stages. Keep changes local, and when references do not match, fail fast with a diagnostic that names the mismatched item instead of producing silently broken output or falling back without a record.
+- Cover each extension point and cross-component reference path with targeted synthetic tests (for example `tests/recompiler_smoke`, `tests/recompiler_fastmem`, `tests/recompiler_fpx`) so a regression is caught before a PLA export.
+- Treat this as a design acceptance criterion: designs and code reviews check modifiability and reference correctness, and a change that makes later mods or QoL additions harder must state why and how that is contained.
+
 ## Repository map
 
 | Location | Purpose |
@@ -73,7 +83,7 @@ The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`
 
 - Codex loads [AGENTS.md](AGENTS.md), which points it to this guide; keep AGENTS.md as a pointer and put project rules in CLAUDE.md.
 - Codex workers are started through Orca orchestration: `orca orchestration worker-start --agent codex` with these roles:
-  - Code reviewer: `--model gpt-6.1-sol --effort high`; reviews code changes against the "Readable code", "Architecture and scope", "Working method", and "Build and verification rules" sections and cites the rule for each finding; does not edit files unless the task says so.
+  - Code reviewer: `--model gpt-6.1-sol --effort high`; reviews code changes against the "Readable code", "Architecture and scope", "Working method", "Build and verification rules", and "Modding and QoL readiness" sections and cites the rule for each finding; does not edit files unless the task says so.
   - md Implementer: `--model gpt-5.6-luna --effort medium`; creates, edits, and manages Markdown files (for example WORK_PLAN.md, OLD_HISTORY.md, CHANGELOG.md, CODEBASE_INDEX.md, README.md, CLAUDE.md); does not edit source or build files.
   - Code Explorer: `--model gpt-5.6-luna --effort medium`; explores and checks the codebase (locating files, symbols, call sites, build configuration, dependency definitions) and reports `path:line` references with a concise conclusion; read-only, does not edit files or run builds/exporters/cleanup scripts.
 - Use the matching role whenever a task needs it: codebase exploration goes to Code Explorer, Markdown changes go to md Implementer, and code changes are reviewed by Code reviewer.

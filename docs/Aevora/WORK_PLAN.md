@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-04. HEAD: `a3063a2` (docs commit after `c2c921e` `v0.0.1-dev9`). Last session handoff: 2026-10-05, seventh session (see [Session handoff](#session-handoff-2026-10-05-seventh-session-in-progress)).
+Handoff prepared: 2026-10-04. HEAD: `a3063a2` (docs commit after `c2c921e` `v0.0.1-dev9`). Last session handoff: 2026-10-05, seventh session (see [Session handoff](#session-handoff-2026-10-05-seventh-session-complete)).
 Older history (2026-10-04 handoff through the fourth session close on 2026-10-05, plus earlier export evidence) is archived in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
@@ -44,6 +44,10 @@ The cleanup already removed upstream automation, temporary material, old screens
 - **Static hot block:** The dev6 hot block contributed 15-19% of busy-core samples, and guest FPCR.FZ was set in about 96% of JIT context saves. ([details](OLD_HISTORY.md#2026-10-05-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld)) ([details](OLD_HISTORY.md#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed))
 - **Dev8 FZ-aware FPX1 gate:** The harness recorded 0 mismatches over 100.6 M cases. ([details](OLD_HISTORY.md#2026-10-05-fz-aware-fpx1-gate-v001-dev8-unverified-in-pla))
 - **Dev8 static AOT:** The fallback-disabled export reached 25-30 FPS with zero fallback in the observed scene. ([details](OLD_HISTORY.md#2026-10-05-fz-aware-fpx1-gate-verified-in-pla-static-aot-25-30-fps))
+- **Dev8 static sampling:** The dominant hot block fell from 15-19% to 2-3.5% of busy-core samples, and CPU cores waited 35-49% of samples. ([details](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld))
+- **Same-scene JIT comparison:** JIT process CPU was 275.7% versus 320.3% dev8 static; HostTiming, GPU-thread load, and `NtGdiDdDDIQueryAdapterInfo` are not AOT-specific; the remaining gap is guest CPU execution cost (static about 1.5-2x JIT CPU per core, estimate). ([details](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost))
+- **FMI (dev9):** Opt-in `SUYU_AOT_FM_INLINE=1` inlines the FM1 fast path; targeted tests passed (0 mismatches); out-of-line memory helpers were about 11% of busy-core samples. ([details](OLD_HISTORY.md#2026-10-05-source-inspection-of-memory-access-and-the-opt-in-fmi-inline-fast-path-v001-dev9-unmeasured-in-pla))
+- **FMI LNK1248:** The PLA FMI static launcher reached image size `0x8C0E0000` (about 2.19 GB) and failed LNK1248; the MSVC fallback path could not help and diagnostics were lost (addressed in dev10). ([details](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248))
 
 ## Milestone 1: Establish a reproducible host build
 
@@ -94,6 +98,42 @@ The cleanup already removed upstream automation, temporary material, old screens
 
 **Acceptance:** the tested scenarios run correctly with guest CPU fallback disabled, and remaining coverage limits are disclosed. Passing those scenarios is evidence for those scenarios, not proof that every game path works. GPU shaders and runtime services remain separate architectural concerns.
 
+## Milestone 4a: Main-module DLL split (design plan)
+
+**Goal:** Build `main` as its own DLL image loaded by the static launcher while `rtld`, `sdk`, `subsdk0`, and `subsdk1` stay statically linked, so each image stays under the 2 GB MSVC x64 limit, including with FMI. Guest CPU fallback must remain disabled; the export must still run without JIT.
+
+**Why (evidence):** Estimated image budget (see the image-budget progress entry): dev8 static launcher about 1,820 MiB (about 228 MiB margin); `main` is about 1,455 MiB (no FMI) / 1,780 MiB (FMI) of generated code. With `main` split out, the estimate is main DLL about 1,455 / 1,780 MiB and the launcher about 365 / 460 MiB (other modules plus runtime, estimate). Risk: `main` alone keeps only about 268 MiB margin with FMI; further growth of `main` would require splitting `main` itself, which is harder (intra-module direct calls).
+
+**Existing building blocks (survey, 2026-10-05; verify line numbers before use):**
+
+- The generator already emits a per-module shared library (`recompiled_image` for `main`, `recompiled_<module>` otherwise) with `SUYU_HOSTED_RECOMP=1` / `RECOMP_SHARED_MODULE=1` and an exported ABI surface (image ABI, guard v2, optional guard_gen/features/fastmem/fpx, image_lookup, run_slice, index, set_base, entry) in `src/core/recompiler/arm64_to_c.h` (~5570-5909). `RECOMP_STATIC_ONLY` suppresses it for static exports.
+- `src/suyu_cmd/suyu.cpp` (~2021-2186) loads module DLLs from the executable directory in NSO order with `GetProcAddress` handshakes (ABI, ABI6), combines lookup/run_slice, and routes bases by load-order index - but only when the static registry is empty (~2024).
+- Static registration: `game_export.cpp` (~4043-4210) writes `recomp_registration.c` (NSO-order externs/table, guard and ABI6 registries); `src/suyu_cmd/CMakeLists.txt` (~107-218) imports `recomp_runtime_shared` once and each `recomp_static_<module>` with per-module renames, and links `suyu-cmd-static`; `src/suyu_cmd/recomp_modules/CMakeLists.txt` repeats the renames for the clang-cl prebuild.
+- Generated code reaches the host through `RecompHostMem` callbacks and `GuestContext` fields filled by `src/core/arm/recomp/arm_recomp.cpp` (~908-1043), not host symbol imports. Cross-module guest calls go through the dispatcher (generated direct calls only within one module, `arm64_to_c.h` ~378-410) and guest GOT/PLT relocation (`arm_recomp.cpp` ~1357-1480); no native cross-module symbol references were found.
+- Per-image state exists: `g_module_base`, GG1 watch word, FPX shadow static/_Thread_local state, exclusive-monitor fallback state (`arm64_to_c.h` ~6836-6847, ~7630). CRT is /MD in the project and the export build kit.
+- Packaging assumes one file: `game_export.cpp` (~5190-5486) packages `static_launcher.exe` only and README_NATIVE_EXPORT says one executable; the export build kit (`tools/export_build_kit/`) imports static libraries only and `package.py` rejects `recomp_static_*` inputs; manifests carry no module binary topology.
+
+**Design decisions to make (each recorded with rationale before implementation):**
+
+- D1 Runtime placement: the main DLL carries its own `recomp_runtime.c` copy (memory helpers stay DLL-local calls) versus importing helpers from the launcher (DLL-to-exE call per access). Default proposal: DLL-local copy; verify that no runtime global must be process-wide.
+- D2 Per-image globals: list every global/TLS in `recomp_runtime.c`/`.h` and the generated units; classify as per-image (fine duplicated) or shared (must move into `GuestContext`/host callbacks). Must cover GG1 watch word, FPX shadow, exclusive state, guard generation, chain budget.
+- D3 Mixed registry and loading: how `recomp_registration.c` represents a DLL module (placeholder entry filled at load, or a separate DLL list) while keeping NSO order, base routing, and the ABI6 all-module handshake; the launcher must load the DLL even when the static registry is non-empty; error behaviour when the DLL is missing or mismatched (fail fast; no JIT fallback in strict mode).
+- D4 Build: generator/CMake mode to build `main` as a DLL and others as static libs in both the in-tree MSVC path and the clang-cl `recomp_modules` prebuild (clang-cl compiles, link.exe or lld-link links the DLL); module renames; import library handling; /MD; PDB size.
+- D5 Packaging and manifest: the Build export ships `static_launcher.exe` plus the main DLL; update the package layout, README_NATIVE_EXPORT and UI “single-file” wording, package policy, manifest field for module binary topology, cache reuse, and the LNK1248 handling (per-image size check).
+- D6 Export build kit: decide whether the kit supports the split now or is explicitly documented as static-only for now.
+- D7 Selection: always split main for PLA static exports, or split only when the estimated image (from `dumpbin /summary` sizes) exceeds a threshold; name the threshold constant.
+
+**Design work steps:**
+
+1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3.
+2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change.
+3. Prototype measurement before full implementation: link main alone as a DLL from the existing dev8 module objects (local, outside the repository) to measure its real image size and confirm the 2 GB margin; record it.
+4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode, (b) registry + launcher loading, (c) exporter packaging/manifest/wording, (d) build-kit decision. Code reviewer reviews each step.
+5. Tests: extend `tests/recompiler_smoke` with a mixed static+DLL variant (synthetic modules) covering load order, base routing, cross-module dispatch, guard checks, GG1, and FPX; keep existing goldens unchanged for non-split exports; run the fastmem and FPX harnesses.
+6. PLA verification: export static AOT (fallback disabled) without FMI, then with FMI; record per-image sizes, link time, zero JIT transitions, FPS in the same overworld scene, and sampling; compare with dev8 (25-30 FPS) and JIT (30 FPS).
+
+**Acceptance:** design note reviewed with no unresolved findings; main DLL and launcher each link under 2 GB for PLA with FMI; strict static mode shows zero JIT transitions and no lookup misses in the exercised scene; synthetic mixed-mode tests pass; packaging, manifest, and documentation describe the two-file layout; remaining limits (main margin, build-kit support) are documented.
+
 ## Milestone 5: Implement improvements one at a time
 
 For each feature, identify the responsible layer, add a clear setting where appropriate, preserve a baseline/default mode, and record gameplay correctness and performance before and after the change.
@@ -140,6 +180,7 @@ For each feature, identify the responsible layer, add a clear setting where appr
 2. Renamed project documentation to Aevora and moved it from `docs/HisuiWake/` to `docs/Aevora/`.
 3. [Exporter LNK1248 stop and failure logs](#2026-10-05-exporter-stops-on-lnk1248-and-keeps-build-failure-logs-v001-dev10-unverified-by-export): documented the dev10 exporter change and its unverified paths.
 4. Updated agent roles: added the Orca Code Explorer role, removed the Claude `code-explorer` subagent, and assigned all code implementation to `code-quick-implementer`.
+5. Planned the main-module DLL split design (Milestone 4a) and archived the sixth-session progress entries to OLD_HISTORY.md.
 
 ### Where things stand
 
@@ -149,9 +190,9 @@ For each feature, identify the responsible layer, add a clear setting where appr
 | Hybrid first / translate-all / budget 256 | 17 / 14 / 15-20 FPS. |
 | Dev6 static AOT | 16-20 FPS, no fallback. |
 | Dev8 static AOT | 25-30 FPS, no fallback. |
-| [Dev8 static sampling](#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld) | Hot block 2-3.5% (was 15-19%), scheduler-fiber symbol about 1% (was 10-12.5%), CPU cores waiting 35-49% of samples. |
-| [Same-scene JIT sampling](#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
-| [FMI export](#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248) | FMI tests passed, but the PLA static launcher image was about 2.19 GB and failed LNK1248 against the 2 GB x64 limit. |
+| [Dev8 static sampling](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld) | Hot block 2-3.5% (was 15-19%), scheduler-fiber symbol about 1% (was 10-12.5%), CPU cores waiting 35-49% of samples. |
+| [Same-scene JIT sampling](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
+| [FMI export](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248) | FMI tests passed, but the PLA static launcher image was about 2.19 GB and failed LNK1248 against the 2 GB x64 limit. |
 | Image budget | Dev8 about 1,820 MiB estimated (about 228 MiB margin); FMI +421 MiB does not fit. |
 | FPCR measurement | FZ set in about 96% of 3,473,408 JIT context saves; do not measure FPS with `SUYU_FPCR_STATS=1`. |
 | Sampling profile | Hot block was 15-19% of busy-core RIP samples; `ScheduleImplFiber` was 10-12.5%. The FZ finding is confirmed, not a hypothesis. |
@@ -160,7 +201,7 @@ Key conclusions: static AOT ran without fallback in the exercised scenario; Dyna
 
 ### Open issues, in priority order
 
-1. Choose the image-budget strategy (restrict FMI to hot code; reduce `_expected[]`/entry labels/FP bodies; or DLL split of `main`), measuring each candidate with `dumpbin /summary` first.
+1. Main-module DLL split: follow Milestone 4a design steps (user decision 2026-10-05).
 2. Exercise the dev10 failure paths synthetically.
 3. Optionally confirm the dev8 image estimate by an actual link.
 4. Re-measure FPS and sampling for the chosen variant.
@@ -168,7 +209,7 @@ Key conclusions: static AOT ran without fallback in the exercised scenario; Dyna
 
 ### Immediate next action
 
-Decide the image-budget strategy with the user; the cheapest first step is measuring how much `.text` FMI adds when limited to hot units.
+Milestone 4a step 1: Code Explorer survey of globals/TLS and exe-module dependencies, then write the design note.
 
 ### How to work
 
@@ -207,67 +248,10 @@ Keep raw logs, machine-specific paths, and game-derived artifacts local. Link on
 
 
 - **Archive rule:** At each session close, move progress entries older than the previous session (and their session-close entry) verbatim to OLD_HISTORY.md, and add any still-relevant fact to Key facts from archived history.
-### 2026-10-05: Dev8 static AOT per-thread CPU and RIP sampling in the overworld
 
-- **Milestone and configuration:** Milestone 4. Source revision `HEAD` was `70336e7`; runtime/export version was `v0.0.1-dev8`. This was a dev8 static AOT Build export with fallback disabled. The user stopped in the overworld. The launcher was started from a non-elevated shell, and the shell running the sampler was non-elevated.
-- **Command and comparison:** `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out rip_samples_static_dev8.txt` measured a 60 s per-thread CPU window, then collected 2,000 RIP samples per `CPUCore`/`GPU` thread at 5 ms. Output was kept in the local diag directory outside the repository and compared with the dev6 static sample `rip_samples_static.txt` taken the same way. FPS during the sampling window was not recorded.
-- **CPU and RIP summary:**
 
-| Metric | Dev6 static AOT | Dev8 static AOT |
-|---|---|---|
-| Process CPU (sum of threads, % of one core) | 334.3% | 320.3% |
-| HostTiming thread CPU | 99.0% | 98.7% |
-| CPUCore_0 / 1 / 2 / 3 CPU | 40.4 / 88.1 / 89.2 / 0.2% | 55.4 / 68.7 / 68.0 / 0.4% |
-| GPU thread CPU | 7.3% | 16.7% |
-| `ZwWaitForAlertByThreadId` share on CPUCore_1 / CPUCore_2 / CPUCore_0 | 11.0 / 9.9 / 61.2% | 34.8 / 37.6 / 48.6% |
-| `blk_main_0000000002d1e290` share on CPUCore_1 / CPUCore_2 | 15.5 / 19.4% | 2.0 / 3.5% |
-| Symbol shown as `Service::HID::Gesture::~Gesture` (previously attributed to `ScheduleImplFiber`) on CPUCore_1 / CPUCore_2 | 12.5 / 10.3% | 1.2 / 1.1% |
-| `recomp_load64` on CPUCore_1 / CPUCore_2 / CPUCore_0 | 4.5 / 2.9 / 3.8% | 5.3 / 4.8 / 5.9% |
-| `recomp_lookup_main` on CPUCore_1 / CPUCore_2 / CPUCore_0 | 2.2 / 2.3 / 1.3% | 3.3 / 3.2 / 2.7% |
 
-- **Other observations:** On CPUCore_1, the memory helpers `recomp_load64/load32/load8/ldp64/stp64` were about 10.9% of all RIP samples (about 17% of non-wait samples); `recomp_lookup_main` plus `recomp_lookup_sdk` were about 4.4%. `Core::ArmRecomp::RunThread` was 2.4-2.7% and `recomp_image_run_slice_*` was 0.9-1.5% per core. `<unknown>` was 5.0-5.9% per core; these are unresolved addresses and are not yet attributed. CPUCore_0 showed `Dynarmic::SpinLock::Unlock` at 0.9% and `Core::Memory::Memory::Impl::WriteExclusive<unsigned int>` at 0.7%; this is an exclusive-access path, not JIT execution. The GPU thread showed `NtGdiDdDDIQueryAdapterInfo` at 6.0%, which was not seen in the dev6 sample. CPUCore_3 was idle (99.5% wait) in both samples. No per-instruction entry labels appeared in the top-15 lists.
-- **Findings:** The dev8 FZ-aware FPX1 change reduced the dominant hot block from 15-19% to 2-3.5% and reduced the scheduler-fiber symbol share from 10-12.5% to about 1%. CPU cores now wait 35-49% of samples instead of about 10% on cores 1-2.
-- **Hypotheses (unverified):** Guest CPU execution is no longer the saturating cost in this scene. The remaining 25-30 versus 30 FPS gap may come from frame pacing, GPU/presentation, `HostTiming`, or remaining memory-helper/lookup overhead. A JIT sample in the same scene, with FPS/frame-time recorded during both samples, is needed to decide.
-- **Next:** Sample the JIT baseline in the same scene with the same method and record FPS during both samples; attribute `<unknown>` addresses; investigate `NtGdiDdDDIQueryAdapterInfo` on the GPU thread only if the JIT sample lacks it.
 
-### 2026-10-05: Same-scene JIT sampling: remaining gap is guest CPU cost
-
-- **Target and method:** The `suyu.exe` JIT process was sampled in the same overworld scene with the same `sample_static.ps1` method used for dev8 static AOT. FPS during either sampling window was not recorded.
-
-| Metric | JIT | Dev8 static AOT |
-|---|---:|---:|
-| Process CPU (sum of threads, % of one core) | 275.7% | 320.3% |
-| CPUCore_0 / CPUCore_1 / CPUCore_2 CPU | 44.7 / 47.2 / 45.7% | 55.4 / 68.7 / 68.0% |
-| Core wait share | 56-61% | 35-49% |
-| JIT code (`<unknown>`) share | 32-35% of samples | Not applicable |
-| HostTiming CPU | 98.2% | 98.7% |
-| GPU thread CPU | 18.0% | 16.7% |
-| `NtGdiDdDDIQueryAdapterInfo` on GPU thread | 6.3% | 6.0% |
-
-- **Conclusion:** HostTiming, GPU thread load, and `NtGdiDdDDIQueryAdapterInfo` are not AOT-specific. The remaining gap is guest CPU execution cost: static AOT uses roughly 1.5-2x the JIT CPU time per core in this scene, estimated from non-wait shares. This refutes the earlier GPU/presentation hypothesis in the dev8 sampling entry; the `<unknown>` JIT samples are JIT code and do not identify a more specific cost.
-- **Unmeasured:** FPS during the samples, image size, compile time, and frame-time stability were not recorded.
-
-### 2026-10-05: Source inspection of memory access and the opt-in FMI inline fast path (v0.0.1-dev9, unmeasured in PLA)
-
-- **Why:** Dev8 static AOT RIP sampling showed out-of-line memory helpers at about 11% of CPUCore_1 samples. Source-export inspection of the dev8 static export (clang-cl `/O2`, no LTO) found the helpers defined in `recomp_runtime.c`, a separate translation unit, so every guest memory access is a call even when FM1 serves it; a clang-cl `/O2` compile of the hot block confirmed `call recomp_load64` and similar calls at each access.
-- **Additional inspection:** Per-instruction entry labels (`_recomp_entry_N`) force guest registers through `GuestContext` memory between instructions (store then reload); FMI does not address this later candidate. The hot block expands to about 24,000 assembly lines because exact FP fallback bodies are inline; instruction-cache pressure is a hypothesis and is unverified.
-- **Design:** FMI appends `recomp_fmi_*` static inline fast paths, including a GG1 watch-word store entry, to `recomp_runtime.h`. Object-like renames such as `#define recomp_load64 recomp_fmi_load64` apply only in generated units; `recomp_runtime.c` defines `RECOMP_RUNTIME_C 1` first so its definitions retain their original names. The unchanged out-of-line helper remains the fallback. FMI changes no ABI or feature bits and is opt-in because an existing header note records whole-helper inlining as worse on MK8D (image 100 to 222 MB, -14% FPS); FMI only inlines the fast path and is unmeasured on PLA.
-- **Exporter:** `SUYU_AOT_FM_INLINE=1` enables FMI only when FM1 is enabled. The manifest records `"fm_inline"`; cache reuse requires a matching value, and manifests without the field count as FMI off.
-- **Verification:** `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl` passed fmdiff's five legs (FM1 fast, FM1 slow, ABI 5, FMI fast, FMI fallback) and fmdiff_gg's four legs (GG1 runtime with a random eighth of pages watched), each with 20,000,768 operations and 0 mismatches. A deliberate GG1 FMI store mutation without the watch check was caught. `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl` passed all seven variants (ABI5, ABI6, ABI6GG, FPX, GGFPX, ABI6FMI, GGFMI); goldens were unchanged and `check_fm_inline` asserted that only `recomp_runtime.c` and `.h` differ. `rebuild-suyu.bat` succeeded after clearing export cache entries and building `suyu` and `suyu-cmd -j 8`.
-- **Review:** The Code reviewer (Orca, gpt-6.1-sol, high effort) reported no findings and additionally built FMI with FPX1/shadow and GG1 combinations. It noted that the synthetic standalone GG1 target fails to link `g_recomp_gg_word` with FMI on and off, a pre-existing issue outside this change, and recommended permanent FMI+FPX smoke variants and exporter cache tests for old/off/on manifests.
-- **Not run:** PLA export with FMI, image size/compile-time/FPS/sampling measurements, the FPX harness, partition test, and build-kit linking remain unmeasured.
-
-### 2026-10-05: PLA export with FMI fails: static launcher image exceeds 2 GB (LNK1248)
-
-- **Export and evidence:** The user exported PLA static AOT in Build format with fallback disabled and `SUYU_AOT_FM_INLINE=1`. clang-cl compiled all five modules without errors from 17:43 to 18:39 local time; the local `recomp_static_main.lib` was about 3.71 GB. Linking `suyu-cmd-static` with link.exe failed after about 33 minutes: `LINK : fatal error LNK1248: image size (8C0E0000) exceeds maximum allowable size (80000000)`. The resulting image would be about 2.19 GB, over the 2 GB MSVC x64 image limit.
-- **A/B compile:** With clang-cl `/O2 /bigobj /fp:precise`, dev8 versus FMI compile results were: unit 614, 60 to 62 seconds, 691 to 695 MB peak working set, 5.5 to 5.8 MB object; unit 661, 141 to 155 seconds, 1,039 to 1,023 MB, 4.8 to 4.9 MB; unit 350, 19 to 19 seconds, 385 to 383 MB, 4.1 to 4.7 MB. Object growth was 2-15%, with no compile errors and similar compile memory. The dev8 header was regenerated from the emitter and verified byte-identical to the dev8 Source export header.
-- **Failure path:** The fallback-disabled export then reconfigured the source tree and entered the existing MSVC per-module path. Its 8 GB-per-`cl.exe` job-pool budget allowed one compiler at a time on the 15.8 GB host; units took about 100-300 seconds and the 701-unit `main` module was estimated at about 20 hours. A Windows low-virtual-memory event named `cl.exe` at about 5.2 GB, and the first attempt ended with a compile failure dialog. This path would also hit LNK1248 or compiler memory limits and cannot solve the image-size problem.
-- **Diagnostics and interpretation:** suyu rotated its log on restart and the exporter deleted the failed export work directory, so the first compiler/linker output was lost; the second log retained LNK1248. The earlier commit-charge hypothesis was superseded by the linker error; the observed 28.9 GB commit limit was not causal. The direct cause is FMI code growth in the one static launcher image. Candidate contributors (unmeasured hypotheses) are per-block `_expected[]` guard copies, per-instruction entry labels and dispatch switches, and inline exact-FP bodies; the 89-instruction hot block compiles to about 24,000 assembly lines.
-- **Scope:** The 2 GB limit applies per executable or DLL image to CPU recompiled code linked into the static launcher. It does not block a planned native rendering pipeline in the runtime (`video_core`/`shader_recompiler`), which can live in separate images. CPU-side options are reducing generated code or splitting modules such as `main` into DLLs.
-
-### 2026-10-05: Session close (sixth session)
-
-The sixth-session handoff records the dev8/JIT sampling, FMI verification, and the failed PLA FMI export; the next priority is measuring the no-FMI image margin and improving LNK1248 diagnostics.
 
 ### 2026-10-05: Static launcher image budget: dev8 (no FMI) versus FMI section totals
 

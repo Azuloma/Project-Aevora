@@ -13,6 +13,10 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Added
 - Failed compile and link output (clang-cl and MSVC paths) is appended to `export_build_failure.log` in suyu's log directory, because `suyu_log.txt` rotates on restart and the exporter deletes its work directory. Write and flush errors are checked; the file is truncated before appending once it exceeds 8 MiB. Only the captured tail of each process output (about 0.5-1 M characters) is kept.
 
+### Documentation
+- Added the main-module DLL split design plan (Milestone 4a) to the work plan and archived the sixth-session progress entries to `docs/Aevora/OLD_HISTORY.md`.
+- Added the "Modding and QoL readiness" rule to `CLAUDE.md`: recompiler changes must keep mods and QoL additions easy to add, resolve references from one authoritative source, and fail fast on mismatches so a small change cannot break the recompiler tool; the Code reviewer role now checks it.
+
 ## v0.0.1-dev9 - Unreleased
 
 *Development commit 9 toward v0.0.1. Not a release; no build artifacts are published.*
