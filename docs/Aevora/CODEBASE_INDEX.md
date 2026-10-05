@@ -1,10 +1,10 @@
-# HisuiWake Codebase Index
+# Aevora Codebase Index
 
 Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
-- "Upstream" means Suyu/yuzu. Whether a feature is HisuiWake/fork-specific was judged by naming and comments only unless stated otherwise.
+- "Upstream" means Suyu/yuzu. Whether a feature is Aevora/fork-specific was judged by naming and comments only unless stated otherwise.
 
 ## 1. Top-level layout
 
@@ -20,7 +20,7 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `tools/` | Export build kit, CPM scripts, package-policy audit, shader tools, Windows helpers. |
 | `scripts/` | Build-fix notes and helper scripts. Inspect before running; some clear caches. |
 | `dist/`, `hooks/` | Desktop/icon/udev assets; git pre-commit hook installed by CMake. |
-| `docs/HisuiWake/`, `docs/Suyu/` | Current project docs, including `WORK_PLAN.md` and `OLD_HISTORY_HW.md`; archived upstream docs. |
+| `docs/Aevora/`, `docs/Suyu/` | Current project docs, including `WORK_PLAN.md` and `OLD_HISTORY.md`; archived upstream docs. |
 
 ### Lineage markers found in the tree
 
@@ -49,7 +49,7 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `SUYU_RECOMP_STRICT` read in emitted code | `arm64_to_c.h:7374` (v) | Generated runtime honours strict mode. |
 | `kDefaultUnitSourceBytes` / `kDefaultUnitBlocks` | after `kChainBudget`, ~`arm64_to_c.h:357` (v, 2026-10-05) | Generated-unit limits (8 MiB / 5,000 blocks). `EmitProject()` takes `unit_source_limit` and `unit_block_limit`; split condition ~`:5328`. |
 | Generated module CMake job pool | ~`arm64_to_c.h:5574-5615` (v, 2026-10-05) | `RECOMP_JOBS` from RAM minus 4 GB, 8 GB per cl.exe or 1.5 GB per clang compile; `SUYU_RECOMP_JOBS`, `SUYU_RECOMP_JOB_MEMORY_MB`, `-DRECOMP_JOBS` overrides; Ninja pool `recomp_compile`. |
-| AdvSIMD shift-by-immediate emitters | ~`arm64_to_c.h:1719-1830` (v, 2026-10-05) | `SSHR`/`USHR`/`SHRN` at ~`:1795`. `SHL` (vector, immediate) is implemented in the non-saturating and dedicated emitters but gated by `g_translate_all` for Hybrid exports (see `OLD_HISTORY_HW.md`). |
+| AdvSIMD shift-by-immediate emitters | ~`arm64_to_c.h:1719-1830` (v, 2026-10-05) | `SSHR`/`USHR`/`SHRN` at ~`:1795`. `SHL` (vector, immediate) is implemented in the non-saturating and dedicated emitters but gated by `g_translate_all` for Hybrid exports (see `OLD_HISTORY.md`). |
 | FPX1 runtime text and emitters | `arm64_to_c.h:FpxH()` / `FpxH64()` ~`:6416` / `:6627`; `EmitFPNativeValue` / `EmitFPNativeSuffix` ~`:492` / `:505` (v) | `RECOMP_FPX_OPEN` uses `RECOMP_FPX_FPCR_MASK 0x06C8FF07`; `RECOMP_FPX_FZ` passes guest FZ to `recomp_fpx_<op>{32,64}(..., int fz, ...)` and applies the FZ-safe keep rules. |
 
 ### 2.2 Exporter (Qt)
@@ -143,7 +143,7 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | Graphics pipeline libraries (GPL) | `renderer_vulkan/vk_graphics_pipeline.h:66` (`GraphicsPipelineLibraryKey`, `GraphicsPipelineLibraryCache`); part creation and per-part key masking from `vk_graphics_pipeline.cpp:1107` (v) | Causes wrong textures/state in PLA; disabled by default (`use_graphics_pipeline_library`, `src/common/settings.h` ~`:597`). Device gating in `vulkan_common/vulkan_device.cpp` ~`:717`. Root cause unfixed. |
 | VMA implementation | `video_core/vulkan_common/vma.cpp` | Compiled per executable (not in `video_core`); the Qt frontend skips it with static Qt, which already contains VMA 3.2.1. |
 
-`renderer_vulkan.h:68` (v) declares `InterpolateFrames(Frame*, Frame*)`. Its purpose and origin (fork versus upstream) are unverified. `TurboMode` (`vk_turbo_mode.h`) is an upstream yuzu feature, not HisuiWake-specific.
+`renderer_vulkan.h:68` (v) declares `InterpolateFrames(Frame*, Frame*)`. Its purpose and origin (fork versus upstream) are unverified. `TurboMode` (`vk_turbo_mode.h`) is an upstream yuzu feature, not Aevora-specific.
 
 **Candidate starting points for Milestone 5 (all *inference*; confirm the responsible layer before you implement):**
 

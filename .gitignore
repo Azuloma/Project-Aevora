@@ -90,7 +90,7 @@ vcpkg_installed/
 # Local, machine-specific CMake presets
 CMakeUserPresets.json
 
-# HisuiWake local game inputs and runtime data
+# Aevora local game inputs and runtime data
 /local/
 /user/
 *.nsp

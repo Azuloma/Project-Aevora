@@ -11,7 +11,7 @@ import tempfile
 # SHA-256 of the whole generated smoke tree (every file, by relative path) with
 # the fast-path emit option off. That output must stay byte-identical to ABI 5;
 # update this only for a deliberate ABI 5 emitter change, never for ABI 6 work.
-# HisuiWake v0.0.1-dev8: all three recomputed after the v0.0.1-dev4 change to
+# Aevora v0.0.1-dev8: all three recomputed after the v0.0.1-dev4 change to
 # the generated CMake job-pool text (shared by every variant). smoke_export is
 # now built with /utf-8 on MSVC, as suyu is, so these match clang-cl builds.
 ABI5_GOLDEN = "a325a2d05566f9d2efaeead9a855d963cf7e143efef14a0095f505ff92d090e7"

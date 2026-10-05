@@ -1,4 +1,4 @@
-# HisuiWake Old History
+# Aevora Old History
 
 Archived, append-only record moved out of WORK_PLAN.md on 2026-10-05. Entries are kept verbatim; for current status, plans, and key facts see [WORK_PLAN.md](WORK_PLAN.md).
 

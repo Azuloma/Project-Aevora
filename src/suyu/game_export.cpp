@@ -10,6 +10,7 @@
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QPixmap>
 #include <QDir>
 #include <QDirIterator>
@@ -3042,6 +3043,43 @@ static bool LastBuildStep(const QString& text, int& done, int& total) {
     return found;
 }
 
+// Appends a failed compile or link log to export_build_failure.log in suyu's
+// log directory and returns that file's path (empty if it could not be
+// written). suyu rotates suyu_log.txt on restart and the exporter deletes its
+// work directory, so without this copy the compiler/linker output of a failed
+// export is lost once the user restarts suyu.
+static QString SaveBuildFailureLog(const QString& stage, const QString& log) {
+    // Keeps repeated failed exports from growing the file without bound.
+    constexpr qint64 kMaxFailureLogBytes = 8LL << 20;
+    const QString dir = FromFsPath(Common::FS::GetSuyuPath(Common::FS::SuyuPath::LogDir));
+    QDir().mkpath(dir);
+    const QString path = dir + QStringLiteral("/export_build_failure.log");
+    QFile file(path);
+    const QIODevice::OpenMode mode = QFileInfo(path).size() > kMaxFailureLogBytes
+                                         ? QIODevice::WriteOnly | QIODevice::Truncate
+                                         : QIODevice::WriteOnly | QIODevice::Append;
+    if (!file.open(mode | QIODevice::Text)) {
+        LOG_WARNING(Frontend, "Could not save the {} output to {}", stage.toStdString(),
+                    path.toStdString());
+        return {};
+    }
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "===== " << QDateTime::currentDateTime().toString(Qt::ISODate) << ' ' << stage
+        << " =====\n"
+        << log << "\n\n";
+    // QTextStream buffers, and QFile::close() ignores flush errors, so a full
+    // disk would otherwise leave a truncated log reported as saved.
+    out.flush();
+    if (out.status() != QTextStream::Ok || !file.flush() || file.error() != QFileDevice::NoError) {
+        LOG_WARNING(Frontend, "Could not save the {} output to {}: {}", stage.toStdString(),
+                    path.toStdString(), file.errorString().toStdString());
+        return {};
+    }
+    LOG_INFO(Frontend, "Saved the {} output to {}", stage.toStdString(), path.toStdString());
+    return path;
+}
+
 #ifdef _WIN32
 // clang-cl for the generated modules of a Windows Build export. On MK8D the
 // same generated C races ~45% faster built with clang-cl /O2 than with MSVC
@@ -4532,6 +4570,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                         if (rc != 0) {
                             LOG_ERROR(Frontend, "clang-cl failed to compile module {}:\n{}",
                                       m.toStdString(), log.right(4000).toStdString());
+                            SaveBuildFailureLog(QStringLiteral("clang-cl compile of module ") + m,
+                                                log);
                             fallback(QStringLiteral("module ") + m +
                                      QStringLiteral(" did not compile"));
                             ok = false;
@@ -4597,7 +4637,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                             LOG_ERROR(Frontend,
                                       "suyu-cmd-static failed to link the clang-cl modules:\n{}",
                                       log.right(4000).toStdString());
-                            if (fallback_enabled && log.contains(QStringLiteral("LNK1248")) &&
+                            const QString saved_log = SaveBuildFailureLog(
+                                QStringLiteral("suyu-cmd-static link (clang-cl modules)"), log);
+                            const bool image_too_large = log.contains(QStringLiteral("LNK1248"));
+                            if (fallback_enabled && image_too_large &&
                                 recomp_module_dirs.size() > 1) {
                                 QString largest;
                                 qint64 largest_size = -1;
@@ -4632,6 +4675,30 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                               clang_dir + QStringLiteral("/lib")} + kit_config_args,
                                          &log) == 0;
                                 continue;
+                            }
+                            if (image_too_large) {
+                                // The MSVC path below links the same generated code into
+                                // the same single image under the same 2 GB limit, and is
+                                // not a demonstrated remedy: on PLA it was estimated at
+                                // ~20 hours of compiling before reaching that link.
+                                LOG_ERROR(Frontend,
+                                          "Static launcher exceeds the 2 GB Windows x64 image "
+                                          "limit (LNK1248); not retrying with MSVC");
+                                QMessageBox::critical(
+                                    this, tr("Build Failed"),
+                                    tr("The static launcher exceeds the 2 GB Windows x64 "
+                                       "image size limit (LNK1248), so it cannot be linked.\n\n"
+                                       "Recompiling the modules with MSVC takes many hours and "
+                                       "does not remove this limit, so the export stopped. "
+                                       "Turn off options "
+                                       "that grow the generated code (for example "
+                                       "SUYU_AOT_FM_INLINE), or choose suyu Hybrid JIT + AOT "
+                                       "so oversized modules can run through JIT.\n\n"
+                                       "Linker output: %1")
+                                        .arg(saved_log.isEmpty()
+                                                 ? tr("see the suyu log")
+                                                 : QDir::toNativeSeparators(saved_log)));
+                                return {};
                             }
                             fallback(QStringLiteral("the launcher did not link"));
                             break;
@@ -4728,6 +4795,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     }
                     LOG_ERROR(Frontend, "Recompiled module {} failed to compile:\n{}",
                               m.toStdString(), mod_log.right(4000).toStdString());
+                    SaveBuildFailureLog(QStringLiteral("MSVC compile of module ") + m, mod_log);
                     if (!fallback_enabled) {
                         QMessageBox::critical(
                             this, tr("Build Failed"),
@@ -4812,6 +4880,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 if (link_rc != 0) {
                     LOG_ERROR(Frontend, "suyu-cmd-static failed to link:\n{}",
                               link_log.right(4000).toStdString());
+                    SaveBuildFailureLog(QStringLiteral("suyu-cmd-static link (MSVC modules)"),
+                                        link_log);
                 } else {
                     last_recomp_compiler =
                         QStringLiteral("MSVC cl.exe %1 /O2 /bigobj")

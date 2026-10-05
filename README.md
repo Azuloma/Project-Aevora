@@ -66,9 +66,9 @@ This license does not grant rights to Pokemon Legends: Arceus game code or asset
 
 ## Documentation and Upstream Attribution
 
-- [Work plan](docs/HisuiWake/WORK_PLAN.md), [Changelog](CHANGELOG.md), [Old history](docs/HisuiWake/OLD_HISTORY_HW.md), and [Codebase index](docs/HisuiWake/CODEBASE_INDEX.md).
+- [Work plan](docs/Aevora/WORK_PLAN.md), [Changelog](CHANGELOG.md), [Old history](docs/Aevora/OLD_HISTORY.md), and [Codebase index](docs/Aevora/CODEBASE_INDEX.md).
 - Build instructions (`BUILD.md`) are not written yet.
-- [Aevora documentation](docs/HisuiWake/): project-specific documentation.
+- [Aevora documentation](docs/Aevora/): project-specific documentation.
 - [Archived Suyu documentation](docs/Suyu/): upstream documentation retained for reference.
 - [Upstream provenance](docs/Suyu/_main-folder/PROVENANCE.md): the original Suyu lineage record.
 - [Upstream license](docs/Suyu/_main-folder/LICENSE.txt) and [license notices](LICENSES/).

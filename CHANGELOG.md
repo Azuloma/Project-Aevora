@@ -1,6 +1,17 @@
 # Changelog
 
-All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
+All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
+
+## v0.0.1-dev10 - Unreleased
+
+*Development commit 10 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Changed
+- A static Build export whose clang-cl link fails with LNK1248 (image over the 2 GB Windows x64 limit) now stops with an explicit error instead of recompiling every module with MSVC, which links the same code into the same single image and was estimated at about 20 hours for PLA's main module. The existing Hybrid retry that routes the largest module to JIT when fallback is enabled and more than one module remains is unchanged; other link failures still fall back to MSVC.
+- Renamed the project from HisuiWake to Aevora across the documentation; project documents moved from `docs/HisuiWake/` to `docs/Aevora/`, and `OLD_HISTORY_HW.md` became `OLD_HISTORY.md`.
+
+### Added
+- Failed compile and link output (clang-cl and MSVC paths) is appended to `export_build_failure.log` in suyu's log directory, because `suyu_log.txt` rotates on restart and the exporter deletes its work directory. Write and flush errors are checked; the file is truncated before appending once it exceeds 8 MiB. Only the captured tail of each process output (about 0.5-1 M characters) is kept.
 
 ## v0.0.1-dev9 - Unreleased
 
@@ -14,7 +25,7 @@ All notable changes to HisuiWake are recorded here. Versions follow the scheme i
 - Added `abi6fmi` and `ggfmi` variants to the recompiler smoke tests; default output remains byte-identical.
 
 ### Known issues
-- FMI on PLA made the static launcher image about 2.19 GB, over the 2 GB x64 image limit (LNK1248), so FMI cannot currently be used for a PLA static export. After the link failure, fallback-disabled export takes the existing MSVC per-module path (one `cl.exe` at a time on 16 GB hosts, about 20 h for main), also bound to fail; FPS and sampling remain unmeasured.
+- FMI on PLA made the static launcher image about 2.19 GB, over the 2 GB x64 image limit (LNK1248), so FMI cannot currently be used for a PLA static export. After the link failure, fallback-disabled export takes the existing MSVC per-module path (one `cl.exe` at a time on 16 GB hosts, about 20 h for main), also bound to fail; FPS and sampling remain unmeasured. Fixed in v0.0.1-dev10: the export now stops at the LNK1248 link failure.
 - Whole-helper inlining was measured worse on MK8D (image size 100 to 222 MB and 14% lower FPS); FMI only inlines the FM1 fast path.
 - Per-instruction entry labels that store and reload guest registers through `GuestContext` are not addressed by FMI.
 
@@ -32,7 +43,7 @@ All notable changes to HisuiWake are recorded here. Versions follow the scheme i
 - PLA static AOT overworld performance was observed at about 25-30 FPS, up from about 16-20 FPS with dev6 static AOT and versus 30 FPS with the JIT baseline, in one user-observed run with zero fallback. The FP differential harness compares against the software implementation on this host; the hardware-golden leg (L5) needs an AArch64 host and was not run.
 
 ### Documentation
-- Split `WORK_PLAN.md`, archived older history verbatim in `docs/HisuiWake/OLD_HISTORY_HW.md`, and added a key-facts summary plus archive rule.
+- Split `WORK_PLAN.md`, archived older history verbatim in `docs/Aevora/OLD_HISTORY.md`, and added a key-facts summary plus archive rule.
 - Updated README status to the dev8 evidence and corrected the stale SHL note in `CODEBASE_INDEX.md`.
 
 ## v0.0.1-dev7 - Unreleased
@@ -114,8 +125,8 @@ All notable changes to HisuiWake are recorded here. Versions follow the scheme i
 
 ### Added
 - Agent guide (`CLAUDE.md`) and project subagent definitions (`.claude/agents/`) for AI-assisted development.
-- Work plan with milestones, acceptance criteria, and a dated progress record ([docs/HisuiWake/WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md)).
-- Read-only codebase survey ([docs/HisuiWake/CODEBASE_INDEX.md](docs/HisuiWake/CODEBASE_INDEX.md)).
+- Work plan with milestones, acceptance criteria, and a dated progress record ([docs/Aevora/WORK_PLAN.md](docs/Aevora/WORK_PLAN.md)).
+- Read-only codebase survey ([docs/Aevora/CODEBASE_INDEX.md](docs/Aevora/CODEBASE_INDEX.md)).
 
 ### Fixed
 - Dependency extraction on Windows systems whose ANSI code page is not UTF-8 (e.g. Japanese, code page 932): `CMakeModules/CPMUtil.cmake` now extracts downloaded archives with `cmake -E tar` instead of `file(ARCHIVE_EXTRACT)`, which failed on non-ASCII entry names in the Boost 1.90.0 archive (`Invalid empty pathname`).
@@ -124,7 +135,7 @@ All notable changes to HisuiWake are recorded here. Versions follow the scheme i
 - `suyu.exe` (Qt frontend) does not link with the default bundled Qt 6.11.1 on Windows x64: the static Qt build and `video_core` both define VulkanMemoryAllocator symbols (`LNK2005`/`LNK1169`). The resolution is pending.
 - `suyu-cmd.exe` builds and links with MSVC 14.51 (Release), but application startup, PLA loading, and game export have not been tested.
 - Windows builds require Git for Windows (for `patch`) and the Vulkan SDK (for `glslangValidator`) in addition to the compiler toolchain.
-- The build's embedded version string still comes from the inherited `CMakeModules/GenerateSCMRev.cmake` and does not yet reflect HisuiWake versioning.
+- The build's embedded version string still comes from the inherited `CMakeModules/GenerateSCMRev.cmake` and does not yet reflect Aevora versioning.
 
 ### Notes
 - Verified host build setup and detailed evidence are recorded in the work plan's progress record.
