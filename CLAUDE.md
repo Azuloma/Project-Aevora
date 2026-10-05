@@ -66,6 +66,18 @@ Continue work within the user's authorized scope. Ask for missing information on
 
 The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`, or `git push`. For each coherent change, add a `## vX.Y.Z-devN - Unreleased` section (or extend the current one) in [CHANGELOG.md](CHANGELOG.md), then give the user the list of files to commit and a suggested commit message.
 
+## Agent orchestration
+
+- Codex loads [AGENTS.md](AGENTS.md), which points it to this guide; keep AGENTS.md as a pointer and put project rules in CLAUDE.md.
+- Codex workers are started through Orca orchestration: `orca orchestration worker-start --agent codex` with these roles:
+  - Code reviewer: `--model gpt-6.1-sol --effort high`; reviews code changes against the "Readable code", "Architecture and scope", "Working method", and "Build and verification rules" sections and cites the rule for each finding; does not edit files unless the task says so.
+  - md Implementer: `--model gpt-5.6-luna --effort medium`; creates, edits, and manages Markdown files (for example WORK_PLAN.md, CHANGELOG.md, CODEBASE_INDEX.md, README.md, CLAUDE.md); does not edit source or build files.
+- Use the matching role whenever a task needs it: Markdown changes go to md Implementer; code changes are reviewed by Code reviewer.
+- Run Orca workers one at a time; start the next worker only after the previous one reports completion.
+- Do not poll a running Orca worker. Wait with a single blocking `orca orchestration check --wait`, then process the result.
+- Besides the two Orca roles, only these Claude subagents may be used: `code-explorer` (read-only codebase exploration and locating code) and `code-quick-implementer` (small, well-scoped code changes whose cause and approach are already decided). No other agents or subagent types are launched.
+- Workers follow this guide, record only verified facts, and never commit, tag, or push.
+
 ## Build and verification rules
 
 - The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's progress record; `docs/HisuiWake/BUILD.md` has not been written yet.
