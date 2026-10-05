@@ -13,13 +13,19 @@ All generated files and binaries live in a temporary directory.
 
 The suite exports only synthetic arithmetic, branch and memory instructions
 using the current emitter and runtime: as ABI 5, as ABI 6 with the FM1
-page-table fast path (`SUYU_RECOMP_AB_FASTMEM=1`), and as ABI 6 with FM1 and
-the generation code guard. The ABI 5 and ABI 6 outputs must each match a golden
+page-table fast path (`SUYU_RECOMP_AB_FASTMEM=1`), as ABI 6 with FM1 and
+the generation code guard, as ABI 6 with FMI, and as ABI 6 with GG1 and FMI.
+The ABI 5 and ABI 6 outputs must each match a golden
 SHA-256 of the whole generated tree, so any change to them is deliberate; the
 ABI 6 output may differ from ABI 5 only in the runtime, export and CMake files.
 On MSVC, `smoke_export` is built with `/utf-8`, matching suyu's own build, so
 the golden hashes are the same as with clang-cl/GCC.
-Every runtime case below runs against all three builds.
+Every runtime case below runs against each applicable generated build.
+
+The complete runner covers seven variants: ABI5, ABI6, ABI6GG, FPX, GGFPX,
+ABI6FMI, and GGFMI. The FMI variants additionally check the inline FM1 fast
+path and its unchanged out-of-line fallback; `check_fm_inline` asserts that
+only `recomp_runtime.c` and `recomp_runtime.h` differ for the FMI output.
 
 It checks the image ABI, exact slice budgets of 1/3/4096,
 bounded stack use, SVC and breakpoint stops, interior entries, BLR through x30,

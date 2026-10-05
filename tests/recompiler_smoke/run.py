@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Compile and execute synthetic ABI 5, ABI 6 and ABI 6 + GG1 tests, and the coverage loop;
-requires only Python, CMake, C/C++."""
+"""Compile and execute synthetic ABI 5, ABI 6, ABI 6 + GG1 and ABI 6 + FMI tests, and the
+coverage loop; requires only Python, CMake, C/C++."""
 import argparse
 import hashlib
 import os
@@ -31,6 +31,9 @@ FPX_CHANGED = {"CMakeLists.txt", "recomp_export.c", "recomp_runtime.h"}
 # GG1 (the generation code guard) changes the block units as well, never the
 # dispatch table (src/recompiled_<module>.c) or the file set.
 GG1_CHANGED = ABI6_CHANGED | {"recompiled_smoke_0.c", "recompiled_second_0.c"}
+# FMI (the FM1 fast path inline at access sites) changes only the runtime pair:
+# the header gains the inline helpers and renames, recomp_runtime.c a define.
+FMI_CHANGED = {"recomp_runtime.c", "recomp_runtime.h"}
 
 # name -> SUYU_RECOMP_AB_* switches. abi6gg and ggfpx are GG1's on-top-of-FM1
 # and GG1+FPX1-together combinations; neither is golden-hashed (GG1 is not
@@ -40,7 +43,12 @@ VARIANTS = (("abi5", {}),
             ("abi6gg", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1"}),
             ("fpx", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FPX": "1"}),
             ("ggfpx", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
-                       "SUYU_RECOMP_AB_FPX": "1"}))
+                       "SUYU_RECOMP_AB_FPX": "1"}),
+            ("abi6fmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FM_INLINE": "1"}),
+            ("ggfmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
+                       "SUYU_RECOMP_AB_FM_INLINE": "1"}))
+AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
+               "SUYU_RECOMP_AB_FM_INLINE")
 
 # smoke_gg_host modes: exit 0 (protocol, activation, controls, races) or 86
 # (a hook that must end skipping, followed by a changed block).
@@ -136,10 +144,22 @@ def check_ggfpx(abi6gg, ggfpx):
             raise RuntimeError(f"{module}: GG1+FPX1 handshake presence is wrong")
 
 
+def check_fm_inline(base, fmi, what):
+    # FMI must leave the block units, CMake text and handshakes untouched.
+    check_differences(base, fmi, FMI_CHANGED, what)
+    for module in (fmi, fmi / "second"):
+        header = (module / "recomp_runtime.h").read_text(encoding="utf-8")
+        runtime = (module / "recomp_runtime.c").read_text(encoding="utf-8")
+        if "#define recomp_load64 recomp_fmi_load64" not in header:
+            raise RuntimeError(f"{module}: FMI renames are missing")
+        if "\n#define RECOMP_RUNTIME_C 1\n" not in runtime.split('#include "recomp_runtime.h"')[0]:
+            raise RuntimeError(f"{module}: recomp_runtime.c does not keep its helper names")
+
+
 def check_coverage_loop(root, exporter, build):
     """recomp_gaps.json end to end: record a miss, re-export with it, run statically."""
     env = dict(os.environ)
-    for key in ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX"):
+    for key in AB_SWITCHES:
         env.pop(key, None)
     gaps = root / "loop-gaps.json"
 
@@ -200,14 +220,15 @@ def main():
             generated[name] = root / f"generated-{name}"
             generated[name].mkdir()
             env = dict(os.environ)
-            env.pop("SUYU_RECOMP_AB_FASTMEM", None)
-            env.pop("SUYU_RECOMP_AB_GUARD_GEN", None)
-            env.pop("SUYU_RECOMP_AB_FPX", None)
+            for key in AB_SWITCHES:
+                env.pop(key, None)
             env.update(switches)
             call([exporter, generated[name]], env=env)
         check_outputs(generated["abi5"], generated["abi6"], generated["fpx"])
         check_guard_gen(generated["abi6"], generated["abi6gg"])
         check_ggfpx(generated["abi6gg"], generated["ggfpx"])
+        check_fm_inline(generated["abi6"], generated["abi6fmi"], "FMI")
+        check_fm_inline(generated["abi6gg"], generated["ggfmi"], "GG1+FMI")
 
         for name, switches in VARIANTS:
             guard_gen = "SUYU_RECOMP_AB_GUARD_GEN" in switches

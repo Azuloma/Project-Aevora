@@ -336,6 +336,18 @@ inline bool g_emit_fpx = false;
 // after every fast path too, and recomp_fpx_shadow compares the two.
 inline bool g_emit_fpx_shadow = false;
 
+// FM1 inline ("FMI"): generated units run the FM1 fast path of the twelve
+// memory helpers inline at each access site and call the out-of-line helper
+// only when it declines. Changes no ABI, feature bit or result: the declined
+// access takes exactly the call it takes today. Opt-in until measured, because
+// forcing the whole helpers inline was measured worse on MK8D (see the note on
+// the helper declarations in BuildRuntimeH). Takes effect only with
+// g_emit_fastmem; while off the emitted text is byte-identical.
+inline bool g_emit_fm_inline = false;
+inline bool EmitFmInline() {
+    return g_emit_fastmem && g_emit_fm_inline;
+}
+
 // Strict static exports have no fallback to carry deliberately gated forms.
 inline bool TranslateAllForExport(bool strict_static, bool explicitly_requested) {
     return strict_static || explicitly_requested;
@@ -6321,6 +6333,110 @@ typedef char recomp_layout_fm_limit[offsetof(GuestContext, fm_limit) == 880 ? 1 
 )RT";
 }
 
+// FMI header piece, appended before the include guard closes. The fast paths
+// restate the ones FastmemHelpersC defines out of line, line for line, with the
+// out-of-line helper as the fallback; tests/recompiler_fastmem runs both. The
+// header's note that whole-helper inlining measured worse still holds: this
+// inlines only the fast path, and is opt-in until it is measured.
+inline std::string FastmemInlineH(bool guard_gen) {
+    std::string text = R"RT(/* FMI: the FM1 fast path inline at every access site. Each recomp_fmi_*
+   serves exactly the accesses the out-of-line helper's own fast path serves,
+   the same way, and hands everything else to that helper, which declines
+   again and runs its slow path. Results, host callbacks and their order are
+   unchanged; only the call on the fast path goes. Generated units reach these
+   through the renames at the end; recomp_runtime.c defines RECOMP_RUNTIME_C
+   first so that its definitions of the helpers keep their names. */
+static RECOMP_INLINE uintptr_t recomp_fmi_entry(const GuestContext* c, uint64_t va, unsigned bytes){
+  if(va >= c->fm_limit) return 0;
+  if((va & 0xfffu) > 0x1000u - bytes) return 0;
+  return *(const uintptr_t*)(c->fm_table + ((uintptr_t)(va >> RECOMP_FM_PAGE_BITS)
+                                            << RECOMP_FM_STRIDE_LOG2)) & RECOMP_FM_PTR_MASK;
+}
+)RT";
+    // GG1 stores also decline on a watched page, as recomp_fm_entry_st does.
+    text += guard_gen ? R"RT(static RECOMP_INLINE uintptr_t recomp_fmi_entry_st(const GuestContext* c, uint64_t va, unsigned bytes){
+  const unsigned char* ent;
+  if(va >= c->fm_limit) return 0;
+  if((va & 0xfffu) > 0x1000u - bytes) return 0;
+  ent = c->fm_table + ((uintptr_t)(va >> RECOMP_FM_PAGE_BITS) << RECOMP_FM_STRIDE_LOG2);
+  if(*(const volatile uint64_t*)(ent + RECOMP_GG_WATCH_OFFSET)) return 0;
+  return *(const uintptr_t*)ent & RECOMP_FM_PTR_MASK;
+}
+#define RECOMP_FMI_ENTRY_ST recomp_fmi_entry_st
+)RT"
+                      : "#define RECOMP_FMI_ENTRY_ST recomp_fmi_entry\n";
+    text += R"RT(#define RECOMP_FMI_PTR(e,a) ((unsigned char*)((e) + (uintptr_t)(a)))
+static RECOMP_INLINE uint64_t recomp_fmi_load8(GuestContext* c,uint64_t a){
+  uintptr_t e=recomp_fmi_entry(c,a,1);
+  if(RECOMP_LIKELY(e)) return (uint64_t)*RECOMP_FMI_PTR(e,a);
+  return recomp_load8(c,a);}
+static RECOMP_INLINE uint64_t recomp_fmi_load16(GuestContext* c,uint64_t a){
+  uintptr_t e=recomp_fmi_entry(c,a,2);
+  if(RECOMP_LIKELY(e)){uint16_t v;memcpy(&v,RECOMP_FMI_PTR(e,a),2);return (uint64_t)v;}
+  return recomp_load16(c,a);}
+static RECOMP_INLINE uint64_t recomp_fmi_load32(GuestContext* c,uint64_t a){
+  uintptr_t e=recomp_fmi_entry(c,a,4);
+  if(RECOMP_LIKELY(e)){uint32_t v;memcpy(&v,RECOMP_FMI_PTR(e,a),4);return (uint64_t)v;}
+  return recomp_load32(c,a);}
+static RECOMP_INLINE uint64_t recomp_fmi_load64(GuestContext* c,uint64_t a){
+  uintptr_t e=recomp_fmi_entry(c,a,8);
+  if(RECOMP_LIKELY(e)){uint64_t v;memcpy(&v,RECOMP_FMI_PTR(e,a),8);return v;}
+  return recomp_load64(c,a);}
+static RECOMP_INLINE void recomp_fmi_store8(GuestContext* c,uint64_t a,uint64_t v){
+  uintptr_t e=RECOMP_FMI_ENTRY_ST(c,a,1);
+  if(RECOMP_LIKELY(e)){*RECOMP_FMI_PTR(e,a)=(unsigned char)v;return;}
+  recomp_store8(c,a,v);}
+static RECOMP_INLINE void recomp_fmi_store16(GuestContext* c,uint64_t a,uint64_t v){
+  uintptr_t e=RECOMP_FMI_ENTRY_ST(c,a,2);
+  if(RECOMP_LIKELY(e)){uint16_t t=(uint16_t)v;memcpy(RECOMP_FMI_PTR(e,a),&t,2);return;}
+  recomp_store16(c,a,v);}
+static RECOMP_INLINE void recomp_fmi_store32(GuestContext* c,uint64_t a,uint64_t v){
+  uintptr_t e=RECOMP_FMI_ENTRY_ST(c,a,4);
+  if(RECOMP_LIKELY(e)){uint32_t t=(uint32_t)v;memcpy(RECOMP_FMI_PTR(e,a),&t,4);return;}
+  recomp_store32(c,a,v);}
+static RECOMP_INLINE void recomp_fmi_store64(GuestContext* c,uint64_t a,uint64_t v){
+  uintptr_t e=RECOMP_FMI_ENTRY_ST(c,a,8);
+  if(RECOMP_LIKELY(e)){memcpy(RECOMP_FMI_PTR(e,a),&v,8);return;}
+  recomp_store64(c,a,v);}
+static RECOMP_INLINE void recomp_fmi_ldp64(GuestContext* c,uint64_t a,uint64_t* lo,uint64_t* hi){
+  uintptr_t e=recomp_fmi_entry(c,a,16);
+  if(RECOMP_LIKELY(e)){const unsigned char* p=RECOMP_FMI_PTR(e,a);
+    memcpy(lo,p,8); memcpy(hi,p+8,8); return;}
+  recomp_ldp64(c,a,lo,hi);}
+static RECOMP_INLINE void recomp_fmi_stp64(GuestContext* c,uint64_t a,uint64_t v0,uint64_t v1){
+  uintptr_t e=RECOMP_FMI_ENTRY_ST(c,a,16);
+  if(RECOMP_LIKELY(e)){unsigned char* p=RECOMP_FMI_PTR(e,a);
+    memcpy(p,&v0,8); memcpy(p+8,&v1,8); return;}
+  recomp_stp64(c,a,v0,v1);}
+static RECOMP_INLINE void recomp_fmi_ldp32(GuestContext* c,uint64_t a,uint64_t* lo,uint64_t* hi){
+  uintptr_t e=recomp_fmi_entry(c,a,8);
+  if(RECOMP_LIKELY(e)){const unsigned char* p=RECOMP_FMI_PTR(e,a); uint32_t x,y;
+    memcpy(&x,p,4); memcpy(&y,p+4,4); *lo=(uint64_t)x; *hi=(uint64_t)y; return;}
+  recomp_ldp32(c,a,lo,hi);}
+static RECOMP_INLINE void recomp_fmi_stp32(GuestContext* c,uint64_t a,uint64_t v0,uint64_t v1){
+  uintptr_t e=RECOMP_FMI_ENTRY_ST(c,a,8);
+  if(RECOMP_LIKELY(e)){unsigned char* p=RECOMP_FMI_PTR(e,a); uint32_t x=(uint32_t)v0,y=(uint32_t)v1;
+    memcpy(p,&x,4); memcpy(p+4,&y,4); return;}
+  recomp_stp32(c,a,v0,v1);}
+/* Object-like, so emitted arguments of any shape pass through untouched. */
+#ifndef RECOMP_RUNTIME_C
+#define recomp_load8 recomp_fmi_load8
+#define recomp_load16 recomp_fmi_load16
+#define recomp_load32 recomp_fmi_load32
+#define recomp_load64 recomp_fmi_load64
+#define recomp_store8 recomp_fmi_store8
+#define recomp_store16 recomp_fmi_store16
+#define recomp_store32 recomp_fmi_store32
+#define recomp_store64 recomp_fmi_store64
+#define recomp_ldp64 recomp_fmi_ldp64
+#define recomp_stp64 recomp_fmi_stp64
+#define recomp_ldp32 recomp_fmi_ldp32
+#define recomp_stp32 recomp_fmi_stp32
+#endif
+)RT";
+    return text;
+}
+
 // ABI 6 feature GG1 (generation code guard). Declared after recomp_code_guard.
 inline const char* GuardGenH() {
     return R"RT(/* ABI 6 feature GG1: the generation code guard.
@@ -6795,7 +6911,8 @@ void recomp_fpx_shadow(unsigned kind, int gate, int kept, uint64_t fast, uint64_
 }
 
 // `fpx`: 0 off, 1 FPX1, 2 FPX1 with the shadow instrumentation.
-inline std::string BuildRuntimeH(bool fastmem, bool guard_gen = false, int fpx = 0) {
+inline std::string BuildRuntimeH(bool fastmem, bool guard_gen = false, int fpx = 0,
+                                 bool fm_inline = false) {
     std::string text = std::string(R"RT(#ifndef SUYU_RECOMP_RUNTIME_H
 #define SUYU_RECOMP_RUNTIME_H
 #include <stdint.h>
@@ -7053,6 +7170,12 @@ int  recomp_load_segments(GuestContext* c, const char* data_dir);
         static constexpr std::string_view anchor = "void recomp_ic_ivau(GuestContext*,uint64_t,int);\n";
         text.insert(text.find(anchor) + anchor.size(), GuardGenH());
     }
+    if (fastmem && fm_inline) {
+        // Last before the include guard closes: needs GuestContext and, with
+        // GG1, RECOMP_GG_WATCH_OFFSET.
+        static constexpr std::string_view guard_end = "#endif\n";
+        text.insert(text.rfind(guard_end), FastmemInlineH(guard_gen));
+    }
     return text;
 }
 
@@ -7068,6 +7191,15 @@ inline const char* RuntimeH() {
          {BuildRuntimeH(false, true, 0), BuildRuntimeH(false, true, 1), BuildRuntimeH(false, true, 2)}},
         {{BuildRuntimeH(true, false, 0), BuildRuntimeH(true, false, 1), BuildRuntimeH(true, false, 2)},
          {BuildRuntimeH(true, true, 0), BuildRuntimeH(true, true, 1), BuildRuntimeH(true, true, 2)}}};
+    // FMI exists only with FM1: [guard_gen][fpx variant].
+    static const std::string fm_inline_texts[2][3] = {
+        {BuildRuntimeH(true, false, 0, true), BuildRuntimeH(true, false, 1, true),
+         BuildRuntimeH(true, false, 2, true)},
+        {BuildRuntimeH(true, true, 0, true), BuildRuntimeH(true, true, 1, true),
+         BuildRuntimeH(true, true, 2, true)}};
+    if (EmitFmInline()) {
+        return fm_inline_texts[EmitGuardGen() ? 1 : 0][FpxVariant()].c_str();
+    }
     return texts[g_emit_fastmem ? 1 : 0][EmitGuardGen() ? 1 : 0][FpxVariant()].c_str();
 }
 
@@ -7974,6 +8106,13 @@ void recomp_run(GuestContext* c){
     return text;
 }
 
+// The FMI runtime is the FM1 runtime unchanged, except that its own helper
+// definitions must not take the header's FMI renames.
+inline std::string FmInlineRuntimeC(const std::string& runtime) {
+    return "/* FMI: define the helpers under their own names. */\n#define RECOMP_RUNTIME_C 1\n" +
+           runtime;
+}
+
 inline const char* RuntimeC() {
     static const std::string abi5 = BuildRuntimeC(false);
     static const std::string fastmem = BuildRuntimeC(true);
@@ -7981,6 +8120,16 @@ inline const char* RuntimeC() {
     static const std::string abi5_shadow = abi5 + FpxShadowC();
     static const std::string fastmem_shadow = fastmem + FpxShadowC();
     static const std::string guard_gen_shadow = guard_gen + FpxShadowC();
+    if (EmitFmInline()) {
+        static const std::string fm_inline = FmInlineRuntimeC(fastmem);
+        static const std::string fm_inline_guard_gen = FmInlineRuntimeC(guard_gen);
+        static const std::string fm_inline_shadow = FmInlineRuntimeC(fastmem_shadow);
+        static const std::string fm_inline_guard_gen_shadow = FmInlineRuntimeC(guard_gen_shadow);
+        if (FpxVariant() == 2) {
+            return (EmitGuardGen() ? fm_inline_guard_gen_shadow : fm_inline_shadow).c_str();
+        }
+        return (EmitGuardGen() ? fm_inline_guard_gen : fm_inline).c_str();
+    }
     if (FpxVariant() == 2) {
         return (EmitGuardGen() ? guard_gen_shadow : g_emit_fastmem ? fastmem_shadow : abi5_shadow)
             .c_str();

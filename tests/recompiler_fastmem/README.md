@@ -18,7 +18,9 @@ current emitter, and a header that renames every function of the ABI 5 one to
 
 1. the ABI 6 helpers with `fm_limit` set, as the host enables it;
 2. the ABI 6 helpers with `fm_limit` 0, which exercises `recomp_*_slow` only;
-3. the ABI 5 helpers.
+3. the ABI 5 helpers;
+4. the FMI helpers with `fm_limit` set;
+5. the FMI helpers with `fm_limit` 0, which exercises the unchanged out-of-line fallback.
 
 Every return value, the final guest memory and the full host callback log
 (every call in order, with address, size and value) must be identical.
@@ -29,3 +31,9 @@ pages are unmapped, debug or GPU-tracked. The address-space limit varies per
 iteration and is often not page aligned. Addresses favour the last 16 bytes of
 a page, odd offsets, the limit, tagged or high bits, and wrap-around near 2^64.
 The default is 20,000,000 operations per leg.
+
+The runner also builds `fmdiff_gg`, which enables GG1 and uses a random eighth of
+the guest pages as watched code pages. It runs legs 0/1/3/4: the ABI 6 runtime,
+the ABI 5 runtime, the FMI runtime, and the FMI fallback runtime. The GG1 FMI
+store path must check the watch word before storing. `run.py` runs both
+`fmdiff` and `fmdiff_gg`.

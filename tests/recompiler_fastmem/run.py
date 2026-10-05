@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build and run the FM1 differential test (ABI 6 fast path vs. slow path vs. ABI 5)."""
+"""Build and run the FM1 differential test (ABI 6 fast path vs. slow path vs. ABI 5,
+and the inline FMI fast path), with and without the GG1 runtime."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -35,11 +36,13 @@ def main():
                 options.append(f"-DCMAKE_{key}_COMPILER={value}")
         call([args.cmake, "-S", test_source, "-B", build, *options])
         call([args.cmake, "--build", build, "--config", "Release", "--parallel", "2"])
-        for exe in (build / "fmdiff", build / "fmdiff.exe", build / "Release" / "fmdiff.exe"):
-            if exe.is_file():
-                call([exe, args.operations, args.seed])
-                return
-        raise RuntimeError("fmdiff was not built")
+        for name in ("fmdiff", "fmdiff_gg"):
+            for exe in (build / name, build / f"{name}.exe", build / "Release" / f"{name}.exe"):
+                if exe.is_file():
+                    call([exe, args.operations, args.seed])
+                    break
+            else:
+                raise RuntimeError(f"{name} was not built")
 
 
 if __name__ == "__main__":

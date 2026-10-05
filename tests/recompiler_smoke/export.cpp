@@ -50,6 +50,7 @@ int main(int argc, char** argv) {
     const char* fpx = std::getenv("SUYU_RECOMP_AB_FPX");
     suyu::recomp::g_emit_fpx = fpx && *fpx && *fpx != '0';
     suyu::recomp::g_emit_fpx_shadow = fpx && !std::strcmp(fpx, "shadow");
+    suyu::recomp::g_emit_fm_inline = EnvOn("SUYU_RECOMP_AB_FM_INLINE");
     const auto stats = suyu::recomp::EmitProject(
         "smoke", reinterpret_cast<const uint8_t*>(smoke_code), sizeof(smoke_code),
         0x1000, argv[1], true);

@@ -3456,6 +3456,17 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                               "without it");
         suyu::recomp::g_emit_fpx = false;
     }
+    // FMI (FM1 fast path inline at each access site) is opt-in until measured:
+    // SUYU_AOT_FM_INLINE=1. It changes the generated code but not the image ABI
+    // or features, so the manifest records it separately.
+    suyu::recomp::g_emit_fm_inline =
+        qEnvironmentVariable("SUYU_AOT_FM_INLINE") == QStringLiteral("1");
+    if (suyu::recomp::g_emit_fm_inline && !suyu::recomp::g_emit_fastmem) {
+        LOG_WARNING(Frontend, "Inline FM1 access (SUYU_AOT_FM_INLINE) needs SUYU_AOT_FASTMEM; "
+                              "exporting without it");
+        suyu::recomp::g_emit_fm_inline = false;
+    }
+    const bool fm_inline = suyu::recomp::EmitFmInline();
     // What the images will report from recomp_image_features(), recorded in the
     // manifest so a cached export with other features is not reused.
     const unsigned image_features =
@@ -3533,6 +3544,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const bool same_image_features =
                 !suyu::recomp::g_emit_fastmem ||
                 contents.contains(QStringLiteral("\"image_features\": %1,").arg(image_features));
+            // A cache from before this field existed was emitted without FMI.
+            const bool same_fm_inline =
+                fm_inline ? contents.contains(QStringLiteral("\"fm_inline\": true,"))
+                          : !contents.contains(QStringLiteral("\"fm_inline\": true,"));
             const bool same_correctness_revision = contents.contains(
                 QStringLiteral("\"correctness_revision\": \"20260927-hybrid-guard-control-units-v3\","));
             const bool same_translate_all = contents.contains(
@@ -3552,7 +3567,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const bool same_fallback_policy = ReadCachedFallbackPolicy(
                 manifest_bytes, fallback_enabled, cached_fallback_modules);
             if (same_scan && same_backend && same_image_abi && same_image_features &&
-                same_correctness_revision && same_coverage &&
+                same_fm_inline && same_correctness_revision && same_coverage &&
                 same_translate_all && same_source && same_fallback_policy &&
                 has_recompiled_project && has_required_launcher) {
                 last_fallback_modules = std::move(cached_fallback_modules);
@@ -4959,6 +4974,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         out << "  \"image_abi\": " << (suyu::recomp::g_emit_fastmem ? 6 : 5) << ",\n";
         if (suyu::recomp::g_emit_fastmem) {
             out << "  \"image_features\": " << image_features << ",\n";
+            out << "  \"fm_inline\": " << (fm_inline ? "true" : "false") << ",\n";
         }
         out << "  \"correctness_revision\": \"20260927-hybrid-guard-control-units-v3\",\n";
         out << "  \"source_exefs_sha256\": \"" << source_hash << "\",\n";

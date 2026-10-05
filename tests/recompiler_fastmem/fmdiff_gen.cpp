@@ -1,6 +1,7 @@
-// Writes the two runtimes the differential test links together: ABI 6 (FM1)
-// as-is, and the pristine ABI 5 runtime plus a header that renames every
-// function it defines to abi5_*, so both can live in one binary.
+// Writes the runtimes the differential test links together: ABI 6 (FM1) with
+// the FMI inline header, and the pristine ABI 5 runtime plus a header that
+// renames every function it defines to abi5_*, so both can live in one binary.
+// Also the FM1 + GG1 runtime with the FMI header, for the FMDIFF_GG build.
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -57,12 +58,18 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::filesystem::path out = argv[1];
-    const std::string fm_h = suyu::recomp::BuildRuntimeH(true);
-    const std::string fm_c = suyu::recomp::BuildRuntimeC(true);
+    const std::string fm_h = suyu::recomp::BuildRuntimeH(true, false, 0, true);
+    const std::string fm_c = suyu::recomp::FmInlineRuntimeC(suyu::recomp::BuildRuntimeC(true));
+    const std::string gg_h = suyu::recomp::BuildRuntimeH(true, true, 0, true);
+    const std::string gg_c =
+        suyu::recomp::FmInlineRuntimeC(suyu::recomp::BuildRuntimeC(true, true));
     const std::string abi5_h = suyu::recomp::BuildRuntimeH(false);
     const std::string abi5_c = suyu::recomp::BuildRuntimeC(false);
     if (fm_c.find("recomp_load64_slow(") == std::string::npos ||
-        abi5_c.find("recomp_fm_entry") != std::string::npos) {
+        abi5_c.find("recomp_fm_entry") != std::string::npos ||
+        fm_h.find("recomp_fmi_load64(") == std::string::npos ||
+        gg_h.find("recomp_fmi_entry_st(") == std::string::npos ||
+        suyu::recomp::BuildRuntimeH(true).find("recomp_fmi_") != std::string::npos) {
         return 3;
     }
     std::set<std::string> names;
@@ -77,6 +84,8 @@ int main(int argc, char** argv) {
     }
     const bool ok = Write(out / "fm" / "recomp_runtime.h", fm_h) &&
                     Write(out / "fm" / "recomp_runtime.c", fm_c) &&
+                    Write(out / "gg" / "recomp_runtime.h", gg_h) &&
+                    Write(out / "gg" / "recomp_runtime.c", gg_c) &&
                     Write(out / "abi5" / "recomp_runtime.h", abi5_h) &&
                     Write(out / "abi5" / "recomp_runtime.c", abi5_c) &&
                     Write(out / "abi5_rename.h", rename);

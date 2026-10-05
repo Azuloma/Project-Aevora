@@ -40,6 +40,9 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `g_translate_all` | `arm64_to_c.h:303` (v) | Translate forms normally left to the JIT. |
 | `g_emit_standalone_runner` | `arm64_to_c.h:310` (v) | Defaults to `true` for synthetic tests. The comment says the game exporter turns it off so game code runs only inside suyu against the user's files. |
 | `g_emit_fastmem` / `g_emit_guard_gen` / `g_emit_fpx` / `g_emit_fpx_shadow` | `arm64_to_c.h:316-337` (v) | ABI 6 feature switches (FM1 page-table fastmem, GG1 generation guard, FPX1 exact native FP, FPX shadow instrumentation). All are off by default, which keeps the emitted text byte-identical to ABI 5 (golden hashes in `tests/recompiler_smoke`). |
+| `g_emit_fm_inline` / `EmitFmInline()` | `arm64_to_c.h:346-348` (v) | Opt-in FMI switch; true only when FM1 is also enabled. |
+| `FastmemInlineH()` / `RuntimeH()` | `arm64_to_c.h:6341`, `:7187-7201` (v) | Appends the FMI static inline fast paths, including the GG1 watch-word store entry, to generated `recomp_runtime.h`; variants are selected with FM1, GG1, and FPX settings. |
+| `FmInlineRuntimeC()` / `RuntimeC()` | `arm64_to_c.h:8111`, `:8116-8131` (v) | Renames generated-unit fastmem calls to FMI functions while keeping `recomp_runtime.c` definitions under their original names. |
 | `TranslateAllForExport()` | `arm64_to_c.h:340` (v) | Strict static exports translate everything. |
 | `kChainBudget` | `arm64_to_c.h:351` (v) | Blocks run before control returns to the dispatcher. |
 | `EmitProject()` | `arm64_to_c.h:5084` (v) | Per-module entry point. Emits C sources, `GuestContext`, the module `CMakeLists.txt`, and returns `RecompileStats`. |
@@ -67,6 +70,7 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | Gap-seeded discovery | around `game_export.cpp:220`, `3220-3330` | Reads `<user dir>/recomp/gaps/<title>.json` to seed blocks at Hybrid gap addresses. |
 | Runtime DLL list | around `game_export.cpp:193-200` | FFmpeg, DXC, OpenSSL, and Discord RPC copied into packages. |
 | Unit-limit environment overrides | `ReadPositiveSizeFromEnv()` ~`game_export.cpp:124`; read before `EmitProject()` ~`:3828` (v, 2026-10-05) | `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`. |
+| FMI export switch and manifest/cache rule | `game_export.cpp:3460-3469`, `:3548-3570`, `:4977` (v, 2026-10-05) | `SUYU_AOT_FM_INLINE=1` enables FMI only with FM1; manifests record `fm_inline`, and cache reuse requires a matching value (missing field means FMI off). |
 | clang-cl module build and launcher link | ~`game_export.cpp:4400-4560` (v, 2026-10-05) | Configures `<build-dir>/recomp_clang`, builds `recomp_static_<module>`, then reconfigures the source build tree with `SUYU_CMD_RECOMP_DIR` etc. and links `suyu-cmd-static` at `--parallel 2`. Running from a source build therefore rebuilds and pollutes that tree. |
 | Recorded compiler name | `last_recomp_compiler`, ~`game_export.cpp:4560`, `:4790`, `:4985`, `:5370` | Known defect: reports record `O2` instead of the compiler. |
 
@@ -181,8 +185,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | Location | Content |
 |---|---|
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
-| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code); MSVC golden hashes require `/utf-8`, matching the real build. |
-| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
+| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; MSVC golden hashes require `/utf-8`, matching the real build. |
+| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests. The test runner and requirements are not yet inspected. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
 

@@ -1,11 +1,17 @@
 /* Differential test of the ABI 6 (FM1) memory helpers.
 
-   Three legs run the same random access sequence on identical memory:
+   Five legs run the same random access sequence on identical memory:
      0  ABI 6 helpers with the fast path on (fm_limit set)
      1  ABI 6 helpers with fm_limit 0, i.e. only the recomp_*_slow path
      2  the pristine ABI 5 helpers, emitted with the option off
+     3  the inline FMI fast path (recomp_fmi_*) with fm_limit set
+     4  the inline FMI fast path with fm_limit 0, i.e. only its fallback
    Every return value, the final guest memory and the full host callback log
    (every call, in order, with its arguments) must be identical.
+
+   Built with FMDIFF_GG, the runtime is the GG1 one and a random eighth of the
+   pages carry a watch word, so stores to them must reach the host. ABI 5 knows
+   no watch words, so that build runs legs 0, 1, 3 and 4 only.
 
    Guest pages sit in host pages with an inaccessible page after each one, so
    a read or write past the end of a guest page faults instead of silently
@@ -14,6 +20,9 @@
    the limit, high and tagged bits, and wrap-around.
 
    usage: fmdiff [operations] [seed]   (defaults 20000000, 1) */
+/* The test calls the out-of-line helpers by name and the FMI ones as
+   recomp_fmi_*, so the header must not rename the former to the latter. */
+#define RECOMP_RUNTIME_C 1
 #include "recomp_runtime.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -53,15 +62,24 @@ static const Helpers abi6 = {
     {recomp_ldp32, recomp_ldp64},
     {recomp_stp32, recomp_stp64},
 };
+static const Helpers fmi = {
+    {recomp_fmi_load8, recomp_fmi_load16, recomp_fmi_load32, recomp_fmi_load64},
+    {recomp_fmi_store8, recomp_fmi_store16, recomp_fmi_store32, recomp_fmi_store64},
+    {recomp_fmi_ldp32, recomp_fmi_ldp64},
+    {recomp_fmi_stp32, recomp_fmi_stp64},
+};
+#ifndef FMDIFF_GG
 static const Helpers abi5 = {
     {abi5_recomp_load8, abi5_recomp_load16, abi5_recomp_load32, abi5_recomp_load64},
     {abi5_recomp_store8, abi5_recomp_store16, abi5_recomp_store32, abi5_recomp_store64},
     {abi5_recomp_ldp32, abi5_recomp_ldp64},
     {abi5_recomp_stp32, abi5_recomp_stp64},
 };
+#endif
 
 enum { T_UNMAPPED = 0, T_MEMORY = 1, T_DEBUG = 2, T_CACHED = 3 };
-typedef struct { uintptr_t ptr; uint64_t block, addr, pad; } PageEntry;
+/* watch is the GG1 watch word (RECOMP_GG_WATCH_OFFSET); 0 outside FMDIFF_GG. */
+typedef struct { uintptr_t ptr; uint64_t block, addr, watch; } PageEntry;
 #define GUEST_PAGES 64
 #define FIRST_PAGE 0x100
 #define TABLE_PAGES (FIRST_PAGE + GUEST_PAGES)
@@ -70,7 +88,8 @@ static PageEntry table[TABLE_PAGES];
 static unsigned char* slot[GUEST_PAGES];
 static unsigned char* backing[TABLE_PAGES];
 static uint64_t snapshot[GUEST_PAGES][4096 / 8];
-static unsigned char image[3][GUEST_PAGES][4096];
+#define LEGS 5
+static unsigned char image[LEGS][GUEST_PAGES][4096];
 
 static uint64_t rng_state;
 static uint64_t rnd(void) {
@@ -87,8 +106,8 @@ static unsigned char* model_byte(uint64_t va) {
                                                           : NULL;
 }
 typedef struct { uint64_t va, value; uint32_t size, kind; } Event;
-static Event log_events[3][OPS * 2 + 8];
-static unsigned log_count[3];
+static Event log_events[LEGS][OPS * 2 + 8];
+static unsigned log_count[LEGS];
 static int leg;
 static void log_event(uint32_t kind, uint64_t va, uint32_t size, uint64_t value) {
     Event* e = &log_events[leg][log_count[leg]++];
@@ -159,7 +178,7 @@ static GuestContext context;
 
 typedef struct { unsigned kind; uint64_t va, v0, v1; } Op;
 static Op ops[OPS];
-static uint64_t results[3][OPS][2];
+static uint64_t results[LEGS][OPS][2];
 
 static void configure(void) {
     unsigned i;
@@ -176,6 +195,9 @@ static void configure(void) {
         table[page].ptr = (type == T_MEMORY ? (uintptr_t)slot[i] - (uintptr_t)page * 0x1000 : 0) | type;
         table[page].block = rnd();
         table[page].addr = rnd();
+#ifdef FMDIFF_GG
+        table[page].watch = rnd() % 8 == 0 ? rnd() | 1 : 0;
+#endif
     }
     switch (rnd() % 4) {
     case 0: asmax = (uint64_t)TABLE_PAGES << 12; break;
@@ -276,7 +298,11 @@ int main(int argc, char** argv) {
         return 2;
     }
     if (RECOMP_FM_PAGE_BITS != 12 || RECOMP_FM_STRIDE_LOG2 != 5 || sizeof(PageEntry) != 32 ||
-        RECOMP_FM_PTR_MASK != ~(uintptr_t)3) {
+        RECOMP_FM_PTR_MASK != ~(uintptr_t)3
+#ifdef FMDIFF_GG
+        || RECOMP_GG_WATCH_OFFSET != offsetof(PageEntry, watch)
+#endif
+    ) {
         fprintf(stderr, "FM1 constants do not match this test's table\n");
         return 2;
     }
@@ -297,8 +323,14 @@ int main(int argc, char** argv) {
         fm_limit = bridge.address_space_max & ~UINT64_C(0xfff);
         run_leg(0, &abi6, fm_limit);
         run_leg(1, &abi6, 0);
+        run_leg(3, &fmi, fm_limit);
+        run_leg(4, &fmi, 0);
+        if (compare(0, 1, iteration) || compare(0, 3, iteration) || compare(0, 4, iteration))
+            return 1;
+#ifndef FMDIFF_GG
         run_leg(2, &abi5, 0);
-        if (compare(0, 1, iteration) || compare(0, 2, iteration)) return 1;
+        if (compare(0, 2, iteration)) return 1;
+#endif
         for (i = 0; i < OPS; ++i) {
             static const unsigned sizes[12] = {1, 2, 4, 8, 1, 2, 4, 8, 8, 16, 8, 16};
             const uint64_t va = ops[i].va;
@@ -310,8 +342,13 @@ int main(int argc, char** argv) {
         callbacks += log_count[0];
         done += OPS;
     }
-    printf("fmdiff: %" PRIu64 " operations x 3 legs, %" PRIu64 " iterations, 0 mismatches; "
-           "%" PRIu64 " served by the fast path, %" PRIu64 " host callbacks per leg\n",
-           done, iteration, fast_eligible, callbacks);
+#ifdef FMDIFF_GG
+    const char* variant = "GG1, 4 legs";
+#else
+    const char* variant = "5 legs";
+#endif
+    printf("fmdiff (%s): %" PRIu64 " operations per leg, %" PRIu64 " iterations, 0 mismatches; "
+           "%" PRIu64 " eligible for the fast path, %" PRIu64 " host callbacks per leg\n",
+           variant, done, iteration, fast_eligible, callbacks);
     return 0;
 }

@@ -2,6 +2,22 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev9 - Unreleased
+
+*Development commit 9 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added the opt-in inline FM1 fast path (FMI), enabled by setting `SUYU_AOT_FM_INLINE=1` in the environment of the export. FMI requires FM1, needs a new export, leaves default output unchanged, records `"fm_inline"` in the manifest, and requires cache reuse to match that field; manifests without the field count as FMI off.
+
+### Tests
+- Added FMI fast-path and fallback legs to the fastmem differential tests, plus the GG1 watched-page differential executable.
+- Added `abi6fmi` and `ggfmi` variants to the recompiler smoke tests; default output remains byte-identical.
+
+### Known issues
+- FMI is unmeasured on PLA; image size, compile time, FPS, and sampling have not been measured.
+- Whole-helper inlining was measured worse on MK8D (image size 100 to 222 MB and 14% lower FPS); FMI only inlines the FM1 fast path.
+- Per-instruction entry labels that store and reload guest registers through `GuestContext` are not addressed by FMI.
+
 ## v0.0.1-dev8 - Unreleased
 
 *Development commit 8 toward v0.0.1. Not a release; no build artifacts are published.*

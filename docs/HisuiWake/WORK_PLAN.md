@@ -121,11 +121,11 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 ### State at handoff
 
-- **Repository:** HEAD is `70336e7` (docs commit after `2662ef5` `v0.0.1-dev8`), after user commits `2662ef5`, `ff44909`, `d0be6ce`, `a6b8690`, `28e6caf`, and `6f4dffd`. The dev8 result in `CHANGELOG.md` is committed. The uncommitted Markdown is this archive split, the `CLAUDE.md`/`CODEBASE_INDEX.md` updates, and `README.md`.
+- **Repository:** HEAD is `70336e7` (docs commit after `2662ef5` `v0.0.1-dev8`), after user commits `2662ef5`, `ff44909`, `d0be6ce`, `a6b8690`, `28e6caf`, and `6f4dffd`. The dev8 result in `CHANGELOG.md` is committed. A dev9 FMI source change is uncommitted; the dev9 Markdown updates are also uncommitted.
 - **Local environment:** `suyu.exe` and `suyu-cmd.exe` in the local build directory are built from dev8. The latest local PLA package is a dev8 static AOT Build export (`suyu-static`, fallback disabled, translate-all, ABI 6, features 7); a dev6-era Source-format export also exists for hot-block inspection. Exports are outside the repository; package names containing `é` work.
 - **Diagnostics:** the local diag directory outside the repository contains `RipSampler.cs`, `RipSampler2.cs`, and `sample_static.ps1`; launch from a non-elevated shell. Use `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out <file>`.
 - **Build/test:** in the Build Tools 2026 `vcvars64` environment, run `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls` (about 100.6 M cases; reduced: add `--cases 1000 --adv 2000 --legs 13`) and `python -B tests/recompiler_smoke/run.py`, also with clang-cl. Both passed at dev8; partition was not rerun. `rebuild-suyu.bat` clears export variables and builds with `-j 8`; incremental builds use `cmake --build <build-dir> --target suyu suyu-cmd -j 8`.
-- **Switches:** `SUYU_FPCR_STATS=1` logs guest FPCR and adds a lock per save; never use it for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode.
+- **Switches:** `SUYU_FPCR_STATS=1` logs guest FPCR and adds a lock per save; never use it for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode. `SUYU_AOT_FM_INLINE=1` enables FMI at export only when FM1 is enabled.
 
 ### What this session did
 
@@ -144,6 +144,9 @@ For each feature, identify the responsible layer, add a clear setting where appr
 | Hybrid first / translate-all / budget 256 | 17 / 14 / 15-20 FPS. |
 | Dev6 static AOT | 16-20 FPS, no fallback. |
 | Dev8 static AOT | 25-30 FPS, no fallback. |
+| [Dev8 static sampling](#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld) | Hot block 2-3.5% (was 15-19%), scheduler-fiber symbol about 1% (was 10-12.5%), CPU cores waiting 35-49% of samples. |
+| [Same-scene JIT sampling](#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
+| [FMI source change](#2026-10-05-source-inspection-of-memory-access-and-the-opt-in-fmi-inline-fast-path-v001-dev9-unmeasured-in-pla) | Opt-in FM1 fast-path inlining; verification passed, but PLA performance and image-size effects are unmeasured. |
 | FPCR measurement | FZ set in about 96% of 3,473,408 JIT context saves; do not measure FPS with `SUYU_FPCR_STATS=1`. |
 | Sampling profile | Hot block was 15-19% of busy-core RIP samples; `ScheduleImplFiber` was 10-12.5%. The FZ finding is confirmed, not a hypothesis. |
 
@@ -151,15 +154,16 @@ Key conclusions: static AOT ran without fallback in the exercised scenario; Dyna
 
 ### Open issues, in priority order
 
-1. Per-thread CPU and RIP sampling on the dev8 static AOT launcher in the overworld; check `recomp_load*`/`store*`/`ldp`/`stp`, per-instruction entry labels, `ScheduleImplFiber`, `HostTiming`, and `recomp_lookup_*`.
+1. Export PLA static AOT with `SUYU_AOT_FM_INLINE=1`, compare image size, compile time, FPS, and sampling with dev8.
 2. Code review of `a6b8690` by the Code reviewer.
 3. Investigate stale `export-package.json` producer revision `d0be6ce` in dev8-era builds.
-4. Later: race-free `SignalInterrupt` slice ending; revisit verify-always pin; optional `SUYU_NO_JIT`; optional DN acceptance in FPX1 (safe because NaN results are never kept, but PLA does not set DN).
+4. Later: reduce per-instruction entry labels to real entry points; investigate the code size and instruction-cache impact of inline exact-FP bodies; race-free `SignalInterrupt` slice ending; revisit verify-always pin; optional `SUYU_NO_JIT`; optional DN acceptance in FPX1 (safe because NaN results are never kept, but PLA does not set DN).
+5. Small smoke-like standalone builds with GG1 have a pre-existing link failure for `g_recomp_gg_word`, with FMI both on and off.
 5. Existing investigations: export pipeline cost, GPL root cause, and smaller items (8 unresolved rtld GOT/PLT symbols, O2 compiler label, `BUILD.md`, version string, `egrep` hook, `getopt` LGPL warning, kit MSVC baseline).
 
 ### Immediate next action
 
-The user commits the pending Markdown (this change), then starts the dev8 static AOT launcher from a non-elevated shell, stops in the overworld, runs `sample_static.ps1`, and compares with the dev6 static sample.
+The user commits dev9; then exports PLA static AOT in Build format with fallback disabled and `SUYU_AOT_FM_INLINE=1` set in the environment of the `suyu.exe` that runs the export. The user records FPS in the same overworld scene, then the agent samples that export for comparison.
 
 ### How to work
 
@@ -261,3 +265,53 @@ Keep raw logs, machine-specific paths, and game-derived artifacts local. Link on
 ### 2026-10-05: Session close (fifth session)
 
 Rewrote the session handoff for a new session, recording the dev8 static AOT result, confirmed FPCR/FZ finding, diagnostics, test commands, open issues, and immediate next action. Preserved the earlier progress records.
+
+### 2026-10-05: Dev8 static AOT per-thread CPU and RIP sampling in the overworld
+
+- **Milestone and configuration:** Milestone 4. Source revision `HEAD` was `70336e7`; runtime/export version was `v0.0.1-dev8`. This was a dev8 static AOT Build export with fallback disabled. The user stopped in the overworld. The launcher was started from a non-elevated shell, and the shell running the sampler was non-elevated.
+- **Command and comparison:** `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out rip_samples_static_dev8.txt` measured a 60 s per-thread CPU window, then collected 2,000 RIP samples per `CPUCore`/`GPU` thread at 5 ms. Output was kept in the local diag directory outside the repository and compared with the dev6 static sample `rip_samples_static.txt` taken the same way. FPS during the sampling window was not recorded.
+- **CPU and RIP summary:**
+
+| Metric | Dev6 static AOT | Dev8 static AOT |
+|---|---|---|
+| Process CPU (sum of threads, % of one core) | 334.3% | 320.3% |
+| HostTiming thread CPU | 99.0% | 98.7% |
+| CPUCore_0 / 1 / 2 / 3 CPU | 40.4 / 88.1 / 89.2 / 0.2% | 55.4 / 68.7 / 68.0 / 0.4% |
+| GPU thread CPU | 7.3% | 16.7% |
+| `ZwWaitForAlertByThreadId` share on CPUCore_1 / CPUCore_2 / CPUCore_0 | 11.0 / 9.9 / 61.2% | 34.8 / 37.6 / 48.6% |
+| `blk_main_0000000002d1e290` share on CPUCore_1 / CPUCore_2 | 15.5 / 19.4% | 2.0 / 3.5% |
+| Symbol shown as `Service::HID::Gesture::~Gesture` (previously attributed to `ScheduleImplFiber`) on CPUCore_1 / CPUCore_2 | 12.5 / 10.3% | 1.2 / 1.1% |
+| `recomp_load64` on CPUCore_1 / CPUCore_2 / CPUCore_0 | 4.5 / 2.9 / 3.8% | 5.3 / 4.8 / 5.9% |
+| `recomp_lookup_main` on CPUCore_1 / CPUCore_2 / CPUCore_0 | 2.2 / 2.3 / 1.3% | 3.3 / 3.2 / 2.7% |
+
+- **Other observations:** On CPUCore_1, the memory helpers `recomp_load64/load32/load8/ldp64/stp64` were about 10.9% of all RIP samples (about 17% of non-wait samples); `recomp_lookup_main` plus `recomp_lookup_sdk` were about 4.4%. `Core::ArmRecomp::RunThread` was 2.4-2.7% and `recomp_image_run_slice_*` was 0.9-1.5% per core. `<unknown>` was 5.0-5.9% per core; these are unresolved addresses and are not yet attributed. CPUCore_0 showed `Dynarmic::SpinLock::Unlock` at 0.9% and `Core::Memory::Memory::Impl::WriteExclusive<unsigned int>` at 0.7%; this is an exclusive-access path, not JIT execution. The GPU thread showed `NtGdiDdDDIQueryAdapterInfo` at 6.0%, which was not seen in the dev6 sample. CPUCore_3 was idle (99.5% wait) in both samples. No per-instruction entry labels appeared in the top-15 lists.
+- **Findings:** The dev8 FZ-aware FPX1 change reduced the dominant hot block from 15-19% to 2-3.5% and reduced the scheduler-fiber symbol share from 10-12.5% to about 1%. CPU cores now wait 35-49% of samples instead of about 10% on cores 1-2.
+- **Hypotheses (unverified):** Guest CPU execution is no longer the saturating cost in this scene. The remaining 25-30 versus 30 FPS gap may come from frame pacing, GPU/presentation, `HostTiming`, or remaining memory-helper/lookup overhead. A JIT sample in the same scene, with FPS/frame-time recorded during both samples, is needed to decide.
+- **Next:** Sample the JIT baseline in the same scene with the same method and record FPS during both samples; attribute `<unknown>` addresses; investigate `NtGdiDdDDIQueryAdapterInfo` on the GPU thread only if the JIT sample lacks it.
+
+### 2026-10-05: Same-scene JIT sampling: remaining gap is guest CPU cost
+
+- **Target and method:** The `suyu.exe` JIT process was sampled in the same overworld scene with the same `sample_static.ps1` method used for dev8 static AOT. FPS during either sampling window was not recorded.
+
+| Metric | JIT | Dev8 static AOT |
+|---|---:|---:|
+| Process CPU (sum of threads, % of one core) | 275.7% | 320.3% |
+| CPUCore_0 / CPUCore_1 / CPUCore_2 CPU | 44.7 / 47.2 / 45.7% | 55.4 / 68.7 / 68.0% |
+| Core wait share | 56-61% | 35-49% |
+| JIT code (`<unknown>`) share | 32-35% of samples | Not applicable |
+| HostTiming CPU | 98.2% | 98.7% |
+| GPU thread CPU | 18.0% | 16.7% |
+| `NtGdiDdDDIQueryAdapterInfo` on GPU thread | 6.3% | 6.0% |
+
+- **Conclusion:** HostTiming, GPU thread load, and `NtGdiDdDDIQueryAdapterInfo` are not AOT-specific. The remaining gap is guest CPU execution cost: static AOT uses roughly 1.5-2x the JIT CPU time per core in this scene, estimated from non-wait shares. This refutes the earlier GPU/presentation hypothesis in the dev8 sampling entry; the `<unknown>` JIT samples are JIT code and do not identify a more specific cost.
+- **Unmeasured:** FPS during the samples, image size, compile time, and frame-time stability were not recorded.
+
+### 2026-10-05: Source inspection of memory access and the opt-in FMI inline fast path (v0.0.1-dev9, unmeasured in PLA)
+
+- **Why:** Dev8 static AOT RIP sampling showed out-of-line memory helpers at about 11% of CPUCore_1 samples. Source-export inspection of the dev8 static export (clang-cl `/O2`, no LTO) found the helpers defined in `recomp_runtime.c`, a separate translation unit, so every guest memory access is a call even when FM1 serves it; a clang-cl `/O2` compile of the hot block confirmed `call recomp_load64` and similar calls at each access.
+- **Additional inspection:** Per-instruction entry labels (`_recomp_entry_N`) force guest registers through `GuestContext` memory between instructions (store then reload); FMI does not address this later candidate. The hot block expands to about 24,000 assembly lines because exact FP fallback bodies are inline; instruction-cache pressure is a hypothesis and is unverified.
+- **Design:** FMI appends `recomp_fmi_*` static inline fast paths, including a GG1 watch-word store entry, to `recomp_runtime.h`. Object-like renames such as `#define recomp_load64 recomp_fmi_load64` apply only in generated units; `recomp_runtime.c` defines `RECOMP_RUNTIME_C 1` first so its definitions retain their original names. The unchanged out-of-line helper remains the fallback. FMI changes no ABI or feature bits and is opt-in because an existing header note records whole-helper inlining as worse on MK8D (image 100 to 222 MB, -14% FPS); FMI only inlines the fast path and is unmeasured on PLA.
+- **Exporter:** `SUYU_AOT_FM_INLINE=1` enables FMI only when FM1 is enabled. The manifest records `"fm_inline"`; cache reuse requires a matching value, and manifests without the field count as FMI off.
+- **Verification:** `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl` passed fmdiff's five legs (FM1 fast, FM1 slow, ABI 5, FMI fast, FMI fallback) and fmdiff_gg's four legs (GG1 runtime with a random eighth of pages watched), each with 20,000,768 operations and 0 mismatches. A deliberate GG1 FMI store mutation without the watch check was caught. `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl` passed all seven variants (ABI5, ABI6, ABI6GG, FPX, GGFPX, ABI6FMI, GGFMI); goldens were unchanged and `check_fm_inline` asserted that only `recomp_runtime.c` and `.h` differ. `rebuild-suyu.bat` succeeded after clearing export cache entries and building `suyu` and `suyu-cmd -j 8`.
+- **Review:** The Code reviewer (Orca, gpt-6.1-sol, high effort) reported no findings and additionally built FMI with FPX1/shadow and GG1 combinations. It noted that the synthetic standalone GG1 target fails to link `g_recomp_gg_word` with FMI on and off, a pre-existing issue outside this change, and recommended permanent FMI+FPX smoke variants and exporter cache tests for old/off/on manifests.
+- **Not run:** PLA export with FMI, image size/compile-time/FPS/sampling measurements, the FPX harness, partition test, and build-kit linking remain unmeasured.
