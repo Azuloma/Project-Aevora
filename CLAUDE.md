@@ -4,7 +4,7 @@
 
 HisuiWake is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-05, the source build works on Windows x64, JIT PLA runs at 30 FPS, and the v0.0.1-dev8 PLA static AOT export with fallback disabled reaches gameplay with zero JIT transitions at about 25-30 FPS versus 30 FPS JIT. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+As of 2026-10-05, dev9 adds an opt-in inline memory fast path (FMI) that is correct in tests but makes the PLA static launcher image exceed the 2 GB x64 image limit, so it is not usable for PLA yet; the next work is the image-size budget. The source build works on Windows x64, JIT PLA runs at 30 FPS, and the v0.0.1-dev8 PLA static AOT export with fallback disabled reaches gameplay with zero JIT transitions at about 25-30 FPS versus 30 FPS JIT. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md).
 
@@ -86,6 +86,7 @@ The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`
 ## Build and verification rules
 
 - The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's Key facts from archived history section (details in `OLD_HISTORY_HW.md`); `docs/HisuiWake/BUILD.md` has not been written yet.
+- A static launcher links all recompiled modules into one image; MSVC x64 images are limited to 2 GB (LNK1248). Check the image size impact of generated-code changes before a full PLA export.
 - When `suyu.exe` from a source build runs an export, the exporter reuses and reconfigures that build tree. Afterwards, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before packaging an export build kit, and treat `bin/suyu-cmd-static.exe` and `recomp_clang/` in that tree as local game-derived output.
 - Many `externals/` directories were empty at handoff. The active CMake code uses CPM helpers and `cpmfile.json`; `.gitmodules` alone neither supplies dependencies nor records all required pinned revisions in a new repository.
 - Do not assume `git submodule update --init --recursive` repairs a source archive. Determine the actual acquisition path and pinned versions for each required dependency.

@@ -14,7 +14,7 @@ All notable changes to HisuiWake are recorded here. Versions follow the scheme i
 - Added `abi6fmi` and `ggfmi` variants to the recompiler smoke tests; default output remains byte-identical.
 
 ### Known issues
-- FMI is unmeasured on PLA; image size, compile time, FPS, and sampling have not been measured.
+- FMI on PLA made the static launcher image about 2.19 GB, over the 2 GB x64 image limit (LNK1248), so FMI cannot currently be used for a PLA static export. After the link failure, fallback-disabled export takes the existing MSVC per-module path (one `cl.exe` at a time on 16 GB hosts, about 20 h for main), also bound to fail; FPS and sampling remain unmeasured.
 - Whole-helper inlining was measured worse on MK8D (image size 100 to 222 MB and 14% lower FPS); FMI only inlines the FM1 fast path.
 - Per-instruction entry labels that store and reload guest registers through `GuestContext` are not addressed by FMI.
 
