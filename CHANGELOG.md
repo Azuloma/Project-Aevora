@@ -2,6 +2,18 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev7 - Unreleased
+
+*Development commit 7 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- An opt-in FPCR diagnostic, enabled when `SUYU_FPCR_STATS` has any non-empty value other than `0`, tallies the guest FPCR of application threads at each thread switch and logs each newly seen value (decoded RMode/FZ/DN/AHP/FZ16/trap bits) plus a process-wide summary every 65,536 context saves, including how often FPSR.IXC is set. It works with both the JIT and recompiled CPU backends. The diagnostic is off by default; when enabled it takes a lock per context save, so FPS from such runs is not a performance measurement.
+
+### Known issues
+- Counts are cumulative per host process; restart suyu between comparisons.
+- At most 16 distinct values are tracked; overflow is logged.
+- The diagnostic samples context saves, not individual FP operations, so it does not give the per-operation FPX1 gate-open rate.
+
 ## v0.0.1-dev6 - Unreleased
 
 *Development commit 6 toward v0.0.1. Not a release; no build artifacts are published.*

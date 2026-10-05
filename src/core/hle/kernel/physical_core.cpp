@@ -4,6 +4,11 @@
 // SPDX-FileCopyrightText: Copyright 2020 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
+#include <cstdlib>
+#include <mutex>
+#include <string>
+
 #include "common/logging/log.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
@@ -16,6 +21,117 @@
 #include "core/hle/kernel/svc.h"
 
 namespace Kernel {
+
+namespace {
+
+// Diagnostic, enabled by SUYU_FPCR_STATS (any non-empty value other than "0"):
+// tallies the guest FPCR of application threads at every context save, i.e.
+// at each thread switch. It answers whether the guest runs with FPCR bits
+// that close the recompiler's FPX1 native-FP gate (FZ, DN, RMode, ...).
+// The value is the guest's own register, so the JIT and recompiled backends
+// report the same thing. FPSR.IXC is tallied too, because the gate also needs
+// it set; JIT backends may not track FPSR exactly. Counts are process-wide and
+// cumulative, so compare runs in fresh suyu/suyu-cmd processes. Enabling it adds
+// a lock per context save; do not use FPS from such runs as a measurement.
+class FpcrStats {
+public:
+    static FpcrStats& Instance() {
+        static FpcrStats stats;
+        return stats;
+    }
+
+    bool Enabled() const {
+        return m_enabled;
+    }
+
+    void Record(u64 thread_id, u32 fpcr, u32 fpsr) {
+        constexpr u32 kFpsrInexactBit = 1u << 4;
+        constexpr u64 kSummaryIntervalSaves = 1ull << 16;
+
+        std::scoped_lock lk{m_lock};
+        ++m_total_saves;
+        Entry* entry = Find(fpcr);
+        if (entry == nullptr) {
+            if (m_entry_count == m_entries.size()) {
+                if (m_untracked_saves++ == 0) {
+                    LOG_WARNING(Core_ARM,
+                                "FPCR stats: more than {} distinct FPCR values; 0x{:08X} and "
+                                "later new values are counted only as untracked",
+                                kMaxTrackedValues, fpcr);
+                }
+            } else {
+                entry = &m_entries[m_entry_count++];
+                entry->fpcr = fpcr;
+                LOG_INFO(Core_ARM, "FPCR stats: new guest FPCR 0x{:08X} ({}) first seen on thread {}",
+                         fpcr, Describe(fpcr), thread_id);
+            }
+        }
+        if (entry != nullptr) {
+            ++entry->saves;
+            entry->inexact_set_saves += (fpsr & kFpsrInexactBit) != 0;
+        }
+        if (m_total_saves % kSummaryIntervalSaves == 0) {
+            LogSummary();
+        }
+    }
+
+private:
+    // Guests normally switch between a handful of FPCR values; the bound keeps
+    // the per-save lookup short. Overflow is reported, not silently dropped.
+    static constexpr std::size_t kMaxTrackedValues = 16;
+
+    struct Entry {
+        u32 fpcr = 0;
+        u64 saves = 0;
+        u64 inexact_set_saves = 0;
+    };
+
+    FpcrStats() {
+        const char* value = std::getenv("SUYU_FPCR_STATS");
+        m_enabled = value != nullptr && *value != '\0' && !(value[0] == '0' && value[1] == '\0');
+        if (m_enabled) {
+            LOG_INFO(Core_ARM, "FPCR stats: enabled (SUYU_FPCR_STATS)");
+        }
+    }
+
+    Entry* Find(u32 fpcr) {
+        for (std::size_t i = 0; i < m_entry_count; ++i) {
+            if (m_entries[i].fpcr == fpcr) {
+                return &m_entries[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static std::string Describe(u32 fpcr) {
+        static constexpr std::array<const char*, 4> kRoundingModes{"RN", "RP", "RM", "RZ"};
+        return fmt::format("RMode={} FZ={} DN={} AHP={} FZ16={} traps=0x{:X}",
+                           kRoundingModes[(fpcr >> 22) & 3], (fpcr >> 24) & 1, (fpcr >> 25) & 1,
+                           (fpcr >> 26) & 1, (fpcr >> 19) & 1, fpcr & 0x9F00);
+    }
+
+    void LogSummary() const {
+        LOG_INFO(Core_ARM,
+                 "FPCR stats (process-wide): {} context saves, {} tracked values, {} untracked saves",
+                 m_total_saves, m_entry_count, m_untracked_saves);
+        for (std::size_t i = 0; i < m_entry_count; ++i) {
+            const Entry& entry = m_entries[i];
+            LOG_INFO(Core_ARM, "FPCR stats:   0x{:08X} ({}): {} saves ({:.1f}%), FPSR.IXC set in {}",
+                     entry.fpcr, Describe(entry.fpcr), entry.saves,
+                     100.0 * static_cast<double>(entry.saves) / static_cast<double>(m_total_saves),
+                     entry.inexact_set_saves);
+        }
+    }
+
+    bool m_enabled = false;
+    std::mutex m_lock;
+    std::array<Entry, kMaxTrackedValues> m_entries{};
+    std::size_t m_entry_count = 0;
+    u64 m_total_saves = 0;
+    u64 m_untracked_saves = 0;
+};
+
+} // namespace
 
 PhysicalCore::PhysicalCore(KernelCore& kernel, std::size_t core_index)
     : m_core_index{core_index}
@@ -207,6 +323,11 @@ void PhysicalCore::SaveContext(KThread* thread) const {
     auto* interface = process->GetArmInterface(m_core_index);
     if (interface) {
         interface->GetContext(thread->GetContext());
+        auto& fpcr_stats = FpcrStats::Instance();
+        if (fpcr_stats.Enabled() && process->IsApplication()) {
+            const auto& context = thread->GetContext();
+            fpcr_stats.Record(thread->GetThreadId(), context.fpcr, context.fpsr);
+        }
     }
 }
 

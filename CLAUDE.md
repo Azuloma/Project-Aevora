@@ -4,7 +4,9 @@
 
 HisuiWake is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-05, the source build works on Windows x64, the JIT path runs PLA, and a PLA Hybrid export builds, launches, and runs below JIT speed. A fully static PLA export and a complete Hybrid gameplay checklist have not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+As of 2026-10-05, the source build works on Windows x64, the JIT path runs PLA, and the observed Hybrid export with all modules recompiled runs with zero JIT transitions but below JIT speed (15-20 FPS with chain budget 256 versus 30 FPS JIT). A PLA static AOT export with fallback disabled also builds and runs into gameplay with zero JIT transitions at about 16-20 FPS, versus 30 FPS JIT, but a complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+
+Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md).
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -39,6 +41,7 @@ Read [README.md](README.md) and [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md) befo
 | `externals/`, `.patch/`, `vcpkg*.json`, `vcpkg-overlays/` | Dependencies, patches, and alternate package configuration. |
 | `src/tests/`, `tests/` | Existing verification code; inspect relevant targets before adding tests. |
 | `docs/HisuiWake/` | Current project documentation. |
+| `AGENTS.md` | Codex entry point; points to `CLAUDE.md`. |
 | `docs/Suyu/` | Archived upstream documentation; some relative links may need repair. |
 
 ## Readable code
