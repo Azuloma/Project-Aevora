@@ -20,7 +20,7 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `tools/` | Export build kit, CPM scripts, package-policy audit, shader tools, Windows helpers. |
 | `scripts/` | Build-fix notes and helper scripts. Inspect before running; some clear caches. |
 | `dist/`, `hooks/` | Desktop/icon/udev assets; git pre-commit hook installed by CMake. |
-| `docs/HisuiWake/`, `docs/Suyu/` | Current project docs; archived upstream docs. |
+| `docs/HisuiWake/`, `docs/Suyu/` | Current project docs, including `WORK_PLAN.md` and `OLD_HISTORY_HW.md`; archived upstream docs. |
 
 ### Lineage markers found in the tree
 
@@ -46,7 +46,8 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `SUYU_RECOMP_STRICT` read in emitted code | `arm64_to_c.h:7374` (v) | Generated runtime honours strict mode. |
 | `kDefaultUnitSourceBytes` / `kDefaultUnitBlocks` | after `kChainBudget`, ~`arm64_to_c.h:357` (v, 2026-10-05) | Generated-unit limits (8 MiB / 5,000 blocks). `EmitProject()` takes `unit_source_limit` and `unit_block_limit`; split condition ~`:5328`. |
 | Generated module CMake job pool | ~`arm64_to_c.h:5574-5615` (v, 2026-10-05) | `RECOMP_JOBS` from RAM minus 4 GB, 8 GB per cl.exe or 1.5 GB per clang compile; `SUYU_RECOMP_JOBS`, `SUYU_RECOMP_JOB_MEMORY_MB`, `-DRECOMP_JOBS` overrides; Ninja pool `recomp_compile`. |
-| AdvSIMD shift-by-immediate emitters | ~`arm64_to_c.h:1719-1830` (v, 2026-10-05) | `SSHR`/`USHR`/`SHRN` at ~`:1795`. `SHL` (vector, immediate) is not implemented; PLA hits it (see WORK_PLAN session handoff). |
+| AdvSIMD shift-by-immediate emitters | ~`arm64_to_c.h:1719-1830` (v, 2026-10-05) | `SSHR`/`USHR`/`SHRN` at ~`:1795`. `SHL` (vector, immediate) is implemented in the non-saturating and dedicated emitters but gated by `g_translate_all` for Hybrid exports (see `OLD_HISTORY_HW.md`). |
+| FPX1 runtime text and emitters | `arm64_to_c.h:FpxH()` / `FpxH64()` ~`:6416` / `:6627`; `EmitFPNativeValue` / `EmitFPNativeSuffix` ~`:492` / `:505` (v) | `RECOMP_FPX_OPEN` uses `RECOMP_FPX_FPCR_MASK 0x06C8FF07`; `RECOMP_FPX_FZ` passes guest FZ to `recomp_fpx_<op>{32,64}(..., int fz, ...)` and applies the FZ-safe keep rules. |
 
 ### 2.2 Exporter (Qt)
 
@@ -82,7 +83,8 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `recomp_guard_gen.h/.cpp` | GG1 generation-word code guard. |
 | `recomp_gaps.h/.cpp`, `recomp_gap_session.h/.cpp` | Gap/coverage recording. Local `suyu-recomp-gaps` JSON (includes instruction words; keep local) and portable `suyu-shared-coverage` JSON. |
 | `recomp_diagnostic_sampler.h` | Diagnostics sampling. |
-| `guest_fp_env.h` | Host FP mode (MXCSR/FPCR) matching for guest code. |
+| `guest_fp_env.h` | Host FP mode (MXCSR/FPCR) matching for guest code; `kFpcrMask` and the host-mode check are near the top of the file (line numbers approximate). |
+| `src/core/hle/kernel/physical_core.cpp` | Anonymous-namespace `FpcrStats` (~`:36`), recorded by `PhysicalCore::SaveContext` (~`:316`); `SUYU_FPCR_STATS` enables guest FPCR diagnostics. |
 
 Key runtime facts:
 
@@ -179,8 +181,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | Location | Content |
 |---|---|
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
-| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code). |
-| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Partitioning is relevant to the `C1002` investigation. |
+| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code); MSVC golden hashes require `/utf-8`, matching the real build. |
+| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests. The test runner and requirements are not yet inspected. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
 
@@ -189,7 +191,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | Investigation | Start here |
 |---|---|
 | `LNK1181` on `recomp_registration.c.obj` | Not reproduced on 2026-10-05 (clang-cl, ASCII parent path). `game_export.cpp:3991` (file creation), generated CMake around `:3920-3960`, configure/build around `:4229`, registration pruning around `:4701`; QString→path conversion in those blocks. |
-| Hybrid performance (17 vs 30 FPS) | `SHL` gap in `arm64_to_c.h` shift-by-immediate emitters; `RecompGuardGen::OnJitFallback()`; package `user/log/recomp_coverage.txt`. |
+| Hybrid performance (17 vs 30 FPS) | `SHL` translation gate in `arm64_to_c.h`; `RecompGuardGen::OnJitFallback()`; package `user/log/recomp_coverage.txt`. |
 | Export pipeline time and memory | `game_export.cpp` clang-cl module build and launcher link (~`:4400-4560`); generated job pool in `arm64_to_c.h`. |
 | GPL rendering defect | `vk_graphics_pipeline.{h,cpp}` part keys. |
 | `C1002` heap exhaustion | `EmitProject()` unit splitting in `arm64_to_c.h`, `tests/recompiler_partition`, compiler flags in the generated module CMake. |

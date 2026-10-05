@@ -15,6 +15,10 @@ All notable changes to HisuiWake are recorded here. Versions follow the scheme i
 ### Known issues
 - PLA static AOT overworld performance was observed at about 25-30 FPS, up from about 16-20 FPS with dev6 static AOT and versus 30 FPS with the JIT baseline, in one user-observed run with zero fallback. The FP differential harness compares against the software implementation on this host; the hardware-golden leg (L5) needs an AArch64 host and was not run.
 
+### Documentation
+- Split `WORK_PLAN.md`, archived older history verbatim in `docs/HisuiWake/OLD_HISTORY_HW.md`, and added a key-facts summary plus archive rule.
+- Updated README status to the dev8 evidence and corrected the stale SHL note in `CODEBASE_INDEX.md`.
+
 ## v0.0.1-dev7 - Unreleased
 
 *Development commit 7 toward v0.0.1. Not a release; no build artifacts are published.*

@@ -4,13 +4,13 @@
 
 HisuiWake is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-05, the source build works on Windows x64, the JIT path runs PLA, and the observed Hybrid export with all modules recompiled runs with zero JIT transitions but below JIT speed (15-20 FPS with chain budget 256 versus 30 FPS JIT). With v0.0.1-dev8, a PLA static AOT export with fallback disabled reached gameplay with zero JIT transitions at about 25-30 FPS, versus 30 FPS JIT; the earlier dev6-era Hybrid observation was 15-20 FPS. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+As of 2026-10-05, the source build works on Windows x64, JIT PLA runs at 30 FPS, and the v0.0.1-dev8 PLA static AOT export with fallback disabled reaches gameplay with zero JIT transitions at about 25-30 FPS versus 30 FPS JIT. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md).
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
-Read [README.md](README.md) and [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, acceptance criteria, and the latest session handoff with open issues and the next action. Update it after meaningful progress.
+Read [README.md](README.md) and [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, acceptance criteria, and the latest session handoff with open issues and the next action; older history is archived in [OLD_HISTORY_HW.md](docs/HisuiWake/OLD_HISTORY_HW.md). Update it after meaningful progress.
 
 ## Finding files
 
@@ -74,16 +74,18 @@ The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`
 - Codex loads [AGENTS.md](AGENTS.md), which points it to this guide; keep AGENTS.md as a pointer and put project rules in CLAUDE.md.
 - Codex workers are started through Orca orchestration: `orca orchestration worker-start --agent codex` with these roles:
   - Code reviewer: `--model gpt-6.1-sol --effort high`; reviews code changes against the "Readable code", "Architecture and scope", "Working method", and "Build and verification rules" sections and cites the rule for each finding; does not edit files unless the task says so.
-  - md Implementer: `--model gpt-5.6-luna --effort medium`; creates, edits, and manages Markdown files (for example WORK_PLAN.md, CHANGELOG.md, CODEBASE_INDEX.md, README.md, CLAUDE.md); does not edit source or build files.
+  - md Implementer: `--model gpt-5.6-luna --effort medium`; creates, edits, and manages Markdown files (for example WORK_PLAN.md, OLD_HISTORY_HW.md, CHANGELOG.md, CODEBASE_INDEX.md, README.md, CLAUDE.md); does not edit source or build files.
 - Use the matching role whenever a task needs it: Markdown changes go to md Implementer; code changes are reviewed by Code reviewer.
 - Run Orca workers one at a time; start the next worker only after the previous one reports completion.
 - Do not poll a running Orca worker. Wait with a single blocking `orca orchestration check --wait`, then process the result.
 - Besides the two Orca roles, only these Claude subagents may be used: `code-explorer` (read-only codebase exploration and locating code) and `code-quick-implementer` (small, well-scoped code changes whose cause and approach are already decided). No other agents or subagent types are launched.
 - Workers follow this guide, record only verified facts, and never commit, tag, or push.
+- For long worker specifications, write the spec with a file tool and start from Bash with `--spec "$(cat <file>)"`; Windows PowerShell 5.1 can break quoted native arguments, and very long heredocs can be truncated.
+- A Run permits only one active `check --wait` waiter. Wait with `--types worker_done,escalation` so heartbeat/status messages do not end the wait, and pass `--ack` for the previously processed delivery. Read Orca JSON output as UTF-8.
 
 ## Build and verification rules
 
-- The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's progress record; `docs/HisuiWake/BUILD.md` has not been written yet.
+- The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's Key facts from archived history section (details in `OLD_HISTORY_HW.md`); `docs/HisuiWake/BUILD.md` has not been written yet.
 - When `suyu.exe` from a source build runs an export, the exporter reuses and reconfigures that build tree. Afterwards, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before packaging an export build kit, and treat `bin/suyu-cmd-static.exe` and `recomp_clang/` in that tree as local game-derived output.
 - Many `externals/` directories were empty at handoff. The active CMake code uses CPM helpers and `cpmfile.json`; `.gitmodules` alone neither supplies dependencies nor records all required pinned revisions in a new repository.
 - Do not assume `git submodule update --init --recursive` repairs a source archive. Determine the actual acquisition path and pinned versions for each required dependency.

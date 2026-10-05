@@ -1,8 +1,8 @@
 # HisuiWake - Pokemon Legends: Arceus Recompiled
 
-HisuiWake is an experimental project aiming to statically recompile **Pokemon Legends: Arceus**, the first entry in the Pokemon Legends series, for PC. It is based on **Suyu v0.0.12** and developed with the assistance of AI.
+HisuiWake is an experimental project aiming to statically recompile **Pokemon Legends: Arceus**, the first entry in the Pokemon Legends series, for PC. It is based on **Suyu v0.0.12** and developed with the assistance of AI. The exact upstream lineage is still being verified; the recompiler work appears to descend from an `mk8-recomp` fork (unverified; see [CODEBASE_INDEX](docs/HisuiWake/CODEBASE_INDEX.md)).
 
-The project is currently in the setup and feasibility-testing stage. A working, fully static build of Pokemon Legends: Arceus has not yet been confirmed. The features described below are goals, not a list of completed features.
+As of 2026-10-05, the source build works on Windows x64, the first target. The JIT path runs PLA at 30 FPS in the observed scene, and a v0.0.1-dev8 static AOT export with guest CPU fallback disabled reached gameplay with zero JIT transitions at about 25-30 FPS in one user-observed overworld scene. A complete gameplay checklist has not been confirmed; no release or build artifacts are published, and development builds are experimental. The features described below are goals, not a list of completed features.
 
 ## Development Approach
 
@@ -28,6 +28,8 @@ HisuiWake's modified Suyu recompiler is focused on the changes needed to statica
 For other games, consider [upstream Suyu v0.0.12](https://github.com/suyu-emu/suyu-main/releases/tag/v0.0.12) or [Drippu](https://github.com/suyu-emu/drippu). Compatibility must be evaluated per game.
 
 Hybrid AOT + JIT builds may be used during development to investigate compatibility gaps. A successful Hybrid build does not establish that fully static execution works; fully static execution remains the goal.
+
+Static AOT still relies on the runtime for system services, memory, audio, input, and GPU; GPU macro JIT and shader compilation remain runtime generation.
 
 ## Releases and Versioning
 
@@ -64,6 +66,8 @@ This license does not grant rights to Pokemon Legends: Arceus game code or asset
 
 ## Documentation and Upstream Attribution
 
+- [Work plan](docs/HisuiWake/WORK_PLAN.md), [Changelog](CHANGELOG.md), [Old history](docs/HisuiWake/OLD_HISTORY_HW.md), and [Codebase index](docs/HisuiWake/CODEBASE_INDEX.md).
+- Build instructions (`BUILD.md`) are not written yet.
 - [HisuiWake documentation](docs/HisuiWake/): project-specific documentation.
 - [Archived Suyu documentation](docs/Suyu/): upstream documentation retained for reference.
 - [Upstream provenance](docs/Suyu/_main-folder/PROVENANCE.md): the original Suyu lineage record.
