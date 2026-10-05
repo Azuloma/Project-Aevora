@@ -4,7 +4,7 @@
 
 HisuiWake is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-05, the source build works on Windows x64, the JIT path runs PLA, and the observed Hybrid export with all modules recompiled runs with zero JIT transitions but below JIT speed (15-20 FPS with chain budget 256 versus 30 FPS JIT). A PLA static AOT export with fallback disabled also builds and runs into gameplay with zero JIT transitions at about 16-20 FPS, versus 30 FPS JIT, but a complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+As of 2026-10-05, the source build works on Windows x64, the JIT path runs PLA, and the observed Hybrid export with all modules recompiled runs with zero JIT transitions but below JIT speed (15-20 FPS with chain budget 256 versus 30 FPS JIT). With v0.0.1-dev8, a PLA static AOT export with fallback disabled reached gameplay with zero JIT transitions at about 25-30 FPS, versus 30 FPS JIT; the earlier dev6-era Hybrid observation was 15-20 FPS. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/HisuiWake/WORK_PLAN.md).
 

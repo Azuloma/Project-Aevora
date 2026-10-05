@@ -1,6 +1,6 @@
 # HisuiWake Work Plan
 
-Handoff prepared: 2026-10-04. Last session handoff: 2026-10-05, third session (see [Session handoff](#session-handoff-2026-10-05-third-session)).
+Handoff prepared: 2026-10-04. Last session handoff: 2026-10-05, fourth session (see [Session handoff](#session-handoff-2026-10-05-fourth-session)).
 
 ## Objective
 
@@ -20,7 +20,7 @@ Start with a reproducible Windows x64 build and a correctly running game. Procee
 | Documentation | Project documents belong in `docs/HisuiWake/`; upstream documents are archived in `docs/Suyu/`. |
 | Dependencies | Acquired by CPMUtil from `cpmfile.json` (bundled Qt 6.11.1, SDL3, FFmpeg, OpenSSL on MSVC); `.gitmodules` is not the acquisition path. Verified on 2026-10-04. |
 | Host source build | Verified: MSVC 14.51 (Build Tools 2026) + Ninja Release; `suyu.exe`, `suyu-cmd.exe`, and the export build kit build and start. `docs/HisuiWake/BUILD.md` is not written yet. |
-| PLA export/run | JIT baseline: 30 FPS with correct rendering after disabling GPL. Hybrid + Build (clang-cl) exports, links, and launches; overworld runs at about 17 FPS. Static AOT + Build (clang-cl) also exports, links, and reaches gameplay with no fallback; observed FPS is about 16-20. |
+| PLA export/run | JIT baseline: 30 FPS with correct rendering after disabling GPL. Hybrid + Build (clang-cl) exports, links, and launches; overworld runs at about 17 FPS. The v0.0.1-dev8 static AOT + Build (clang-cl) export reaches gameplay with no fallback at about 25-30 FPS in the observed overworld scene. |
 | Proposed path patch | Superseded. The observed non-ASCII failure was the launcher's window-title conversion (fixed in v0.0.1-dev5). Filename sanitization was not implemented; the package name still contains `é`. |
 
 The cleanup already removed upstream automation, temporary material, old screenshots, and an isolated `tools/static_recompiler` demo. Do not perform another broad deletion pass before a working baseline identifies the files actually required.
@@ -119,7 +119,7 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 **Acceptance:** a clean checkout reproduces the documented software build, release contents match the license/input policy, and support claims match testing evidence. Reaching `v1.0.0` requires an explicitly agreed stable scope.
 
-## Session handoff (2026-10-05, third session)
+## Session handoff (2026-10-05, fourth session)
 
 ### State at handoff
 
@@ -139,7 +139,8 @@ For each feature, identify the responsible layer, add a clear setting where appr
 | v0.0.1-dev6 static AOT | Build export completed with backend `suyu-static`, fallback disabled, five modules, and image ABI 6; launcher reached gameplay at about 16-20 FPS with zero JIT transitions. |
 | v0.0.1-dev6 static AOT sampling | Static AOT and Hybrid have the same CPU cost profile: `blk_main_0000000002d1e290` is 15-19% of busy-core RIP samples, with the same secondary blocks; `ScheduleImplFiber` spin is 10-12.5%. |
 | Hot-block Source inspection | `blk_main_0000000002d1e290` has 49 vector FP operations whose exact software bodies are selected whenever guest FPCR.FZ closes the FPX1 native-result gate; this is a hypothesis for much of the remaining JIT gap because runtime gate-open rate was not measured. |
-| Guest FPCR measurement and FZ-aware gate | With `SUYU_FPCR_STATS=1`, a PLA JIT run saw only `0x00000000` and `0x01000000`; FZ=1 accounted for 96.1% of 3,473,408 context saves in the final summary, and FPSR.IXC was set in every recorded save. The FPX1 gate now accepts FZ under the documented input/result rules; the change is not yet verified in a PLA static AOT export. |
+| Guest FPCR measurement and FZ-aware gate | With `SUYU_FPCR_STATS=1`, a PLA JIT run saw only `0x00000000` and `0x01000000`; FZ=1 accounted for 96.1% of 3,473,408 context saves in the final summary, and FPSR.IXC was set in every recorded save. The FPX1 gate now accepts FZ under the documented input/result rules, verified by the dev8 static AOT run below. |
+| v0.0.1-dev8 static AOT export | The package used `suyu-static` with fallback disabled, translate-all enabled, image ABI 6, and image features 7 (FM1+GG1+FPX1). The run reached about 25-30 FPS in the observed overworld scene with zero fallback, zero JIT transitions, and zero unresolved import traps; it negotiated native FP (`0x102`) and enforced the host FP mode. |
 
 Key conclusions:
 
@@ -152,25 +153,25 @@ Key conclusions:
 
 ### Open issues, in priority order
 
-The verification step for issue 1 is complete: [Guest FPCR measured: PLA runs with FZ set (FPX1 gate closed)](#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed). The FZ-aware gate implementation and targeted tests are complete; the remaining issue-1 work is a static AOT re-export and FPS measurement.
+Issue 1 is complete: [FZ-aware FPX1 gate verified in PLA static AOT](#2026-10-05-fz-aware-fpx1-gate-verified-in-pla-static-aot-25-30-fps). The FZ-aware gate implementation, targeted tests, static AOT re-export, and FPS measurement are recorded below.
 
 Completed this session: ~~Verify dev6 in the running export~~ — done ([First static AOT export (v0.0.1-dev6) runs with no fallback, 16-20 FPS](#2026-10-05-first-static-aot-export-v001-dev6-runs-with-no-fallback-16-20-fps)).
 
-1. **FZ and the FPX1 gate.** ~~Verify the guest FPCR and runtime FPX1 gate-open rate~~ — done ([Guest FPCR measured: PLA runs with FZ set (FPX1 gate closed)](#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed)). Implement an FZ-aware gate: accept FZ (and evaluate DN, since NaN results are never kept) and, when FZ is set, keep a native result only if no input is denormal and the result is a normal finite value (or an exact zero-product/quotient case); sums need the same rule because a tiny sum is flushed under FZ. Add targeted tests, expect generated output and `tests/recompiler_smoke` hashes to change, then re-export and measure FPS. Keep generated-code quality (memory helpers and per-instruction entry labels) as lower-priority sub-items.
+1. **Per-thread CPU and RIP sampling on v0.0.1-dev8 static AOT.** Re-run sampling in the overworld to identify the next bottleneck among out-of-line memory helpers, per-instruction entry labels, `ScheduleImplFiber` spin, and `HostTiming` busy-wait.
 2. **Code review of `a6b8690` by Code reviewer.** Not done.
-   Issue 1 implementation and targeted verification are complete; the remaining issue-1 action is the PLA static AOT re-export and FPS measurement recorded below.
-3. **Later:** end a slice promptly on `SignalInterrupt` with a race-free design; revisit the global verify-always pin on JIT fallback; optionally build with `SUYU_NO_JIT` to show structurally that no JIT is present.
-4. **Keep existing investigations:** export pipeline cost (source-tree rebuild and link memory), GPL root cause, and the smaller items below.
+3. **Stale producer revision.** `export-package.json` again records `d0be6ce` for a dev8 build even though the working tree was `ff44909` plus uncommitted dev8 changes; investigate the recording path.
+4. **Later:** end a slice promptly on `SignalInterrupt` with a race-free design; revisit the global verify-always pin on JIT fallback; optionally build with `SUYU_NO_JIT` to show structurally that no JIT is present.
+5. **Keep existing investigations:** export pipeline cost (source-tree rebuild and link memory), GPL root cause, and the smaller items below.
 
 **Export pipeline cost:** when run from a source build, the exporter reconfigures the source build tree with `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`; this rebuilds the tree and the final launcher link can nearly exhaust commit memory.
 
 **GPL root cause:** GPL remains disabled by default; the per-part cache keys in `vk_graphics_pipeline.cpp` still need a fix before re-enabling it.
 
-**Smaller items:** export reports record the compiler as `O2`; `build_native_unix.sh` still uses RAM/8192 jobs; the pre-commit hook calls missing `egrep`; the embedded version string is still `suyu v0.0.11 (mk8-recomp)`; source lineage is unverified; `BUILD.md` is not written; the kit was built with MSVC 14.51 while its README baseline is 14.44; static `getopt` triggers an LGPL warning; earlier exports recorded a stale producer revision (`6f4dffd`) while the dev6 static export recorded `a6b8690`; cause not investigated; the dev6 static export observed 8 unresolved rtld GOT/PLT symbols during relocation (`__EX_start`/`__EX_end`, `__got_start`/`__got_end`, `__tdata`/`__tbss` alignment absolute/relative); cause not investigated.
+**Smaller items:** export reports record the compiler as `O2`; `build_native_unix.sh` still uses RAM/8192 jobs; the pre-commit hook calls missing `egrep`; the embedded version string is still `suyu v0.0.11 (mk8-recomp)`; source lineage is unverified; `BUILD.md` is not written; the kit was built with MSVC 14.51 while its README baseline is 14.44; static `getopt` triggers an LGPL warning; the dev8 export again recorded stale producer revision `d0be6ce` despite the working tree being `ff44909` plus uncommitted dev8 changes; the dev6 static export observed 8 unresolved rtld GOT/PLT symbols during relocation (`__EX_start`/`__EX_end`, `__got_start`/`__got_end`, `__tdata`/`__tbss` alignment absolute/relative); cause not investigated.
 
 ### Immediate next action
 
-User re-exports PLA static AOT with the FZ-aware gate (Build, same settings, without `SUYU_FPCR_STATS` because it adds a lock per context save) and measures overworld FPS against 16-20 FPS (dev6 static AOT) and 30 FPS (JIT). The static AOT RIP re-confirmation, Source-format hot-block inspection, guest FPCR verification, and FZ-aware FPX1 harness verification are complete.
+User commits v0.0.1-dev8, then re-runs per-thread CPU and RIP sampling on the v0.0.1-dev8 static AOT launcher in the overworld to identify the next bottleneck.
 
 ### How to work
 
@@ -440,5 +441,13 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - **Smoke suite:** Committed goldens were stale. The apparent compiler dependence came from UTF-8 em dashes in `arm64_to_c.h` string literals and the MSVC `smoke_export` target lacking `/utf-8` (code page 932), which garbled comments/messages; clang-cl and real suyu builds (`/utf-8`, `src/CMakeLists.txt`) were unaffected, so PLA exports were never affected. The fix adds `/utf-8` for MSVC and recomputes the goldens: ABI5 `a325a2d0...`, FM1 `e2785f0c...`, FPX `1ef792bc...` (MSVC and clang-cl identical; HEAD to change differs only in `recomp_runtime.h`). `python tests/recompiler_smoke/run.py` passed with MSVC and with `--cc`/`--cxx` clang-cl, including the coverage loop and all ABI5/ABI6/ABI6GG/FPX/GGFPX checks. An earlier note that the goldens did not match since import was incorrect: with `/utf-8` or clang-cl the import commit matches the old goldens; the v0.0.1-dev4 CMake change moved them.
 - **Review:** Code reviewer (Orca, gpt-6.1-sol high) found no correctness issues in the FZ logic after checking the BIG boundary, smallest normal, tiny/exact sums, signed zeros, zero-operand cases, FMA including the x86-64 binary64 path and midpoint fallback, recps/rsqrts, sqrt, and FMA64 hardware-FMA gating. The stale smoke goldens were P1 and are resolved; the nonblocking suggestion to assert FZ hits was implemented.
 - **Build:** suyu and suyu-cmd rebuilt with the emitter change (including `game_export.cpp` recompilation); both linked.
-- **Not verified:** PLA static AOT re-export and FPS; L5 hardware golden (requires AArch64); partition test was not rerun.
-- **Next:** User re-exports PLA static AOT (Build, same settings, without `SUYU_FPCR_STATS` because it adds a lock per context save) and measures overworld FPS against 16-20 FPS (dev6 static AOT) and 30 FPS (JIT).
+- **Not verified:** L5 hardware golden (requires AArch64); partition test was not rerun. The PLA static AOT re-export and FPS measurement are recorded in [FZ-aware FPX1 gate verified in PLA static AOT: 25-30 FPS](#2026-10-05-fz-aware-fpx1-gate-verified-in-pla-static-aot-25-30-fps).
+- **Next:** Confirm the next runtime bottleneck with per-thread CPU and RIP sampling on the dev8 static AOT launcher.
+
+### 2026-10-05: FZ-aware FPX1 gate verified in PLA static AOT: 25-30 FPS
+
+- **Export:** `suyu.exe` was rebuilt with the dev8 emitter change at 13:54. Generated-module build started at 14:16 and the package was written at 15:40. The Build-format package used effective backend `suyu-static`, fallback disabled, translate-all enabled, image ABI 6, and image features 7 (`FM1+GG1+FPX1`). `export-package.json` records producer revision `d0be6ce`, which is stale because the working tree was `ff44909` plus uncommitted dev8 changes. Build-format exports delete generated headers after linking, so the presence of the FZ change in the package is established by build timing rather than generated text inspection.
+- **Run:** The log recorded `Recompiled FPX1 native FP: negotiated (handshake 0x102)` and `ArmRecomp FPX1 native FP: on, host FP mode enforced`. Over about 102 seconds, coverage recorded 4,585,440,060 static blocks and 6,333,722 SVCs, with static-to-JIT 0 (0 lookup misses and 0 unimplemented opcodes), JIT-to-static 0, and unresolved import traps 0. `recomp_gaps.json` recorded `strict_static_runs: 4`, `clean_runs: 4`, `last_run_strict_static: true`, and no unimplemented opcodes. Guard sticky, JIT, and code-write counters were all zero, and there were no crash dumps. `SUYU_FPCR_STATS` was not set.
+- **Performance:** The user observed about 25-30 FPS in the overworld, versus about 16-20 FPS with the dev6 static AOT export and 30 FPS with the JIT baseline. The observations used the same overworld area as earlier reports, but exact scene matching was not controlled.
+- **Conclusion:** The FZ-closed FPX1 gate was the main cause of the remaining static AOT performance gap; with it fixed, static AOT is close to the JIT baseline in the observed scene. A complete gameplay checklist, frame-time stability measurements, and renewed CPU sampling to identify the next bottleneck remain unverified.
+- **Next:** User commits dev8, then per-thread CPU and RIP sampling runs on the dev8 static AOT launcher in the overworld. Candidate remaining costs are out-of-line memory helpers, per-instruction entry labels, `ScheduleImplFiber` spin, and `HostTiming` busy-wait.
