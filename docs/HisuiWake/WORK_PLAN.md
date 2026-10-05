@@ -123,8 +123,8 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 ### State at handoff
 
-- **Repository:** HEAD is `d0be6ce` (`docs: Route Codex agents to CLAUDE.md and set up Orca roles`) on top of `a6b8690` (`v0.0.1-dev6: Lower the long-slice chain budget to 256`); `d0be6ce` added `AGENTS.md`, the `CLAUDE.md` Agent orchestration section, the work-plan strict-mode correction, and removed `.claude/agents/md-implementer.md`. The uncommitted documentation changes are from these sessions, and the export backend is now known: `suyu static AOT (Experimental)`.
-- **Uncommitted v0.0.1-dev7 changes:** `src/core/hle/kernel/physical_core.cpp` adds the FPCR diagnostic, and `CHANGELOG.md` records it; both remain uncommitted.
+- **Repository:** HEAD is `ff44909` (`v0.0.1-dev7`); the user commits and pushes. The export backend is known: `suyu static AOT (Experimental)`.
+- **Uncommitted v0.0.1-dev8 changes:** `src/core/recompiler/arm64_to_c.h`, `tests/recompiler_fpx/driver.c`, `tests/recompiler_smoke/CMakeLists.txt`, and `tests/recompiler_smoke/run.py` implement the FZ-aware FPX1 gate, FPX hit-rate assertion/reporting, MSVC `/utf-8` smoke-export build, and recomputed smoke goldens; the corresponding Markdown changes are also uncommitted.
 - **Local environment:** `suyu.exe` from v0.0.1-dev6 produced a static AOT Build export with the matching package. The package launcher name contains a non-ASCII character (`é`) and started successfully. `launch.bat` sets no environment variables; because the user did not report setting `SUYU_RECOMP_CHAIN_BUDGET`, the dev6 default of 256 is assumed to have been in effect.
 - **Diagnostics:** local `diag/RipSampler.cs` is a per-thread instruction-pointer sampler using `SuspendThread`/`GetThreadContext` and dbghelp against `suyu-cmd-static.pdb`. Launch the game from a non-elevated shell; otherwise thread times and contexts are not readable.
 
@@ -139,7 +139,7 @@ For each feature, identify the responsible layer, add a clear setting where appr
 | v0.0.1-dev6 static AOT | Build export completed with backend `suyu-static`, fallback disabled, five modules, and image ABI 6; launcher reached gameplay at about 16-20 FPS with zero JIT transitions. |
 | v0.0.1-dev6 static AOT sampling | Static AOT and Hybrid have the same CPU cost profile: `blk_main_0000000002d1e290` is 15-19% of busy-core RIP samples, with the same secondary blocks; `ScheduleImplFiber` spin is 10-12.5%. |
 | Hot-block Source inspection | `blk_main_0000000002d1e290` has 49 vector FP operations whose exact software bodies are selected whenever guest FPCR.FZ closes the FPX1 native-result gate; this is a hypothesis for much of the remaining JIT gap because runtime gate-open rate was not measured. |
-| Guest FPCR measurement | With `SUYU_FPCR_STATS=1`, a PLA JIT run saw only `0x00000000` and `0x01000000`; FZ=1 accounted for 96.1% of 3,473,408 context saves in the final summary, and FPSR.IXC was set in every recorded save. |
+| Guest FPCR measurement and FZ-aware gate | With `SUYU_FPCR_STATS=1`, a PLA JIT run saw only `0x00000000` and `0x01000000`; FZ=1 accounted for 96.1% of 3,473,408 context saves in the final summary, and FPSR.IXC was set in every recorded save. The FPX1 gate now accepts FZ under the documented input/result rules; the change is not yet verified in a PLA static AOT export. |
 
 Key conclusions:
 
@@ -152,12 +152,13 @@ Key conclusions:
 
 ### Open issues, in priority order
 
-The verification step for issue 1 is complete: [Guest FPCR measured: PLA runs with FZ set (FPX1 gate closed)](#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed). The remaining issue-1 work is the FZ-aware gate implementation, targeted tests, static AOT re-export, and FPS measurement.
+The verification step for issue 1 is complete: [Guest FPCR measured: PLA runs with FZ set (FPX1 gate closed)](#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed). The FZ-aware gate implementation and targeted tests are complete; the remaining issue-1 work is a static AOT re-export and FPS measurement.
 
 Completed this session: ~~Verify dev6 in the running export~~ — done ([First static AOT export (v0.0.1-dev6) runs with no fallback, 16-20 FPS](#2026-10-05-first-static-aot-export-v001-dev6-runs-with-no-fallback-16-20-fps)).
 
 1. **FZ and the FPX1 gate.** ~~Verify the guest FPCR and runtime FPX1 gate-open rate~~ — done ([Guest FPCR measured: PLA runs with FZ set (FPX1 gate closed)](#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed)). Implement an FZ-aware gate: accept FZ (and evaluate DN, since NaN results are never kept) and, when FZ is set, keep a native result only if no input is denormal and the result is a normal finite value (or an exact zero-product/quotient case); sums need the same rule because a tiny sum is flushed under FZ. Add targeted tests, expect generated output and `tests/recompiler_smoke` hashes to change, then re-export and measure FPS. Keep generated-code quality (memory helpers and per-instruction entry labels) as lower-priority sub-items.
 2. **Code review of `a6b8690` by Code reviewer.** Not done.
+   Issue 1 implementation and targeted verification are complete; the remaining issue-1 action is the PLA static AOT re-export and FPS measurement recorded below.
 3. **Later:** end a slice promptly on `SignalInterrupt` with a race-free design; revisit the global verify-always pin on JIT fallback; optionally build with `SUYU_NO_JIT` to show structurally that no JIT is present.
 4. **Keep existing investigations:** export pipeline cost (source-tree rebuild and link memory), GPL root cause, and the smaller items below.
 
@@ -169,7 +170,7 @@ Completed this session: ~~Verify dev6 in the running export~~ — done ([First s
 
 ### Immediate next action
 
-Implement and test the FZ-aware FPX1 gate, then make a static AOT export with `SUYU_FPCR_STATS=1` and measure FPS. The static AOT RIP re-confirmation, Source-format hot-block inspection, and guest FPCR verification are complete ([Guest FPCR measured: PLA runs with FZ set (FPX1 gate closed)](#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed)).
+User re-exports PLA static AOT with the FZ-aware gate (Build, same settings, without `SUYU_FPCR_STATS` because it adds a lock per context save) and measures overworld FPS against 16-20 FPS (dev6 static AOT) and 30 FPS (JIT). The static AOT RIP re-confirmation, Source-format hot-block inspection, guest FPCR verification, and FZ-aware FPX1 harness verification are complete.
 
 ### How to work
 
@@ -431,3 +432,13 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - **Result:** Exactly two guest FPCR values were seen: `0x00000000` (default) and `0x01000000` (RN, FZ=1, DN=0, AHP=0, no traps). FZ=1 first appeared about 2.5 s after the application started. Share of context saves with FZ=1: 57.4% after 65,536 saves, 75.7% at 131,072, 79.7% at 196,608, and 96.1% at the last summary (3,473,408 saves: 3,336,948 FZ=1, 136,460 FZ=0). FPSR.IXC was set in every recorded save (JIT FPSR tracking may not be exact).
 - **Conclusion:** The hypothesis from the hot-block inspection is confirmed at the guest-state level: PLA runs almost entirely with FPCR.FZ set, and `RECOMP_FPX_OPEN` rejects FZ (mask `0x07C8FF07`), so in recompiled code nearly every covered FP operation takes the exact software body instead of the native result. The FPCR value is guest state written by MSR FPCR and is backend-independent; a static AOT run with this diagnostic has not been made. The per-operation gate-open rate and the FPS effect of fixing it are not yet measured.
 - **Next:** Implement an FZ-aware FPX1 gate: accept FZ (and evaluate DN, since NaN results are never kept) and, when FZ is set, keep a native result only if no input is denormal and the result is a normal finite value (or an exact zero-product/quotient case); sums need the same rule because a tiny sum is flushed under FZ. Add targeted tests (synthetic inputs covering denormal inputs/outputs under FZ), expect generated output and `recompiler_smoke` hashes to change, then re-export static AOT with `SUYU_FPCR_STATS=1` and measure FPS.
+
+### 2026-10-05: FZ-aware FPX1 gate (v0.0.1-dev8, unverified in PLA)
+
+- **Change:** `RECOMP_FPX_FPCR_MASK` changed from `0x07C8FF07` to `0x06C8FF07`, so FZ no longer closes the gate. `RECOMP_FPX_FZ(c)` is passed as `int fz` to every `recomp_fpx_<op>{32,64}`. Under FZ, subnormal inputs are refused (FMA also checks the addend; sqrt checks its input); sums are kept only if BIG or exactly zero (`RECOMP_FPX_KEEPSUM`); products, quotients, FMA, recps, and rsqrts keep their existing BIG / exact zero-operand rules. ARM FPRound flushes under FZ using the unrounded exponent: a BIG result (at least smallest normal + 1 ulp) comes from an unrounded value above the smallest normal, and with normal/zero inputs FZ changes neither value nor FPSR. The host FP mode check (`guest_fp_env.h` `kFpcrMask`) is unchanged by design.
+- **Tests:** FPX harness (clang-cl 22.1.8, Ninja, `--jobs 8 --hits --controls`, default cases): L1/L2/L3 fpx vs soft covered 100,587,904 cases, with 0 value and 0 FPSR mismatches across FPCR `{0, FZ, DN, RP, RM, RZ, FZ|DN}`; negative controls `nokeep`/`nomid`/`mxcsr` failed as designed; inhibit had 0 mismatches; shadow had 0 fast-vs-exact mismatches; env check passed. L1 aggregate hit rate: FPCR 0 67.28%, FPCR FZ 64.52% (0% before). The new harness assertion passed on the change and failed on HEAD `ff44909` with `FPX fast path kept no result at FPCR FZ although it did at FPCR 0` in a reduced run (`--cases 1000 --adv 2000 --legs 13`).
+- **Smoke suite:** Committed goldens were stale. The apparent compiler dependence came from UTF-8 em dashes in `arm64_to_c.h` string literals and the MSVC `smoke_export` target lacking `/utf-8` (code page 932), which garbled comments/messages; clang-cl and real suyu builds (`/utf-8`, `src/CMakeLists.txt`) were unaffected, so PLA exports were never affected. The fix adds `/utf-8` for MSVC and recomputes the goldens: ABI5 `a325a2d0...`, FM1 `e2785f0c...`, FPX `1ef792bc...` (MSVC and clang-cl identical; HEAD to change differs only in `recomp_runtime.h`). `python tests/recompiler_smoke/run.py` passed with MSVC and with `--cc`/`--cxx` clang-cl, including the coverage loop and all ABI5/ABI6/ABI6GG/FPX/GGFPX checks. An earlier note that the goldens did not match since import was incorrect: with `/utf-8` or clang-cl the import commit matches the old goldens; the v0.0.1-dev4 CMake change moved them.
+- **Review:** Code reviewer (Orca, gpt-6.1-sol high) found no correctness issues in the FZ logic after checking the BIG boundary, smallest normal, tiny/exact sums, signed zeros, zero-operand cases, FMA including the x86-64 binary64 path and midpoint fallback, recps/rsqrts, sqrt, and FMA64 hardware-FMA gating. The stale smoke goldens were P1 and are resolved; the nonblocking suggestion to assert FZ hits was implemented.
+- **Build:** suyu and suyu-cmd rebuilt with the emitter change (including `game_export.cpp` recompilation); both linked.
+- **Not verified:** PLA static AOT re-export and FPS; L5 hardware golden (requires AArch64); partition test was not rerun.
+- **Next:** User re-exports PLA static AOT (Build, same settings, without `SUYU_FPCR_STATS` because it adds a lock per context save) and measures overworld FPS against 16-20 FPS (dev6 static AOT) and 30 FPS (JIT).

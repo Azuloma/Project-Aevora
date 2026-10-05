@@ -476,6 +476,7 @@ static uint64_t L4Fs0(uint32_t x) { return ((x * 0x9E3779B1u) >> 30) ? 0x10 : 0;
 
 /* ---- options and legs ---------------------------------------------------- */
 
+#define FPCR_FZ (UINT64_C(1) << 24)
 static const uint64_t FPCRS[] = {0, 1u << 24, 1u << 25, 1u << 22, 2u << 22, 3u << 22, (1u << 24) | (1u << 25)};
 #define NFPCR (sizeof FPCRS / sizeof FPCRS[0])
 
@@ -558,6 +559,7 @@ typedef struct {
     int ref, cand[I_COUNT], ncand;
     unsigned long long cases[5], bad_v[I_COUNT][5], bad_s[I_COUNT][5];
     unsigned long long hit, miss;   /* fpx probe at FPCR 0 with IXC set, L1 */
+    unsigned long long hit_fz, miss_fz; /* the same at FPCR FZ */
     unsigned shown;
     int poison;                     /* 1: poison the host FP mode around every fpx call */
 } DiffState;
@@ -581,6 +583,10 @@ static void DiffCase(unsigned op, uint64_t fpcr, unsigned leg, const In* in, uin
         if (impl == I_FPX && leg == 1 && fpcr == 0 && (fs0 & 0x10)) {
             s->hit += g_fpx_probe[1] - h0;
             s->miss += g_fpx_probe[2] - m0;
+        }
+        if (impl == I_FPX && leg == 1 && fpcr == FPCR_FZ && (fs0 & 0x10)) {
+            s->hit_fz += g_fpx_probe[1] - h0;
+            s->miss_fz += g_fpx_probe[2] - m0;
         }
 #endif
         const int bv = !SameValue(&ref, &got), bs = ref.fpsr != got.fpsr;
@@ -608,8 +614,9 @@ static void DiffCase(unsigned op, uint64_t fpcr, unsigned leg, const In* in, uin
 
 /* Returns the total value+FPSR mismatch count over all candidates. */
 static unsigned long long Diff(const Opts* o, int ref, const int* cands, int ncand, int poison,
-                               unsigned long long* hits_out, unsigned long long* miss_out) {
-    unsigned long long total_cases = 0, total_bad = 0, hits = 0, misses = 0;
+                               unsigned long long* hits_out, unsigned long long* miss_out,
+                               unsigned long long* hits_fz_out, unsigned long long* miss_fz_out) {
+    unsigned long long total_cases = 0, total_bad = 0, hits = 0, misses = 0, hits_fz = 0, misses_fz = 0;
     unsigned long long leg_cases[5] = {0}, leg_bad_v[I_COUNT][5], leg_bad_s[I_COUNT][5];
     memset(leg_bad_v, 0, sizeof leg_bad_v);
     memset(leg_bad_s, 0, sizeof leg_bad_s);
@@ -639,7 +646,12 @@ static unsigned long long Diff(const Opts* o, int ref, const int* cands, int nca
             printf("%08x %-26s fpx hit %.2f%% (%llu of %llu lane ops, L1 FPCR 0, IXC set)\n",
                    g_fpx_words[op].word, g_fpx_words[op].text, 100.0 * (double)s.hit / (double)(s.hit + s.miss),
                    s.hit, s.hit + s.miss);
+        if (s.hit_fz + s.miss_fz)
+            printf("%08x %-26s fpx hit %.2f%% (%llu of %llu lane ops, L1 FPCR FZ, IXC set)\n",
+                   g_fpx_words[op].word, g_fpx_words[op].text,
+                   100.0 * (double)s.hit_fz / (double)(s.hit_fz + s.miss_fz), s.hit_fz, s.hit_fz + s.miss_fz);
         hits += s.hit; misses += s.miss;
+        hits_fz += s.hit_fz; misses_fz += s.miss_fz;
         fflush(stdout);
     }
     for (int k = 0; k < ncand; ++k)
@@ -651,6 +663,8 @@ static unsigned long long Diff(const Opts* o, int ref, const int* cands, int nca
     printf("TOTAL cases %llu mismatches %llu\n", total_cases, total_bad);
     if (hits_out) *hits_out = hits;
     if (miss_out) *miss_out = misses;
+    if (hits_fz_out) *hits_fz_out = hits_fz;
+    if (miss_fz_out) *miss_fz_out = misses_fz;
     return total_bad;
 }
 
@@ -770,11 +784,21 @@ int main(int argc, char** argv) {
         if (ref == I_HW) cands[n++] = I_SOFT;
         if (ImplAvailable(I_FPX)) cands[n++] = I_FPX;
         if (!n) { printf("nothing to compare: soft is the only implementation here\n"); return 0; }
-        unsigned long long hits = 0, misses = 0;
-        const unsigned long long bad = Diff(&o, ref, cands, n, 0, &hits, &misses);
+        unsigned long long hits = 0, misses = 0, hits_fz = 0, misses_fz = 0;
+        const unsigned long long bad = Diff(&o, ref, cands, n, 0, &hits, &misses, &hits_fz, &misses_fz);
         if (hits + misses)
             printf("FPX hit rate %.2f%% (L1, FPCR 0, IXC set)\n", 100.0 * (double)hits / (double)(hits + misses));
-        return bad ? 1 : 0;
+        if (hits_fz + misses_fz)
+            printf("FPX hit rate %.2f%% (L1, FPCR FZ, IXC set)\n",
+                   100.0 * (double)hits_fz / (double)(hits_fz + misses_fz));
+        // Guests such as PLA run with FZ set; a gate that never opens there still
+        // matches the exact body bit for bit, so only the hit count catches it.
+        int fz_gate_closed = 0;
+        if (hits + misses && hits && hits_fz + misses_fz && !hits_fz) {
+            printf("FPX fast path kept no result at FPCR FZ although it did at FPCR 0\n");
+            fz_gate_closed = 1;
+        }
+        return (bad || fz_gate_closed) ? 1 : 0;
     }
 #ifdef FPX_HAVE_FPX
     if (!strcmp(mode, "control")) {
@@ -782,9 +806,9 @@ int main(int argc, char** argv) {
         ParseOpts(argc, argv, 3, &o);
         const char* name = argv[2];
         unsigned long long bad;
-        if (!strcmp(name, "nokeep")) { const int c[] = {I_NOKEEP}; bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0); }
-        else if (!strcmp(name, "nomid")) { const int c[] = {I_NOMID}; bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0); }
-        else if (!strcmp(name, "mxcsr")) { const int c[] = {I_FPX}; bad = Diff(&o, I_SOFT, c, 1, 1, 0, 0); }
+        if (!strcmp(name, "nokeep")) { const int c[] = {I_NOKEEP}; bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0, 0, 0); }
+        else if (!strcmp(name, "nomid")) { const int c[] = {I_NOMID}; bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0, 0, 0); }
+        else if (!strcmp(name, "mxcsr")) { const int c[] = {I_FPX}; bad = Diff(&o, I_SOFT, c, 1, 1, 0, 0, 0, 0); }
         else { fprintf(stderr, "unknown control\n"); return 2; }
         /* The verdict needs every shard's count; run.py adds them up. */
         printf("CONTROL %s: %llu mismatches\n", name, bad);
@@ -795,7 +819,7 @@ int main(int argc, char** argv) {
            comparison goes to SUYU_RECOMP_FPX_SHADOW_LOG(.sum) at exit. */
         ParseOpts(argc, argv, 2, &o);
         const int c[] = {I_SHADOW};
-        return Diff(&o, I_SOFT, c, 1, 0, 0, 0) ? 1 : 0;
+        return Diff(&o, I_SOFT, c, 1, 0, 0, 0, 0, 0) ? 1 : 0;
     }
     if (!strcmp(mode, "inhibit")) {
         /* With bit 32 of fpcr set every op must take the exact body: same
@@ -838,7 +862,7 @@ int main(int argc, char** argv) {
         const int repaired = fpx_env_shim();
         const int again = fpx_env_shim();
         const int c[] = {I_FPX};
-        const unsigned long long bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0);
+        const unsigned long long bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0, 0, 0);
         printf("ENV repaired=%d second-call=%d mismatches=%llu\n", repaired, again, bad);
         PoisonHostFp(0);
         return (repaired == 1 && again == 0 && !bad) ? 0 : 1;

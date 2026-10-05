@@ -17,6 +17,8 @@ page-table fast path (`SUYU_RECOMP_AB_FASTMEM=1`), and as ABI 6 with FM1 and
 the generation code guard. The ABI 5 and ABI 6 outputs must each match a golden
 SHA-256 of the whole generated tree, so any change to them is deliberate; the
 ABI 6 output may differ from ABI 5 only in the runtime, export and CMake files.
+On MSVC, `smoke_export` is built with `/utf-8`, matching suyu's own build, so
+the golden hashes are the same as with clang-cl/GCC.
 Every runtime case below runs against all three builds.
 
 It checks the image ABI, exact slice budgets of 1/3/4096,

@@ -491,7 +491,10 @@ inline std::string FpxArgs(const char* op) {
 }
 inline std::string EmitFPNativeValue(bool dbl, const char* op) {
     if (!g_emit_fpx) return {};
-    const std::string call = std::string("recomp_fpx_") + op + (dbl ? "64(" : "32(") + FpxArgs(op);
+    // The helpers take FPCR.FZ so that, under flush-to-zero, they can refuse
+    // subnormal inputs and results the guest would flush.
+    const std::string call = std::string("recomp_fpx_") + op + (dbl ? "64(" : "32(") + FpxArgs(op) +
+                             ",RECOMP_FPX_FZ(c)";
     if (g_emit_fpx_shadow) {
         return "do{uint64_t _fxv=0,_fxs=c->fpsr;int _fxg=RECOMP_FPX_OPEN(c),_fxk=_fxg&&" + call +
                ",&_fxv);";
@@ -6417,12 +6420,19 @@ inline const char* FpxH() {
    A covered op (FADD/FSUB/FMUL/FNMUL/FDIV/FMLA-family/FRECPS/FRSQRTS/FSQRT,
    S and D, scalar and per lane) first computes natively, and keeps that result
    only when it provably equals the architectural one and adds no FPSR bit:
-   - the gate RECOMP_FPX_OPEN: guest FPCR at its default (RMode RN, no FZ, DN,
-     AHP or FZ16, no trap enables, no FEAT_AFP bits) and FPSR.IXC already set;
+   - the gate RECOMP_FPX_OPEN: guest FPCR at its default (RMode RN, no DN,
+     AHP or FZ16, no trap enables, no FEAT_AFP bits; FZ is allowed, see below)
+     and FPSR.IXC already set;
    - the result is finite and larger in magnitude than the smallest normal, so
-     it is neither NaN (IOC), infinite (DZC, OFC) nor tiny (UFC), and IDC needs
-     FZ; or it is exact: any finite sum, or a finite product or quotient of a
-     zero. What is left is IXC, which is already set.
+     it is neither NaN (IOC), infinite (DZC, OFC) nor tiny (UFC); or it is
+     exact: any finite sum, or a finite product or quotient of a zero. What is
+     left is IXC, which is already set.
+   With FPCR.FZ set (passed to each helper as fz) the guest flushes subnormal
+   inputs (setting IDC) and tiny results (setting UFC) to zero. A helper then
+   also refuses any subnormal input, and a sum is kept only if it is larger
+   than the smallest normal or exactly zero (an exact cancellation, never
+   flushed). With normal or zero inputs and such a result FZ changes neither
+   the value nor FPSR, so the native result is still the architectural one.
    IEEE add, subtract, multiply, divide, square root and fused multiply-add are
    correctly rounded, so under the host FP mode below every such result equals
    the ARM result bit for bit. Anything else takes the unchanged exact body.
@@ -6443,7 +6453,8 @@ inline const char* FpxH() {
 #include <float.h>
 #define RECOMP_FEATURE_FPX1 4u
 #define RECOMP_FPX_INHIBIT (UINT64_C(1) << 32)
-#define RECOMP_FPX_FPCR_MASK (UINT64_C(0x07C8FF07) | RECOMP_FPX_INHIBIT)
+/* The guest FPCR bits that close the gate: 0x07C8FF07 without FZ (bit 24). */
+#define RECOMP_FPX_FPCR_MASK (UINT64_C(0x06C8FF07) | RECOMP_FPX_INHIBIT)
 #if defined(RECOMP_NO_NATIVE_FP) || defined(__FAST_MATH__) || defined(_M_FP_FAST) || \
     (defined(FLT_EVAL_METHOD) && FLT_EVAL_METHOD != 0)
 #define RECOMP_FPX_HOST 0 /* compiled out: every op takes the exact body */
@@ -6465,13 +6476,25 @@ inline const char* FpxH() {
 #define RECOMP_FPX_PROBE(k) ((void)0) /* test and shadow builds count here */
 #endif
 #define RECOMP_FPX_OPEN(c) (((c)->fpsr & 16u) && !((c)->fpcr & RECOMP_FPX_FPCR_MASK))
+#define RECOMP_FPX_FZ(c) ((int)(((c)->fpcr >> 24) & 1u))
 #define RECOMP_FPX_FIN32(t) (((t) & 0x7f800000u) != 0x7f800000u)
 #define RECOMP_FPX_BIG32(t) ((uint32_t)(((t) & 0x7fffffffu) - 0x00800001u) < 0x7effffffu)
 #define RECOMP_FPX_ZERO32(x) (((x) & 0x7fffffffu) == 0)
+#define RECOMP_FPX_SUB32(x) (((uint32_t)(x) & 0x7f800000u) == 0 && ((uint32_t)(x) & 0x007fffffu) != 0)
 #define RECOMP_FPX_FIN64(t) (((t) & UINT64_C(0x7ff0000000000000)) != UINT64_C(0x7ff0000000000000))
 #define RECOMP_FPX_BIG64(t) \
     (((t) & UINT64_C(0x7fffffffffffffff)) - UINT64_C(0x0010000000000001) < UINT64_C(0x7fdfffffffffffff))
 #define RECOMP_FPX_ZERO64(x) (((x) & UINT64_C(0x7fffffffffffffff)) == 0)
+#define RECOMP_FPX_SUB64(x) \
+    (((x) & UINT64_C(0x7ff0000000000000)) == 0 && ((x) & UINT64_C(0x000fffffffffffff)) != 0)
+/* Under FZ: a subnormal input, which the guest would flush (IDC). */
+#define RECOMP_FPX_FZIN32(fz, a, b) ((fz) && (RECOMP_FPX_SUB32(a) || RECOMP_FPX_SUB32(b)))
+#define RECOMP_FPX_FZIN64(fz, a, b) ((fz) && (RECOMP_FPX_SUB64(a) || RECOMP_FPX_SUB64(b)))
+/* Sums: any finite result, or under FZ only a large or exactly zero one. */
+#define RECOMP_FPX_KEEPSUM32(fz, t) \
+    ((fz) ? (RECOMP_FPX_BIG32(t) || RECOMP_FPX_ZERO32(t)) : RECOMP_FPX_FIN32(t))
+#define RECOMP_FPX_KEEPSUM64(fz, t) \
+    ((fz) ? (RECOMP_FPX_BIG64(t) || RECOMP_FPX_ZERO64(t)) : RECOMP_FPX_FIN64(t))
 /* Products: large, or a finite product of a zero (exact, the zero's sign rule
    is IEEE's on both). Quotients: large, or a finite quotient of a zero. */
 #define RECOMP_FPX_KEEP32(t, a, b) \
@@ -6490,35 +6513,46 @@ static RECOMP_INLINE double recomp_fpx_d(uint64_t x) { double f; memcpy(&f, &x, 
 static RECOMP_INLINE uint64_t recomp_fpx_db(double f) { uint64_t t; memcpy(&t, &f, 8); return t; }
 
 /* Each returns 1 and the result bits in *v when the native result may be kept. */
-static RECOMP_INLINE int recomp_fpx_add32(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_add32(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
-    const uint64_t t = recomp_fpx_fb(recomp_fpx_f(a) + recomp_fpx_f(b));
-    if (RECOMP_FPX_FIN32(t)) { *v = t; return 1; }
+    if (RECOMP_FPX_FZIN32(fz, a, b)) return 0;
+    {
+        const uint64_t t = recomp_fpx_fb(recomp_fpx_f(a) + recomp_fpx_f(b));
+        if (RECOMP_FPX_KEEPSUM32(fz, t)) { *v = t; return 1; }
+    }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_sub32(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_sub32(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
-    const uint64_t t = recomp_fpx_fb(recomp_fpx_f(a) - recomp_fpx_f(b));
-    if (RECOMP_FPX_FIN32(t)) { *v = t; return 1; }
+    if (RECOMP_FPX_FZIN32(fz, a, b)) return 0;
+    {
+        const uint64_t t = recomp_fpx_fb(recomp_fpx_f(a) - recomp_fpx_f(b));
+        if (RECOMP_FPX_KEEPSUM32(fz, t)) { *v = t; return 1; }
+    }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_mul32(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_mul32(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
+    if (RECOMP_FPX_FZIN32(fz, a, b)) return 0;
     const uint64_t t = recomp_fpx_fb(recomp_fpx_f(a) * recomp_fpx_f(b));
     if (RECOMP_FPX_KEEP32(t, a, b)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_div32(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_div32(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
+    if (RECOMP_FPX_FZIN32(fz, a, b)) return 0;
     const uint64_t t = recomp_fpx_fb(recomp_fpx_f(a) / recomp_fpx_f(b));
     if (RECOMP_FPX_KEEPDIV32(t, a)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_fma32(uint64_t a, uint64_t b, uint64_t z, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_fma32(uint64_t a, uint64_t b, uint64_t z, int fz, uint64_t* v) {
+#if RECOMP_FPX_HOST
+    if (RECOMP_FPX_FZIN32(fz, a, b) || (fz && RECOMP_FPX_SUB32(z))) return 0;
+#endif
 #if RECOMP_FPX_HOST == 1
     const uint64_t t = recomp_fpx_fb(__builtin_fmaf(recomp_fpx_f(a), recomp_fpx_f(b), recomp_fpx_f(z)));
 #elif RECOMP_FPX_HOST == 2
@@ -6530,11 +6564,14 @@ static RECOMP_INLINE int recomp_fpx_fma32(uint64_t a, uint64_t b, uint64_t z, ui
 #if RECOMP_FPX_HOST
     if (RECOMP_FPX_KEEP32(t, a, b)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)z; (void)v; return 0;
+    (void)a; (void)b; (void)z; (void)fz; (void)v; return 0;
 }
 /* FRECPS: 2 - a*b; FRSQRTS: (3 - a*b)/2, each rounded once. inf*0 gives NaN
    here, which is never kept; the exact body returns 2.0 or 1.5. */
-static RECOMP_INLINE int recomp_fpx_recps32(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_recps32(uint64_t a, uint64_t b, int fz, uint64_t* v) {
+#if RECOMP_FPX_HOST
+    if (RECOMP_FPX_FZIN32(fz, a, b)) return 0;
+#endif
 #if RECOMP_FPX_HOST == 1
     const uint64_t t = recomp_fpx_fb(__builtin_fmaf(-recomp_fpx_f(a), recomp_fpx_f(b), 2.0f));
 #elif RECOMP_FPX_HOST == 2
@@ -6546,9 +6583,12 @@ static RECOMP_INLINE int recomp_fpx_recps32(uint64_t a, uint64_t b, uint64_t* v)
 #if RECOMP_FPX_HOST
     if (RECOMP_FPX_BIG32(t)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_rsqrts32(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_rsqrts32(uint64_t a, uint64_t b, int fz, uint64_t* v) {
+#if RECOMP_FPX_HOST
+    if (RECOMP_FPX_FZIN32(fz, a, b)) return 0;
+#endif
 #if RECOMP_FPX_HOST == 1
     /* Halving a normal result is exact, and a normal result is all that is kept. */
     const uint64_t t = recomp_fpx_fb(__builtin_fmaf(-recomp_fpx_f(a), recomp_fpx_f(b), 3.0f) * 0.5f);
@@ -6561,13 +6601,15 @@ static RECOMP_INLINE int recomp_fpx_rsqrts32(uint64_t a, uint64_t b, uint64_t* v
 #if RECOMP_FPX_HOST
     if (RECOMP_FPX_BIG32(t)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
 /* Square root of a positive finite input (subnormal included) is normal and
-   finite; of +-0 it is the input. Negative inputs, infinities and NaNs fall back. */
-static RECOMP_INLINE int recomp_fpx_sqrt32(uint64_t a, uint64_t* v) {
+   finite; of +-0 it is the input. Negative inputs, infinities and NaNs fall back,
+   and so do subnormal inputs under FZ, which the guest flushes. */
+static RECOMP_INLINE int recomp_fpx_sqrt32(uint64_t a, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
     if (RECOMP_FPX_ZERO32(a)) { *v = a; return 1; }
+    if (fz && RECOMP_FPX_SUB32(a)) return 0;
     if ((uint32_t)a - 1u >= 0x7f7fffffu) return 0;
 #if RECOMP_FPX_HOST == 1
     *v = recomp_fpx_fb(__builtin_sqrtf(recomp_fpx_f(a)));
@@ -6576,7 +6618,7 @@ static RECOMP_INLINE int recomp_fpx_sqrt32(uint64_t a, uint64_t* v) {
 #endif
     return 1;
 #else
-    (void)a; (void)v; return 0;
+    (void)a; (void)fz; (void)v; return 0;
 #endif
 }
 )RT";
@@ -6584,58 +6626,70 @@ static RECOMP_INLINE int recomp_fpx_sqrt32(uint64_t a, uint64_t* v) {
 
 inline const char* FpxH64() {
     return R"RT(
-static RECOMP_INLINE int recomp_fpx_add64(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_add64(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
-    const uint64_t t = recomp_fpx_db(recomp_fpx_d(a) + recomp_fpx_d(b));
-    if (RECOMP_FPX_FIN64(t)) { *v = t; return 1; }
+    if (RECOMP_FPX_FZIN64(fz, a, b)) return 0;
+    {
+        const uint64_t t = recomp_fpx_db(recomp_fpx_d(a) + recomp_fpx_d(b));
+        if (RECOMP_FPX_KEEPSUM64(fz, t)) { *v = t; return 1; }
+    }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_sub64(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_sub64(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
-    const uint64_t t = recomp_fpx_db(recomp_fpx_d(a) - recomp_fpx_d(b));
-    if (RECOMP_FPX_FIN64(t)) { *v = t; return 1; }
+    if (RECOMP_FPX_FZIN64(fz, a, b)) return 0;
+    {
+        const uint64_t t = recomp_fpx_db(recomp_fpx_d(a) - recomp_fpx_d(b));
+        if (RECOMP_FPX_KEEPSUM64(fz, t)) { *v = t; return 1; }
+    }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_mul64(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_mul64(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
+    if (RECOMP_FPX_FZIN64(fz, a, b)) return 0;
     const uint64_t t = recomp_fpx_db(recomp_fpx_d(a) * recomp_fpx_d(b));
     if (RECOMP_FPX_KEEP64(t, a, b)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_div64(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_div64(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
+    if (RECOMP_FPX_FZIN64(fz, a, b)) return 0;
     const uint64_t t = recomp_fpx_db(recomp_fpx_d(a) / recomp_fpx_d(b));
     if (RECOMP_FPX_KEEPDIV64(t, a)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_fma64(uint64_t a, uint64_t b, uint64_t z, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_fma64(uint64_t a, uint64_t b, uint64_t z, int fz, uint64_t* v) {
 #if RECOMP_FPX_FMA64
+    if (RECOMP_FPX_FZIN64(fz, a, b) || (fz && RECOMP_FPX_SUB64(z))) return 0;
     const uint64_t t = recomp_fpx_db(__builtin_fma(recomp_fpx_d(a), recomp_fpx_d(b), recomp_fpx_d(z)));
     if (RECOMP_FPX_KEEP64(t, a, b)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)z; (void)v; return 0;
+    (void)a; (void)b; (void)z; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_recps64(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_recps64(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_FMA64
+    if (RECOMP_FPX_FZIN64(fz, a, b)) return 0;
     const uint64_t t = recomp_fpx_db(__builtin_fma(-recomp_fpx_d(a), recomp_fpx_d(b), 2.0));
     if (RECOMP_FPX_BIG64(t)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_rsqrts64(uint64_t a, uint64_t b, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_rsqrts64(uint64_t a, uint64_t b, int fz, uint64_t* v) {
 #if RECOMP_FPX_FMA64
+    if (RECOMP_FPX_FZIN64(fz, a, b)) return 0;
     const uint64_t t = recomp_fpx_db(__builtin_fma(-recomp_fpx_d(a), recomp_fpx_d(b), 3.0) * 0.5);
     if (RECOMP_FPX_BIG64(t)) { *v = t; return 1; }
 #endif
-    (void)a; (void)b; (void)v; return 0;
+    (void)a; (void)b; (void)fz; (void)v; return 0;
 }
-static RECOMP_INLINE int recomp_fpx_sqrt64(uint64_t a, uint64_t* v) {
+static RECOMP_INLINE int recomp_fpx_sqrt64(uint64_t a, int fz, uint64_t* v) {
 #if RECOMP_FPX_HOST
     if (RECOMP_FPX_ZERO64(a)) { *v = a; return 1; }
+    if (fz && RECOMP_FPX_SUB64(a)) return 0;
     if (a - 1u >= UINT64_C(0x7fefffffffffffff)) return 0;
 #if RECOMP_FPX_HOST == 1
     *v = recomp_fpx_db(__builtin_sqrt(recomp_fpx_d(a)));
@@ -6644,7 +6698,7 @@ static RECOMP_INLINE int recomp_fpx_sqrt64(uint64_t a, uint64_t* v) {
 #endif
     return 1;
 #else
-    (void)a; (void)v; return 0;
+    (void)a; (void)fz; (void)v; return 0;
 #endif
 }
 )RT";

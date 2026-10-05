@@ -19,7 +19,10 @@ identical inputs through each implementation and compares the whole of q0, x0,
 NZCV and the final guest FPSR, for seven FPCR settings (0, FZ, DN, RP, RM, RZ,
 FZ|DN) and start FPSRs with and without IXC. It also reports the FPX1 fast-path
 hit rate per word (lane operations that kept the native result, at FPCR 0 with
-IXC set, L1).
+IXC set, L1). With `--hits`, `diff` reports the FPX1 hit rate at FPCR FZ per
+word and overall as well. The harness fails if the fast path keeps no result at
+FPCR FZ while it does at FPCR 0, guarding against the gate closing under FZ
+again; value and FPSR comparisons alone cannot detect that regression.
 
 Legs:
 

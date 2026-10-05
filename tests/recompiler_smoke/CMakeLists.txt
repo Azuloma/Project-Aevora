@@ -22,6 +22,12 @@ elseif(NOT GENERATED_DIR)
   add_executable(smoke_export export.cpp "${gaps_source}")
   target_compile_features(smoke_export PRIVATE cxx_std_20)
   target_include_directories(smoke_export PRIVATE "${SUYU_SOURCE}/src")
+  if(MSVC)
+    # The emitter's string literals contain UTF-8 text. suyu itself builds with
+    # /utf-8 (src/CMakeLists.txt); without it MSVC reads the source in the
+    # system code page and the golden-hashed output differs from a real export.
+    target_compile_options(smoke_export PRIVATE /utf-8)
+  endif()
   add_executable(smoke_gaps_unit gaps_unit.cpp "${gaps_source}")
   target_compile_features(smoke_gaps_unit PRIVATE cxx_std_20)
   target_include_directories(smoke_gaps_unit PRIVATE "${SUYU_SOURCE}/src")

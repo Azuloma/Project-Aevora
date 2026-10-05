@@ -11,14 +11,18 @@ import tempfile
 # SHA-256 of the whole generated smoke tree (every file, by relative path) with
 # the fast-path emit option off. That output must stay byte-identical to ABI 5;
 # update this only for a deliberate ABI 5 emitter change, never for ABI 6 work.
-ABI5_GOLDEN = "63c1ed5bafc2c68e2b6a53282c304cf1edc2c43d899a73371b49f41de4d1597a"
+# HisuiWake v0.0.1-dev8: all three recomputed after the v0.0.1-dev4 change to
+# the generated CMake job-pool text (shared by every variant). smoke_export is
+# now built with /utf-8 on MSVC, as suyu is, so these match clang-cl builds.
+ABI5_GOLDEN = "a325a2d05566f9d2efaeead9a855d963cf7e143efef14a0095f505ff92d090e7"
 # The same for ABI 6 with FM1 alone (GG1 and FPX1 both off), which neither
 # feature may move, and with FM1 and FPX1 (exact native FP) on, tracked so any
 # change is deliberate. Recomputed against this integration tree, since the FP
 # exactness fixes touch the shared emitter and so this text too; GG1's own
 # switch-off contract (DESIGN.md sec 0) guarantees it does not move these.
-FM1_GOLDEN = "371f92332302eb6e3b2d62dc94c6720b1812aeb9af515255c44cff892bca3fc7"
-FPX_GOLDEN = "d49e15934ccea66de199558ffce883a32edbf523b16a738eda73fdc094292417"
+# FPX_GOLDEN also covers the FZ-aware FPX1 helpers (v0.0.1-dev8).
+FM1_GOLDEN = "e2785f0c4e839b23186a2865ef6b241b4b8565524ee71c3bea4b9154b0daefad"
+FPX_GOLDEN = "1ef792bc6fb4b7a666c455f71b24e74a08b9170fb66b2d77c1a385134d1c35a5"
 
 # ABI 6 changes only these files; the block sources must be identical.
 ABI6_CHANGED = {"CMakeLists.txt", "recomp_export.c", "recomp_runtime.c", "recomp_runtime.h"}

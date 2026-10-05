@@ -2,6 +2,19 @@
 
 All notable changes to HisuiWake are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev8 - Unreleased
+
+*Development commit 8 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Changed
+- Recompiled code now uses the native floating-point fast path (FPX1) when the guest runs with flush-to-zero (FPCR.FZ), as Pokemon Legends: Arceus does (FZ set in about 96% of sampled thread switches). Previously FZ closed the fast path, so every covered FP operation ran a software IEEE implementation. Under FZ a native result is kept only when no input is subnormal and the result is a normal number larger than the smallest normal (or, for add/subtract, exactly zero; for multiply/divide/FMA, the existing exact zero-operand cases), so results and FPSR stay bit-identical to the architecture. DN, AHP, FZ16, non-nearest rounding and trap enables still close the fast path. Requires a new export.
+
+### Fixed
+- The recompiler smoke suite's golden hashes were stale (they no longer matched after the v0.0.1-dev4 generated-CMake change) and the suite's exporter was built without /utf-8 on MSVC, so its output differed from real exports (which suyu builds with /utf-8) in UTF-8 comments and messages. The exporter test target now builds with /utf-8 and the goldens were recomputed; MSVC and clang-cl builds now give identical hashes.
+
+### Known issues
+- The FPS effect in PLA has not been measured yet. The FP differential harness compares against the software implementation on this host; the hardware-golden leg (L5) needs an AArch64 host and was not run.
+
 ## v0.0.1-dev7 - Unreleased
 
 *Development commit 7 toward v0.0.1. Not a release; no build artifacts are published.*
