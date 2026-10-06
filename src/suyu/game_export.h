@@ -119,13 +119,15 @@ public:
         /// failure paths can be exercised without a broken toolchain. One of the names
         /// IsKnownFailStage() accepts; empty = none. Applies to the clang-cl build route.
         QString fail_stage;
-        /// The module whose emit/compile/dll_link stage fails; empty = "main".
+        /// The module whose emit/compile/dll_link/tamper_dll/remove_dll stage fails; empty =
+        /// "main".
         QString fail_module;
     };
     /// Accepts "" or a stage name TestExportOptions::fail_stage understands: "emit" (lift to
     /// C), "compile" (module compile), "dll_link" (module DLL link, LNK error text),
     /// "launcher_link" (launcher link, generic error) and "launcher_lnk1248" (launcher image
-    /// over the 2 GB limit).
+    /// over the 2 GB limit). "tamper_dll" and "remove_dll" damage the module's collected DLL
+    /// after the build recorded it, so the packaging check against that record has to catch it.
     static bool IsKnownFailStage(const QString& stage);
     void SetTestExportOptions(const TestExportOptions& options);
     /// True when the last test export stopped because its destination already existed.

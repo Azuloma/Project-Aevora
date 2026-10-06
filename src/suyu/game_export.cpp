@@ -3786,7 +3786,9 @@ static void ReportExportRejection(QWidget* parent, bool test_driven, const QStri
 bool GameExportDialog::IsKnownFailStage(const QString& stage) {
     return stage.isEmpty() || stage == QLatin1String("emit") ||
            stage == QLatin1String("compile") || stage == QLatin1String("dll_link") ||
-           stage == QLatin1String("launcher_link") || stage == QLatin1String("launcher_lnk1248");
+           stage == QLatin1String("launcher_link") ||
+           stage == QLatin1String("launcher_lnk1248") || stage == QLatin1String("tamper_dll") ||
+           stage == QLatin1String("remove_dll");
 }
 
 bool GameExportDialog::ShouldInjectFailure(const char* stage, const QString& module) const {
@@ -5712,6 +5714,16 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                 }
                                 image.size_of_image = *image_size;
                                 record.images.push_back(std::move(image));
+                                // Test-only: damage the collected copy after it was recorded.
+                                const QString module_name = QString::fromStdString(entry.name);
+                                if (ShouldInjectFailure("tamper_dll", module_name)) {
+                                    QFile damaged(image_dst);
+                                    if (damaged.open(QIODevice::Append)) {
+                                        damaged.write("injected tampering");
+                                    }
+                                } else if (ShouldInjectFailure("remove_dll", module_name)) {
+                                    QFile::remove(image_dst);
+                                }
                             }
                             last_split_export = std::move(record);
                         }
@@ -6046,8 +6058,9 @@ bool GameExportDialog::PackageNativeExport(const QString& rom_path, const QStrin
             << "It is not an official suyu release and is not cleared for redistribution.\n";
         ref.close();
     };
-    const auto fail = [](const QString& reason) {
+    const auto fail = [this](const QString& reason) {
         LOG_ERROR(Frontend, "Export packaging: {}", reason.toStdString());
+        test_export_rejection = reason;
         return false;
     };
     // Generated straight into the staged package by RunAotPrecompile; never
@@ -7375,10 +7388,13 @@ void GameExportDialog::OnExport() {
     injected("precompile");
     // Step 4: Package native export artifacts
     ReportStage(ExportStage::Package, 0.0, tr("Packaging native export artifacts..."));
+    test_export_rejection.clear();
 
     if (!PackageNativeExport(rom_path, cache_work, staging_root, game_name, platform, backend,
                              split_export)) {
-        finish_failed(tr("Packaging failed."));
+        finish_failed(test_driven_export && !test_export_rejection.isEmpty()
+                          ? tr("Packaging failed: %1").arg(test_export_rejection)
+                          : tr("Packaging failed."));
         return;
     }
     injected("package");

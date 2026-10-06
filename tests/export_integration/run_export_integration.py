@@ -320,23 +320,40 @@ class Run:
             # and the launcher's configure must not need one.
             ('main only, all-DLL', 'MainOnlyFixture', ['main'], None, 'static'),
             ('Hybrid', 'HybridFixture', None, None, 'hybrid'),
+            # No split: the all-static export keeps its own registry and package, with no
+            # topology fields and no module DLL.
+            ('all-static, no split', 'AllStaticFixture', None, None, 'static'),
         )
         for variant, name, modules, no_path, backend in variants:
             if self.args.variant and self.args.variant.lower() not in variant.lower():
                 continue
+            split = 'no split' not in variant
             tag = 'multi-module split (%s)' % variant
             fixture = self.work / name
             info = make_multimodule_fixture.write_multimodule_fixture(fixture, modules, no_path)
             out = self.work / ('out-' + name)
-            status = self.export(backend, 'build', rom=fixture, output=out, split_main='1')
+            status = self.export(backend, 'build', rom=fixture, output=out,
+                                 split_main='1' if split else '0')
             package_name = name if backend == 'static' else name + ' - Hybrid AOT + JIT'
             package = out / package_name
             self.record(tag + ': export succeeds', status.get('success'), status.get('status', ''))
             if not status.get('success'):
                 continue
-            self.check_split_package(tag, package, info)
+            if split:
+                self.check_split_package(tag, package, info)
+            else:
+                self.check_all_static_package(tag, package)
             code, output, log = self.launch(package, package_name + '.exe', keys=True, timeout=180)
-            self.check_split_run(tag, code, log, info)
+            self.check_split_run(tag, code, log, info, split=split)
+
+    def check_all_static_package(self, tag, package):
+        manifest = json.loads((package / 'export-package.json').read_text())
+        runtime = {p.name for p in Path(self.args.suyu_dir).glob('*.dll')}
+        extra = sorted(p.name for p in package.glob('*.dll') if p.name not in runtime)
+        self.record(tag + ': no topology fields in the package manifest',
+                    'module_topology' not in manifest and 'bundle_id' not in manifest,
+                    ','.join(k for k in ('module_topology', 'bundle_id') if k in manifest))
+        self.record(tag + ': no module DLL beside the launcher', not extra, ','.join(extra))
 
     def split_failure_injection_scenarios(self):
         """A build stage that fails during a split export stops it with the stage named and
@@ -351,6 +368,9 @@ class Run:
             ('compile of the DLL module', 'compile', 'main', 'module compile stage'),
             ('DLL link', 'dll_link', 'main', 'DLL link stage'),
             ('launcher over the 2 GB image limit', 'launcher_lnk1248', '', 'LNK1248'),
+            # Damaged after the build recorded it: the packaging check against that record.
+            ('DLL tampered after the build', 'tamper_dll', 'main', 'does not match the build record'),
+            ('DLL missing after the build', 'remove_dll', 'main', 'could not copy the module image'),
         )
         for name, stage, module, reason in cases:
             status = self.export('static', 'build', rom=fixture, output=out, split_main='1',
@@ -432,12 +452,24 @@ class Run:
                     sorted(p.name for p in package.glob('*.dll') if p.name not in runtime) ==
                     sorted(e['file'] for e in images))
 
-    def check_split_run(self, tag, code, log, info):
+    def check_split_run(self, tag, code, log, info, split=True):
         self.record(tag + ': launcher runs the guest chain through every module',
                     all(m in log for m in info['markers']), 'exit=%s' % code)
         self.record(tag + ': no JIT fallback', 'falling back to JIT' not in log and 'strict mode' not in log)
         inventory = [line for line in log.splitlines() if 'recomp: bound inventory core 0:' in line]
         pre = [line for line in log.splitlines() if 'recomp: pre-relocation modules:' in line]
+        if not split:
+            # The all-static (registry v4) launcher is unchanged: it binds no inventory and
+            # names its modules from their embedded paths (`<name>.nss`).
+            pairs = []
+            for item in pre[0].split('modules:', 1)[1].split() if pre else []:
+                name, _, base = item.partition('@')
+                pairs.append((name, int(base, 16)))
+            relative = [(n.split('.')[0], b - pairs[0][1]) for n, b in pairs] if pairs else []
+            self.record(tag + ': v4 launcher binds no inventory; modules found at the loader\'s bases',
+                        not inventory and len(pre) == 1 and relative == list(info['module_offsets'].items()),
+                        '%d inventory lines; %s' % (len(inventory), relative))
+            return
         pairs = []
         for line in inventory[:1]:
             for item in line.split('core 0:', 1)[1].split():
