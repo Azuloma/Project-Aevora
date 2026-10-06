@@ -1,7 +1,7 @@
 # Aevora
 
 <p align="center">
-  <img src="https://github.com/Azuloma/Aevora/tree/main/Assets/icon-rounded.png" />
+  <img src="Assets/icon-rounded.png" />
 <p>
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-1e90ff?logo=apple" alt="Platform">
