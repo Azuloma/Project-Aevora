@@ -34,6 +34,8 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 
 `src/core/recompiler/arm64_to_c.h` is a header-only translator of about 7,600 lines. It is the only code generator.
 
+The shared topology and image identity contracts are defined in `src/core/recompiler/recomp_topology.h` (versioned module bindings, load ordering, image names, validation, bundle-byte conversion, and `recomp_modules.cmake` output; `kRecompTopologyVersion:31`, `BuildRecompTopology:160`, `WriteRecompModulesCMake:234`) and `src/core/recompiler/recomp_image_identity.h` (v1 symbol and raw 32-byte bundle digest contract; `RECOMP_IMAGE_IDENTITY_V1_SYMBOL:15`, `RecompImageIdentityV1Fn:24`).
+
 | Symbol | Location | Purpose |
 |---|---|---|
 | `struct Block` | `arm64_to_c.h:60` (v) | Discovered code block (vaddr, size, count, entry flag). |
@@ -64,6 +66,7 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 | `WantsCompiledOutput()` | `game_export.cpp:3139` (v) | Build (compile) versus Source-only output. |
 | `RunAotPrecompile()` | `game_export.cpp:3355` (v) | Block discovery and translation orchestration. |
 | `recomp_modules.cmake` / `recomp_registration.c` generation | `game_export.cpp:3950-4030` (v: `:3991`, `:4019`) | Module list in NSO load order and `suyu_recomp_static_modules_v4()` registration table. **The object involved in the earlier `LNK1181` failure is built from this file.** |
+| Prebuild DLL-bound module validation | `src/suyu_cmd/recomp_modules/CMakeLists.txt:26-126` (v, 2026-10-06) | Reads topology DLL bindings, checks version, bundle ID/bytes, module membership, target existence/type, and effective file name, then builds the shared image with identity definitions. |
 | Generated-tree CMake configure/build | around `game_export.cpp:4229` (v) | Invokes CMake on the generated tree. |
 | Pruning of registration entries | around `game_export.cpp:4701` (v) | Comment on modules dropped from the registration. |
 | `PackageNativeExport()` | `game_export.cpp:5059` (v) | Stages the final export package. |
@@ -185,7 +188,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | Location | Content |
 |---|---|
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
-| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; MSVC golden hashes require `/utf-8`, matching the real build. |
+| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units and the `check_prebuild` split consumer checks; MSVC golden hashes require `/utf-8`, matching the real build. |
 | `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests. The test runner and requirements are not yet inspected. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |

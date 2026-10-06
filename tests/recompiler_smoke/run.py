@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -46,9 +47,23 @@ VARIANTS = (("abi5", {}),
                        "SUYU_RECOMP_AB_FPX": "1"}),
             ("abi6fmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FM_INLINE": "1"}),
             ("ggfmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
-                       "SUYU_RECOMP_AB_FM_INLINE": "1"}))
+                       "SUYU_RECOMP_AB_FM_INLINE": "1"}),
+            # Split-export identity on top of ggfpx; structural only, not golden-hashed.
+            ("identity", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
+                          "SUYU_RECOMP_AB_FPX": "1", "SUYU_RECOMP_AB_IDENTITY": "1"}))
 AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
-               "SUYU_RECOMP_AB_FM_INLINE")
+               "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY")
+# The identity export adds one export to each module's recomp_export.c and nothing else.
+IDENTITY_CHANGED = {"recomp_export.c"}
+# Shared-image names of the "second" module, per the generator's naming rule
+# (recomp_topology.h SharedImageTargetName): Windows DLL or Unix shared object.
+IDENTITY_IMAGE_NAMES = ("recompiled_second.dll", "librecompiled_second.so",
+                        "librecompiled_second.dylib")
+# The bundle id (a SHA-256 digest as hex) the identity test images are built with.
+IDENTITY_BUNDLE_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# A parent directory with non-ASCII characters, a space and brackets, for loading a
+# shared image by a path the narrow ANSI code page cannot represent.
+UNICODE_IMAGE_DIR_NAME = "\u30c6\u30b9\u30c8 [dll] dir"
 
 # smoke_gg_host modes: exit 0 (protocol, activation, controls, races) or 86
 # (a hook that must end skipping, followed by a changed block).
@@ -144,6 +159,153 @@ def check_ggfpx(abi6gg, ggfpx):
             raise RuntimeError(f"{module}: GG1+FPX1 handshake presence is wrong")
 
 
+def check_identity(base, identity):
+    # The identity export touches only recomp_export.c, in every module, and the
+    # image is shared-only (the block is inside RECOMP_SHARED_MODULE).
+    check_differences(base, identity, IDENTITY_CHANGED, "image identity")
+    for module in (identity, identity / "second"):
+        export = (module / "recomp_export.c").read_text(encoding="utf-8")
+        if "recomp_image_identity_v1" not in export:
+            raise RuntimeError(f"{module}: the identity export is missing")
+    for module in (base, base / "second"):
+        export = (module / "recomp_export.c").read_text(encoding="utf-8")
+        if "recomp_image_identity_v1" in export:
+            raise RuntimeError(f"{module}: identity text present with the option off")
+
+
+def bundle_byte_list(topology_unit, bundle_hex):
+    """The bundle id as a C byte list, from the topology header's own conversion."""
+    return subprocess.run([str(topology_unit), "--bundle-bytes", bundle_hex], check=True,
+                          capture_output=True, text=True, timeout=15).stdout.strip()
+
+
+def check_identity_image(host, image, bundle_hex):
+    call([host, image, "second", bundle_hex], timeout=15)
+    # A name or bundle id the image was not built with must be refused.
+    call([host, image, "other", bundle_hex], expected=1, timeout=15)
+    call([host, image, "second", "0" * 64], expected=1, timeout=15)
+    call([host, image, "second", "ff" + bundle_hex[2:]], expected=1, timeout=15)
+
+
+def check_identity_in_unicode_dir(root, host, image, bundle_hex):
+    # The image path is passed as an argument list entry (no shell), through the
+    # host's wide entry point, to LoadLibraryW.
+    if os.name != "nt":
+        print("Unicode image path check skipped: shared images are a Windows-only feature.")
+        return
+    copy_dir = root / UNICODE_IMAGE_DIR_NAME
+    copy_dir.mkdir(parents=True, exist_ok=True)
+    copy = copy_dir / image.name
+    shutil.copy2(image, copy)
+    check_identity_image(host, copy, bundle_hex)
+
+
+def run_identity_host(root, run):
+    host = executable(run, "identity_host")
+    images = [p for name in IDENTITY_IMAGE_NAMES for p in (run / "shared").rglob(name)]
+    if len(images) != 1:
+        raise RuntimeError(f"expected one shared image of module 'second' under {run}: {images}")
+    check_identity_image(host, images[0], IDENTITY_BUNDLE_HEX)
+    check_identity_in_unicode_dir(root / "unicode-run", host, images[0], IDENTITY_BUNDLE_HEX)
+
+
+def prebuild_cmake(cmake, source, build_dir, exefs, modules, compiler_options):
+    """Configure src/suyu_cmd/recomp_modules; returns (exit code, output)."""
+    result = subprocess.run(
+        [cmake, "-S", str(source / "src" / "suyu_cmd" / "recomp_modules"), "-B", str(build_dir),
+         "-DCMAKE_BUILD_TYPE=Release", *compiler_options,
+         f"-DSUYU_CMD_RECOMP_DIR={exefs.as_posix()}", f"-DSUYU_RECOMP_MODULES={';'.join(modules)}"],
+        check=False, timeout=300, capture_output=True, text=True, encoding="utf-8",
+        errors="replace")
+    return result.returncode, result.stdout + result.stderr
+
+
+def find_one(root, names):
+    found = [p for name in names for p in root.rglob(name)]
+    if len(found) != 1:
+        raise RuntimeError(f"expected exactly one of {names} under {root}, found {found}")
+    return found[0]
+
+
+def check_prebuild(root, cmake, source, identity_tree, topology_unit, identity_run_dir,
+                   compiler_options):
+    """The clang-cl prebuild project against a split topology written by the production writer."""
+    bundle = IDENTITY_BUNDLE_HEX
+    exefs = root / "prebuild-exefs"
+    shutil.copytree(identity_tree, exefs / "smoke", ignore=shutil.ignore_patterns("second"))
+    shutil.copytree(identity_tree / "second", exefs / "second")
+    (exefs / "recomp_registration.c").write_text("/* empty registry for the prebuild test */\n")
+    modules_cmake = exefs / "recomp_modules.cmake"
+
+    def write_modules(text_args):
+        call([topology_unit, "--write-modules-cmake", modules_cmake, *text_args])
+
+    def expect_failure(name, modules, edit, item):
+        write_modules((bundle, "smoke", "second", "--dll", "second"))
+        text = modules_cmake.read_text()
+        edited = edit(text)
+        if edited == text:
+            raise RuntimeError(f"prebuild negative case {name}: the edit changed nothing")
+        modules_cmake.write_text(edited)
+        code, output = prebuild_cmake(cmake, source, root / f"prebuild-{name}", exefs, modules,
+                                      compiler_options)
+        if code == 0 or item not in output:
+            raise RuntimeError(f"prebuild negative case {name}: exit {code}, expected a failure "
+                               f"naming '{item}'\n{output[-2000:]}")
+
+    on_windows = os.name == "nt"
+    if on_windows:
+        # Each broken binding must fail the configure and name the broken item.
+        expect_failure("missing-target", ("smoke", "second"),
+                       lambda t: t.replace("set(SUYU_RECOMP_DLL_TARGET_second recompiled_second)\n",
+                                           ""),
+                       "SUYU_RECOMP_DLL_TARGET_second")
+        expect_failure("version", ("smoke", "second"),
+                       lambda t: t.replace("TOPOLOGY_VERSION 1", "TOPOLOGY_VERSION 2"),
+                       "topology version '2'")
+        expect_failure("dll-not-built", ("smoke",), lambda t: t + "\n", "DLL module 'second'")
+        # Only the published file name differs from what the target produces.
+        expect_failure("file-name", ("smoke", "second"),
+                       lambda t: t.replace("set(SUYU_RECOMP_DLL_FILE_second recompiled_second.dll)",
+                                           "set(SUYU_RECOMP_DLL_FILE_second other.dll)"),
+                       "'other.dll'")
+        expect_failure("missing-bytes", ("smoke", "second"),
+                       lambda t: "".join(line for line in t.splitlines(keepends=True)
+                                         if "BUNDLE_ID_BYTES" not in line),
+                       "SUYU_RECOMP_BUNDLE_ID_BYTES")
+        write_modules((bundle, "smoke", "second", "--dll", "second"))
+    else:
+        # Shared images, and so the DLL binding, are a Windows-only feature
+        # (their file names are .dll): only the all-static topology is checked.
+        print("Prebuild split (DLL) checks skipped: shared images are a Windows-only feature.")
+        write_modules(("-", "smoke", "second"))
+    build_dir = root / "prebuild"
+    code, output = prebuild_cmake(cmake, source, build_dir, exefs, ("smoke", "second"),
+                                  compiler_options)
+    if code != 0:
+        raise RuntimeError(f"prebuild configure failed:\n{output[-3000:]}")
+    targets = ["recomp_static_smoke"] + (["recompiled_second"] if on_windows else [])
+    for target in targets:
+        call([cmake, "--build", build_dir, "--config", "Release", "--target", target,
+              "--parallel", "2"], timeout=300)
+    find_one(build_dir / "lib", ("recomp_static_smoke.lib", "librecomp_static_smoke.a"))
+    if on_windows:
+        image = find_one(build_dir / "bin", ("recompiled_second.dll",))
+        call([executable(identity_run_dir, "identity_host"), image, "second", bundle], timeout=15)
+        check_identity_in_unicode_dir(root / "unicode-prebuild", executable(identity_run_dir,
+                                      "identity_host"), image, bundle)
+        # The static module must not have been built as a shared image.
+        if list(build_dir.rglob("recompiled_smoke.dll")):
+            raise RuntimeError("the static module was built as a shared image")
+    # Hybrid retry: the exporter rewrites recomp_modules.cmake with a reduced
+    # list after configuring with the full one. The next build regenerates the
+    # project against the rewritten file and must still succeed.
+    write_modules(("-", "smoke"))
+    call([cmake, "--build", build_dir, "--config", "Release", "--target", "recomp_static_smoke",
+          "--parallel", "2"], timeout=300)
+    print("Prebuild consumer checks passed.")
+
+
 def check_fm_inline(base, fmi, what):
     # FMI must leave the block units, CMake text and handshakes untouched.
     check_differences(base, fmi, FMI_CHANGED, what)
@@ -211,9 +373,18 @@ def main():
             call([args.cmake, "--build", directory, "--config", "Release", "--parallel", "2"])
             return directory
 
+        # Which generator the script uses is cmake's default unless -G is passed in
+        # the environment; record it so a result can be tied to it.
+        cache_generator = None
         export_build = build("export")
+        for line in (export_build / "CMakeCache.txt").read_text(encoding="utf-8",
+                                                                errors="replace").splitlines():
+            if line.startswith("CMAKE_GENERATOR:"):
+                cache_generator = line.split("=", 1)[1]
+        print(f"CMake generator: {cache_generator}")
         exporter = executable(export_build, "smoke_export")
         call([executable(export_build, "smoke_gaps_unit")])
+        call([executable(export_build, "smoke_topology_unit")])
         check_coverage_loop(root, exporter, build)
         generated = {}
         for name, switches in VARIANTS:
@@ -229,10 +400,18 @@ def main():
         check_ggfpx(generated["abi6gg"], generated["ggfpx"])
         check_fm_inline(generated["abi6"], generated["abi6fmi"], "FMI")
         check_fm_inline(generated["abi6gg"], generated["ggfmi"], "GG1+FMI")
+        check_identity(generated["ggfpx"], generated["identity"])
 
         for name, switches in VARIANTS:
             guard_gen = "SUYU_RECOMP_AB_GUARD_GEN" in switches
-            run = build(f"run-{name}", f"-DGENERATED_DIR={generated[name].as_posix()}")
+            identity_options = []
+            if name == "identity":
+                identity_options = [
+                    f"-DIDENTITY_BUNDLE_HEX={IDENTITY_BUNDLE_HEX}",
+                    f"-DIDENTITY_BUNDLE_BYTES="
+                    f"{bundle_byte_list(executable(export_build, 'smoke_topology_unit'), IDENTITY_BUNDLE_HEX)}"]
+            run = build(f"run-{name}", f"-DGENERATED_DIR={generated[name].as_posix()}",
+                        *identity_options)
             runner = executable(run, "smoke_run")
             hybrid_env = dict(os.environ, SUYU_RECOMP_STRICT="0")
             for mode in ("hybrid-mutated-entry", "hybrid-unmapped-entry",
@@ -249,6 +428,11 @@ def main():
             call([executable(run, "smoke_static")], timeout=15)
             if name != "abi5":
                 call([executable(run, "smoke_features")], timeout=15)
+            if name == "identity":
+                run_identity_host(root, run)
+                check_prebuild(root, args.cmake, source, generated[name],
+                               executable(export_build, "smoke_topology_unit"), run,
+                               compiler_options)
             if guard_gen:
                 host = executable(run, "smoke_gg_host")
                 for mode in GG_HOST_PASS:

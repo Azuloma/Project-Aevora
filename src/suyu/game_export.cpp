@@ -101,6 +101,7 @@
 #include "core/loader/loader.h"
 #include "core/loader/nso.h"
 #include "core/recompiler/arm64_to_c.h"
+#include "core/recompiler/recomp_topology.h"
 #include "frontend_common/content_manager.h"
 #include "frontend_common/firmware_manager.h"
 
@@ -4045,6 +4046,20 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         // has to be registered against the modules that actually built, not
         // every module that was generated.
         const auto write_registration = [&](const QStringList& mods) {
+            // The module topology is the single source for the selection file
+            // and the load order below.
+            suyu::recomp::RecompTopologyRequest topology_request;
+            for (const auto& m : mods) {
+                topology_request.modules.push_back(m.toStdString());
+            }
+            std::string topology_error;
+            const auto topology =
+                suyu::recomp::BuildRecompTopology(topology_request, &topology_error);
+            if (!topology) {
+                LOG_ERROR(Frontend, "Invalid recompiled module topology: {}", topology_error);
+                return false;
+            }
+
             QFile selection(recomp_root + QStringLiteral("/recomp_modules.cmake"));
             if (!selection.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 LOG_ERROR(Frontend, "Could not write the static module selection: {}",
@@ -4053,12 +4068,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             }
             {
                 QTextStream out(&selection);
-                out << "# Generated alongside recomp_registration.c.\n"
-                       "set(SUYU_RECOMP_MODULES";
-                for (const auto& m : mods) {
-                    out << " " << m;
-                }
-                out << ")\n";
+                out << QString::fromStdString(suyu::recomp::WriteRecompModulesCMake(*topology));
             }
             if (!selection.flush() || selection.error() != QFile::NoError) {
                 LOG_ERROR(Frontend, "Could not finish the static module selection: {}",
@@ -4067,21 +4077,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             }
             // NSO load order, which is also the index order Core's base setter uses.
             QStringList ordered;
-            const auto take = [&](const QString& name) {
-                if (mods.contains(name)) {
-                    ordered.append(name);
-                }
-            };
-            take(QStringLiteral("rtld"));
-            take(QStringLiteral("main"));
-            for (int i = 0; i < 10; ++i) {
-                take(QStringLiteral("subsdk%1").arg(i));
-            }
-            take(QStringLiteral("sdk"));
-            for (const auto& m : mods) {
-                if (!ordered.contains(m)) {
-                    ordered.append(m);
-                }
+            for (const auto& entry : topology->entries) {
+                ordered.append(QString::fromStdString(entry.name));
             }
 
             QFile reg(recomp_root + QDir::separator() + QStringLiteral("recomp_registration.c"));

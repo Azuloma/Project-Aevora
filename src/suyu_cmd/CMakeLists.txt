@@ -103,6 +103,16 @@ if (SUYU_CMD OR YUZU_CMD)
         if (EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_modules.cmake")
             include("${SUYU_CMD_RECOMP_DIR}/recomp_modules.cmake")
             set(_recomp_children "${SUYU_RECOMP_MODULES}")
+            # DLL-bound modules need the topology v1 registry and launcher
+            # loader, which this build does not implement yet. Marker file is
+            # written by the exporter together with that registry. Fail here
+            # instead of linking the module statically against its binding.
+            if (SUYU_RECOMP_DLL_MODULES AND
+                NOT EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_topology_v1.h")
+                message(FATAL_ERROR
+                    "This export binds module(s) ${SUYU_RECOMP_DLL_MODULES} as DLLs, which needs "
+                    "the topology v1 registry; this build does not implement it yet")
+            endif()
         endif()
         # SUYU_CMD_RECOMP_PREBUILT_DIR: the modules were already compiled by
         # recomp_modules/ (the Windows Build export does that with clang-cl,

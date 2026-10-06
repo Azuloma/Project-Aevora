@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-06. HEAD: `e66f19c` (docs commit after `74b959c` `v0.0.1-dev10`). Last session handoff: 2026-10-06, eighth session (see [Session handoff](#session-handoff-2026-10-06-eighth-session-complete)).
+Handoff prepared: 2026-10-06. HEAD: `d4c8cf9` (docs commit after `e66f19c`). Last session handoff: 2026-10-06, eighth session (see [Session handoff](#session-handoff-2026-10-06-eighth-session-complete)).
 Older history (2026-10-04 handoff through the fourth session close on 2026-10-05, plus earlier export evidence) is archived in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
@@ -14,7 +14,7 @@ Start with a reproducible Windows x64 build and a correctly running game. Procee
 | Item | Evidence/status |
 |---|---|
 | Source repository | Root contains the Suyu-derived source, build files, dependency metadata, and archived upstream documentation. |
-| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `e66f19c`; the user commits and pushes. |
+| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `d4c8cf9`; the user commits and pushes. |
 | Configured origin | `https://github.com/Azuloma/Aevora.git`; remote publication was not independently verified during this handoff. |
 | README | English draft describes feasibility status, planned features, support scope, versioning, and the hobby/no-donations policy. |
 | License | Root `LICENSE.txt` is copied unchanged from the archived upstream license; README specifies `GPL-3.0-or-later`. Existing notices are retained. |
@@ -127,8 +127,8 @@ The cleanup already removed upstream automation, temporary material, old screens
 
 1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3. (done 2026-10-06)
 2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change. (done 2026-10-06)
-3. Prototype measurement before full implementation: from a Source-format export, build the generated `main` module's existing SHARED target with `RECOMP_STATIC_ONLY` off, without and with FMI; measure the DLL image and dependency evidence, then record it.
-4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode, (b) registry + launcher loading, (c) exporter packaging/manifest/wording, (d) build-kit decision. Code reviewer reviews each step.
+3. Prototype measurement before full implementation: from a Source-format export, build the generated `main` module's existing SHARED target with `RECOMP_STATIC_ONLY` off, without and with FMI; measure the DLL image and dependency evidence, then record it. (done 2026-10-06; see progress entry)
+4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode ((a) done 2026-10-06), (b) registry + launcher loading, (c) exporter packaging/manifest/wording, (d) build-kit decision. Code reviewer reviews each step.
 5. Tests: extend `tests/recompiler_smoke` with a mixed static+DLL variant (synthetic modules) covering load order, base routing, cross-module dispatch, guard checks, GG1, and FPX; keep existing goldens unchanged for non-split exports; run the fastmem and FPX harnesses.
 6. PLA verification: export static AOT (fallback disabled) without FMI, then with FMI; record per-image sizes, link time, zero JIT transitions, FPS in the same overworld scene, and sampling; compare with dev8 (25-30 FPS) and JIT (30 FPS).
 
@@ -245,7 +245,7 @@ One exporter-owned topology value is the source for module names, bindings, DLL 
 
 #### Open questions
 
-1. Real main-DLL `SizeOfImage` without and with FMI (step 3).
+1. Resolved by step 3: measured main-DLL `SizeOfImage` is 1,459.1 MiB without FMI and 1,783.7 MiB with FMI, leaving margins of 588.9 MiB and 264.3 MiB to the 2,048 MiB limit, respectively.
 2. (Resolved in draft 3 `[R12]`: NSP/XCI already forward `ReadNSOModules`.)
 3. Whether the base-binding callback should also replace index routing for all-static exports later (out of scope now; v4 unchanged).
 
@@ -283,7 +283,7 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 - **Current local state:** The host build tree was rebuilt with export variables cleared; no working static Build export exists locally. Clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before host builds, then re-export without FMI to obtain a package; the dev8 module libraries remain available for image inspection outside the repository.
 
-- **Repository:** HEAD is `e66f19c`. The project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename. The local repository folder remains named HisuiWake. Uncommitted: auto-memory disable plus Orca notes in `CLAUDE.md`, `CHANGELOG.md`, and `.claude/settings.json`, and this session's documentation.
+- **Repository:** HEAD is `d4c8cf9`; previous session's docs are committed. The project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename. The local repository folder remains named HisuiWake. Uncommitted: the step 3 measurement record plus the v0.0.1-dev11 Milestone 4a step 4(a) code.
 - **Local environment:** The dev8 module libraries built for the image measurement are in a local directory outside the repository; the host build tree was rebuilt with export variables cleared (dev10 `suyu.exe`/`suyu-cmd.exe`). No working static Build export exists locally.
 - **Diagnostics:** the local diag directory outside the repository contains `sample_static.ps1` and `RipSampler2.cs`, with `asm_probe` and `fmi_probe` material. Launch from a non-elevated shell; use `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out <file>`.
 - **Build/test:** in the Build Tools 2026 `vcvars64` environment, run `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls` (about 100.6 M cases; reduced: add `--cases 1000 --adv 2000 --legs 13`), `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`, and `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`. Python must read generated files as UTF-8. `rebuild-suyu.bat` clears export variables and builds with `-j 8`; incremental builds use `cmake --build <build-dir> --target suyu suyu-cmd -j 8`.
@@ -293,6 +293,8 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 1. Completed Milestone 4a step 1: Orca Code Explorer surveyed globals/TLS, exe<->module symbol dependencies, and the launcher DLL loader/ABI6 handshake.
 2. Completed step 2: wrote the draft-3 design note and received three reviews: draft 1 (blocker 1, major 9, minor 1; R1-R11), draft 2 (blocker 0, major 2, minor 1; residual R1/R5 and new R12), and draft 3 (blocker 0, major 0, minor 0; implementation may start).
+3. Completed step 3: built the generated `main` module's existing SHARED target without and with FMI; measured `SizeOfImage` at 1,459.1 MiB and 1,783.7 MiB, with 588.9 MiB and 264.3 MiB margins.
+4. Completed Milestone 4a step 4(a): implemented and reviewed the authoritative module topology, shared-image identity export, and prebuild DLL binding checks; all-static output remains unchanged.
 
 ### Where things stand
 
@@ -306,6 +308,7 @@ For each feature, identify the responsible layer, add a clear setting where appr
 | [Same-scene JIT sampling](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
 | [FMI export](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248) | FMI tests passed, but the PLA static launcher image was about 2.19 GB and failed LNK1248 against the 2 GB x64 limit. |
 | Image budget | Dev8 about 1,820 MiB estimated (about 228 MiB margin); FMI +421 MiB does not fit. |
+| Main DLL (step 3) | `SizeOfImage`: 1,459.1 MiB without FMI / 1,783.7 MiB with FMI; margins: 588.9 MiB / 264.3 MiB to 2,048 MiB. |
 | FPCR measurement | FZ set in about 96% of 3,473,408 JIT context saves; do not measure FPS with `SUYU_FPCR_STATS=1`. |
 | Sampling profile | Hot block was 15-19% of busy-core RIP samples; `ScheduleImplFiber` was 10-12.5%. The FZ finding is confirmed, not a hypothesis. |
 
@@ -313,14 +316,13 @@ Key conclusions: static AOT ran without fallback in the exercised scenario; Dyna
 
 ### Open issues, in priority order
 
-1. Milestone 4a step 3: measure the main DLL without and with FMI via a Source-format export and the existing SHARED target.
-2. Milestone 4a step 4: implement the design in reviewable steps.
-3. Exercise the dev10 failure paths synthetically.
-4. Remaining items from the old list item 5: code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
+1. Milestone 4a step 4(b): registry v1 (shared C layout), launcher transactional loading with identity checks, and inventory-based base binding (`BindRecompProcess`).
+2. Exercise the dev10 failure paths synthetically.
+3. Remaining items from the old list item 5: code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
 
 ### Immediate next action
 
-Milestone 4a step 3: measure the main DLL without and with FMI via a Source-format export, using the generated SHARED target with `RECOMP_STATIC_ONLY` off.
+Milestone 4a step 4(b): implement registry v1 (shared C layout), launcher transactional loading with identity checks, and inventory-based base binding (`BindRecompProcess`), by code-quick-implementer and reviewed by Code reviewer.
 
 ### How to work
 
@@ -357,8 +359,40 @@ After each meaningful change, add a dated entry with:
 
 Keep raw logs, machine-specific paths, and game-derived artifacts local. Link only to sanitized, shareable evidence from public documentation.
 
+### 2026-10-06: Milestone 4a step 4(a): module topology, identity export, and prebuild DLL binding (v0.0.1-dev11)
+
+- **Milestone and revision:** Milestone 4a step 4(a), base HEAD `d4c8cf9`; implementation remained uncommitted.
+- **Problem and evidence:** The split design required one authoritative module topology and a verifiable identity contract before registry and launcher loading. The implementation validates module names, order, DLL bindings, bundle identity, and generated target/file references; all-static generated CMake remains byte-identical.
+- **Files changed and reasons:** `src/core/recompiler/recomp_topology.h` centralizes topology validation, load ordering, image names, bundle-byte conversion, and `recomp_modules.cmake` output; `src/core/recompiler/recomp_image_identity.h` defines the shared-image identity ABI; `src/core/recompiler/arm64_to_c.h` emits the opt-in identity symbol; `src/suyu/game_export.cpp` uses the topology writer; `src/suyu_cmd/recomp_modules/CMakeLists.txt` validates and builds DLL-bound modules; `src/suyu_cmd/CMakeLists.txt` and `tools/export_build_kit/CMakeLists.txt` reject unsupported split configurations; smoke tests cover topology, identity, and prebuild consumers.
+- **Commands/settings:** `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl` (8 variants); `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`; `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls --cases 1000 --adv 2000 --legs 13`; `cmake --build <host build dir> --target suyu suyu-cmd -j 8`, after clearing export variables. The smoke prebuild reported the Visual Studio 18 2026 generator.
+- **Result and untested behavior:** All listed commands exited 0; smoke goldens were unchanged, topology/prebuild/identity checks passed, and fastmem had zero mismatches. Review findings were resolved, including DLL artifact-name verification, the raw 32-byte digest contract, and the MSVC-safe negative-array size check. In-tree marker and kit rejection, the main special target and DLL-first ordering, non-Windows paths, Ninja smoke prebuild, cl.exe C-mode identity compilation, and a PLA export remain unverified.
+- **Next action:** Milestone 4a step 4(b): implement registry v1 (shared C layout), launcher transactional loading with identity checks, and inventory-based base binding (`BindRecompProcess`).
+
 
 - **Archive rule:** At each session close, move progress entries older than the previous session (and their session-close entry) verbatim to OLD_HISTORY.md, and add any still-relevant fact to Key facts from archived history.
+
+### 2026-10-06: Milestone 4a step 3: main module DLL image measured without and with FMI
+
+- **Milestone and revision:** Milestone 4a step 3, HEAD `d4c8cf9`.
+- **Problem and evidence:** The design needed a measured `main` DLL image before implementation. A local wrapper CMake project outside the repository built only the generated `main` module's existing SHARED target `recompiled_image` with `RECOMP_STATIC_ONLY` off and `RECOMP_BUILD_STATIC_LIB` off, once without FMI and once with FMI.
+- **Inputs:** No-FMI used generated code from the dev8 static AOT Source export; FMI used generated code left in the aot_cache of the failed dev9 FMI export, whose `recomp_runtime.h` contains `recomp_fmi`. Non-ASCII source paths were reached through ASCII junctions.
+- **Files changed:** No repository source changed; this measurement was recorded in `docs/Aevora/WORK_PLAN.md` and `CHANGELOG.md`.
+- **Commands/settings:** Clang-cl 22.1.8 (Build Tools 2026 vcvars64), Ninja, Release, `RECOMP_JOBS=7`, lld-link (`/dll /INCREMENTAL:NO`), 704 build steps (701 generated units plus runtime/export). Compile definitions and options matched `src/suyu_cmd/recomp_modules/CMakeLists.txt`: `BUILD_ID="amd64"`, `_CRT_SECURE_NO_WARNINGS`, `_CRT_NONSTDC_NO_DEPRECATE`, `_SCL_SECURE_NO_WARNINGS`, `NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `UNICODE`, `_UNICODE`, `/utf-8 /GS- /Gy -Wno-everything`; generated CMake applied `SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1`, `/O2 /Ob2 /bigobj /fp:precise -MD /std:c11`. No `/DEBUG` was used, so no PDB was produced.
+- **Result:**
+
+| Item | No FMI (dev8) | FMI |
+|---|---:|---:|
+| SizeOfImage | 1,530,019,840 bytes (1,459.1 MiB) | 1,870,344,192 bytes (1,783.7 MiB) |
+| Margin to 2,048 MiB | 588.9 MiB | 264.3 MiB |
+| Size of code | 1,195.4 MiB | 1,520.0 MiB |
+| File size | 1,516,892,160 bytes | 1,857,218,560 bytes |
+| `.text / .rdata / .pdata / .data / .reloc` (hex) | `4AB6A000 / CF46000 / 2582000 / C81000 / 66F000` | `5EFF9000 / CF46000 / 2582000 / C81000 / 66F000` |
+| Wall time, configure-to-link (one run each) | 40.7 min | 47.8 min |
+| Link time (DLL mtime minus last object mtime, approximate) | about 23 s | about 25 s |
+
+- **Exports and dependents:** Both DLLs export only `recomp_image_abi`, `recomp_image_entry`, `recomp_image_fastmem_v1`, `recomp_image_features`, `recomp_image_fpx_v1`, `recomp_image_guard_gen_v1`, `recomp_image_guard_v2`, `recomp_image_index`, `recomp_image_lookup`, `recomp_image_run_slice`, and `recomp_image_set_base`. Both depend on `KERNEL32.dll`, `VCRUNTIME140.dll`, `api-ms-win-crt-stdio-l1-1-0.dll`, `api-ms-win-crt-runtime-l1-1-0.dll`, `api-ms-win-crt-heap-l1-1-0.dll`, and `api-ms-win-crt-environment-l1-1-0.dll`; observed KERNEL32 imports were `DisableThreadLibraryCalls`, `GetCurrentProcessId`, `GetCurrentThreadId`, `GetSystemTimeAsFileTime`, `InitializeSListHead`, and `QueryPerformanceCounter`, with no host/launcher symbol imports. This satisfies the design's D2/D3 check that the DLL exports only the image ABI and depends only on CRT/OS DLLs.
+- **Comparison and limits:** The image-budget estimate was about 1,455 MiB without FMI / 1,780 MiB with FMI; measured `SizeOfImage` was 1,459.1 / 1,783.7 MiB. DLL only; the split launcher (four static modules plus runtime) was not linked, so its size remains an estimate of about 365 / 460 MiB. No PDB was produced because `/DEBUG` was not used, so PDB size was not measured; the link used lld-link and the exporter's MSVC `link.exe` path was not measured. No runtime load, FPS, or PLA test was run. Timings are single runs on a 12-core / 16 GB machine.
+- **Next action:** Milestone 4a step 4(a): implement the generator/CMake opt-in split mode (`SUYU_AOT_SPLIT_MAIN`) and the topology value, by code-quick-implementer and reviewed by Code reviewer.
 
 ### 2026-10-06: Milestone 4a design note reviewed and accepted (steps 1-2)
 

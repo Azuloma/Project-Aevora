@@ -2,6 +2,18 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev11 - Unreleased
+
+*Development commit 11 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added a single authoritative module-topology header, an image-identity contract, and an opt-in identity export for shared images. The identity contract returns the canonical module name and raw 32-byte SHA-256 bundle digest.
+- Added prebuild support for topology-bound DLL modules with build-time checks for topology version, bundle identity, target type, module membership, and effective DLL file name. Split exports are not usable end to end yet; registry v1, launcher loading, and the exporter option are later steps.
+- Added fail-fast rejection of split exports in the in-tree launcher configuration without the registry marker and in the export build kit, plus topology, identity, and prebuild consumer smoke tests.
+
+### Changed
+- The exporter now writes `recomp_modules.cmake` and the module load order from the shared topology definition. All-static output remains byte-identical to the previous output.
+
 ## v0.0.1-dev10 - Unreleased
 
 *Development commit 10 toward v0.0.1. Not a release; no build artifacts are published.*
@@ -16,6 +28,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Documentation
 - Added the main-module DLL split design plan (Milestone 4a) to the work plan and archived the sixth-session progress entries to `docs/Aevora/OLD_HISTORY.md`.
 - Recorded the reviewed Milestone 4a main-module DLL split design note (D1-D7) in the work plan and closed the eighth session.
+- Recorded the Milestone 4a step 3 measurement: the PLA main module built as a DLL is 1,459.1 MiB without FMI and 1,783.7 MiB with FMI (SizeOfImage), under the 2 GB image limit, exporting only the image ABI and depending only on CRT/OS DLLs.
 - Added the "Modding and QoL readiness" rule to `CLAUDE.md`: recompiler changes must keep mods and QoL additions easy to add, resolve references from one authoritative source, and fail fast on mismatches so a small change cannot break the recompiler tool; the Code reviewer role now checks it.
 - Disabled Claude Code auto memory for the project (`.claude/settings.json`) and moved the Orca worker operating notes that existed only in agent memory (spec preamble, wait timeout, worker release and acknowledgement, unsubmitted-spec recovery, re-checking `git status`) into `CLAUDE.md`.
 

@@ -29,6 +29,9 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "recomp_topology.h"
+
 #ifdef _WIN32
 #include <direct.h>
 #else
@@ -347,6 +350,14 @@ inline bool g_emit_fm_inline = false;
 inline bool EmitFmInline() {
     return g_emit_fastmem && g_emit_fm_inline;
 }
+
+// Split exports only: each shared image also exports recomp_image_identity_v1,
+// so the launcher can check that the image is the module its registry expects,
+// from the same export. The values come from compile definitions written from
+// the exporter's topology (recomp_topology.h); the exported function's type is
+// defined in recomp_image_identity.h. Off by default; while it is off
+// the emitted text is byte-identical to what it would be without it.
+inline bool g_emit_image_identity = false;
 
 // Strict static exports have no fallback to carry deliberately gated forms.
 inline bool TranslateAllForExport(bool strict_static, bool explicitly_requested) {
@@ -5715,7 +5726,7 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
     // without colliding: suyu-cmd's loader (src/suyu_cmd/suyu.cpp) looks for
     // recompiled_rtld.dll / recompiled_image.dll (main) / recompiled_sdk.dll /
     // recompiled_subsdkN.dll next to the exe, in NSO load order.
-    const std::string dll_target = (mod == "main") ? "recompiled_image" : ("recompiled_" + mod);
+    const std::string dll_target = SharedImageTargetName(mod);
     cm << "if(NOT RECOMP_STATIC_ONLY)\n"
        << "add_library(" << dll_target << " SHARED recomp_export.c recomp_runtime.c "
           "${RECOMP_SOURCES})\n"
@@ -5936,6 +5947,27 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
                             "  if(base!=g_module_base) RECOMP_GG_STORE_RELEASE(g_recomp_gg_word,"
                             "RECOMP_GG_VERIFY_ALWAYS);\n"
                             "  g_module_base = base;\n");
+    }
+    if (g_emit_image_identity) {
+        export_text +=
+            "\n/* Split-export identity (topology v1). Shared images only: the launcher checks\n"
+            "   that this image is the module its registry expects, from the same export. The\n"
+            "   values come from compile definitions written from the exporter's topology. */\n"
+            "#ifdef RECOMP_SHARED_MODULE\n"
+            "#if !defined(RECOMP_IDENTITY_NAME) || !defined(RECOMP_IDENTITY_BUNDLE_BYTES)\n"
+            "#error \"split exports must define RECOMP_IDENTITY_NAME and RECOMP_IDENTITY_BUNDLE_BYTES\"\n"
+            "#endif\n"
+            "/* The raw SHA-256 digest, as a byte list (recomp_image_identity.h). */\n"
+            "static const uint8_t g_recomp_identity_bundle[]={RECOMP_IDENTITY_BUNDLE_BYTES};\n"
+            "/* Size check as a negative array size, not _Static_assert (see the layout\n"
+            "   checks in the runtime header: MSVC /TC rejects the C11 form). */\n"
+            "typedef char recomp_identity_bundle_size[sizeof g_recomp_identity_bundle==" +
+            std::to_string(RECOMP_BUNDLE_ID_BYTES) + " ? 1 : -1];\n" +
+            "RECOMP_API unsigned recomp_image_identity_v1(const char** canonical_name,\n"
+            "                                             const uint8_t** bundle_id){\n"
+            "  *canonical_name=RECOMP_IDENTITY_NAME; *bundle_id=g_recomp_identity_bundle; return 1;\n"
+            "}\n"
+            "#endif\n";
     }
     write("recomp_export.c", export_text);
     write("CMakeLists.txt", cm.str());

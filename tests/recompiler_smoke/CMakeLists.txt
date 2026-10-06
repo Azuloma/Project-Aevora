@@ -31,6 +31,9 @@ elseif(NOT GENERATED_DIR)
   add_executable(smoke_gaps_unit gaps_unit.cpp "${gaps_source}")
   target_compile_features(smoke_gaps_unit PRIVATE cxx_std_20)
   target_include_directories(smoke_gaps_unit PRIVATE "${SUYU_SOURCE}/src")
+  add_executable(smoke_topology_unit topology_unit.cpp)
+  target_compile_features(smoke_topology_unit PRIVATE cxx_std_20)
+  target_include_directories(smoke_topology_unit PRIVATE "${SUYU_SOURCE}/src")
 else()
   file(GLOB generated_sources "${GENERATED_DIR}/src/*.c")
   add_executable(smoke_run run.c ${generated_sources}
@@ -81,6 +84,51 @@ else()
     if(NOT MSVC)
       target_link_libraries(smoke_gg_host PRIVATE m)
     endif()
+  endif()
+  # Split-export identity (topology v1): the generated image exports
+  # recomp_image_identity_v1, whose values come from compile definitions. Every
+  # target that compiles recomp_export.c with RECOMP_SHARED_MODULE must define
+  # them, and the second module is also built as a real shared image that
+  # identity_host loads and queries.
+  string(FIND "${generated_export}" "recomp_image_identity_v1" has_identity)
+  if(NOT has_identity EQUAL -1)
+    # run.py passes the bundle id (hex) and its byte list from the topology
+    # header's own conversion (smoke_topology_unit --bundle-bytes).
+    if(NOT IDENTITY_BUNDLE_HEX OR NOT IDENTITY_BUNDLE_BYTES)
+      message(FATAL_ERROR "the identity export needs IDENTITY_BUNDLE_HEX and IDENTITY_BUNDLE_BYTES")
+    endif()
+    foreach(identity_target smoke_run smoke_features smoke_gg_host)
+      if(TARGET ${identity_target})
+        target_compile_definitions(${identity_target} PRIVATE
+            RECOMP_IDENTITY_NAME="smoke" RECOMP_IDENTITY_BUNDLE_BYTES=${IDENTITY_BUNDLE_BYTES})
+      endif()
+    endforeach()
+    # The shared target name follows the generator's rule for a non-main module
+    # (recomp_topology.h SharedImageTargetName).
+    set(identity_shared_target recompiled_second)
+    set(RECOMP_STATIC_ONLY OFF)
+    set(RECOMP_BUILD_STATIC_LIB OFF)
+    add_subdirectory("${GENERATED_DIR}/second" generated_second_shared)
+    if(NOT TARGET ${identity_shared_target})
+      message(FATAL_ERROR "Generated module 'second' does not define the shared image target "
+                          "'${identity_shared_target}'")
+    endif()
+    target_compile_definitions(${identity_shared_target} PRIVATE
+        RECOMP_IDENTITY_NAME="second" RECOMP_IDENTITY_BUNDLE_BYTES=${IDENTITY_BUNDLE_BYTES})
+    set_target_properties(${identity_shared_target} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shared"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shared")
+    # The standalone runner is not part of this test.
+    if(TARGET recompiled)
+      set_target_properties(recompiled PROPERTIES EXCLUDE_FROM_ALL ON)
+    endif()
+    add_executable(identity_host identity_host.c)
+    target_compile_features(identity_host PRIVATE c_std_11)
+    target_include_directories(identity_host PRIVATE "${SUYU_SOURCE}/src")
+    if(NOT WIN32)
+      target_link_libraries(identity_host PRIVATE ${CMAKE_DL_LIBS})
+    endif()
+    add_dependencies(identity_host ${identity_shared_target})
   endif()
   if(NOT MSVC)
     target_link_libraries(smoke_run PRIVATE m)

@@ -1,0 +1,263 @@
+// SPDX-FileCopyrightText: Copyright 2026 suyu Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// The single authoritative description of a recompiled export's module topology:
+// which modules exist, in what NSO load order, and whether each is linked into
+// the launcher (Static) or built as a shared image (Dll). The generator's CMake,
+// the exporter's registration files and the CMake consumers (clang-cl prebuild,
+// in-tree launcher, export build kit) all take names, file names and the module
+// list from here, so no value is spelled out in a second place that can drift.
+//
+// Header-only, standard library only: it is shared by the exporter (Qt), the
+// generator and tests.
+
+#pragma once
+
+#include <algorithm>
+#include <cctype>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "recomp_image_identity.h"
+
+namespace suyu::recomp {
+
+// Bumped when the meaning of the values written by WriteRecompModulesCMake
+// changes. CMake consumers compare it and refuse a version they do not know.
+inline constexpr unsigned kRecompTopologyVersion = 1;
+
+// A bundle id is a SHA-256 digest written as lowercase hex; its byte length is
+// defined once, by the identity contract.
+inline constexpr std::size_t kBundleIdHexLength = RECOMP_BUNDLE_ID_BYTES * 2;
+
+// Target name the generator gives the main module's shared image; every other
+// module is "recompiled_<module>".
+inline constexpr std::string_view kMainSharedImageTargetName = "recompiled_image";
+inline constexpr std::string_view kSharedImageTargetPrefix = "recompiled_";
+// Shared images are a Windows-only feature (the launcher loads them with
+// LoadLibraryExW), so the file name always carries the .dll suffix.
+inline constexpr std::string_view kSharedImageFileSuffix = ".dll";
+
+enum class RecompModuleBinding { Static, Dll };
+
+// CMake target the generated module CMake creates for a module's shared image.
+inline std::string SharedImageTargetName(std::string_view module) {
+    if (module == "main") {
+        return std::string(kMainSharedImageTargetName);
+    }
+    return std::string(kSharedImageTargetPrefix) + std::string(module);
+}
+
+// File name of the built shared image (Windows only).
+inline std::string SharedImageFileName(std::string_view module) {
+    return SharedImageTargetName(module) + std::string(kSharedImageFileSuffix);
+}
+
+// NSO load order, which is also the index order Core's base setter uses: rtld,
+// main, subsdk0..subsdk9, sdk, then any other module in input order. Modules
+// absent from the input are not invented.
+inline std::vector<std::string> OrderModulesForLoad(const std::vector<std::string>& modules) {
+    constexpr int kSubsdkCount = 10;
+    std::vector<std::string> ordered;
+    ordered.reserve(modules.size());
+    const auto contains = [](const std::vector<std::string>& list, const std::string& name) {
+        return std::find(list.begin(), list.end(), name) != list.end();
+    };
+    const auto take = [&](const std::string& name) {
+        if (contains(modules, name) && !contains(ordered, name)) {
+            ordered.push_back(name);
+        }
+    };
+    take("rtld");
+    take("main");
+    for (int i = 0; i < kSubsdkCount; ++i) {
+        take("subsdk" + std::to_string(i));
+    }
+    take("sdk");
+    for (const auto& m : modules) {
+        if (!contains(ordered, m)) {
+            ordered.push_back(m);
+        }
+    }
+    return ordered;
+}
+
+struct RecompTopologyEntry {
+    std::string name;
+    RecompModuleBinding binding = RecompModuleBinding::Static;
+    std::string dll_file; // empty for Static
+};
+
+struct RecompTopology {
+    unsigned version = kRecompTopologyVersion;
+    std::string bundle_id_hex;                // empty when no module is a Dll
+    std::vector<std::string> selection_order; // caller order, for SUYU_RECOMP_MODULES
+    std::vector<RecompTopologyEntry> entries; // NSO load order
+
+    bool HasDllEntries() const {
+        return std::any_of(entries.begin(), entries.end(), [](const RecompTopologyEntry& e) {
+            return e.binding == RecompModuleBinding::Dll;
+        });
+    }
+};
+
+struct RecompTopologyRequest {
+    std::vector<std::string> modules;
+    std::vector<std::string> dll_modules;
+    std::string bundle_id_hex;
+};
+
+namespace detail {
+
+inline bool IsModuleNameValid(std::string_view name) {
+    if (name.empty()) {
+        return false;
+    }
+    return std::all_of(name.begin(), name.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+    });
+}
+
+inline bool IsBundleIdHexValid(std::string_view hex) {
+    return hex.size() == kBundleIdHexLength &&
+           std::all_of(hex.begin(), hex.end(), [](char c) {
+               return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+           });
+}
+
+// A DLL file name must be a plain basename: the launcher joins it to its own
+// directory, so separators, drive prefixes and ".." would escape it.
+inline bool IsPlainBasename(std::string_view file) {
+    if (file.empty() || file.find("..") != std::string_view::npos) {
+        return false;
+    }
+    return file.find_first_of("/\\:") == std::string_view::npos;
+}
+
+inline std::string LowerAscii(std::string_view text) {
+    std::string out(text);
+    for (auto& c : out) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
+inline std::nullopt_t Fail(std::string* error, std::string message) {
+    if (error) {
+        *error = std::move(message);
+    }
+    return std::nullopt;
+}
+
+} // namespace detail
+
+// Validates the request and builds the topology. Every failure returns nullopt
+// and, when `error` is non-null, a message naming the offending item.
+inline std::optional<RecompTopology> BuildRecompTopology(const RecompTopologyRequest& request,
+                                                         std::string* error) {
+    if (request.modules.empty()) {
+        return detail::Fail(error, "the module list is empty");
+    }
+    std::unordered_set<std::string> seen_modules;
+    for (const auto& m : request.modules) {
+        if (!detail::IsModuleNameValid(m)) {
+            return detail::Fail(error, "module name '" + m + "' does not match [a-z0-9_]+");
+        }
+        if (!seen_modules.insert(m).second) {
+            return detail::Fail(error, "module '" + m + "' is listed more than once");
+        }
+    }
+    std::unordered_set<std::string> seen_dll_modules;
+    for (const auto& m : request.dll_modules) {
+        if (!seen_modules.count(m)) {
+            return detail::Fail(error, "DLL module '" + m + "' is not in the module list");
+        }
+        if (!seen_dll_modules.insert(m).second) {
+            return detail::Fail(error, "DLL module '" + m + "' is listed more than once");
+        }
+    }
+    if (!request.dll_modules.empty() && !detail::IsBundleIdHexValid(request.bundle_id_hex)) {
+        return detail::Fail(error, "bundle id '" + request.bundle_id_hex +
+                                       "' is not 64 lowercase hex characters");
+    }
+
+    RecompTopology topology;
+    topology.bundle_id_hex = request.bundle_id_hex;
+    topology.selection_order = request.modules;
+    std::unordered_set<std::string> seen_files; // lowercase: Windows file names ignore case
+    for (const auto& name : OrderModulesForLoad(request.modules)) {
+        RecompTopologyEntry entry;
+        entry.name = name;
+        if (seen_dll_modules.count(name)) {
+            entry.binding = RecompModuleBinding::Dll;
+            entry.dll_file = SharedImageFileName(name);
+            if (!detail::IsPlainBasename(entry.dll_file)) {
+                return detail::Fail(error, "DLL file name '" + entry.dll_file + "' of module '" +
+                                               name + "' is not a plain file name");
+            }
+            if (!seen_files.insert(detail::LowerAscii(entry.dll_file)).second) {
+                return detail::Fail(error, "DLL file name '" + entry.dll_file + "' of module '" +
+                                               name + "' collides with another module's");
+            }
+        }
+        topology.entries.push_back(std::move(entry));
+    }
+    return topology;
+}
+
+// The validated bundle id as a C initializer list, "0x01,0x23,...", one item per
+// digest byte, for the identity export (recomp_image_identity.h). Empty when the
+// text is not a valid bundle id.
+inline std::string BundleIdHexToByteList(std::string_view bundle_id_hex) {
+    if (!detail::IsBundleIdHexValid(bundle_id_hex)) {
+        return {};
+    }
+    std::string list;
+    for (std::size_t i = 0; i < bundle_id_hex.size(); i += 2) {
+        if (i != 0) {
+            list += ",";
+        }
+        list += "0x";
+        list += bundle_id_hex[i];
+        list += bundle_id_hex[i + 1];
+    }
+    return list;
+}
+
+// Text of recomp_modules.cmake. An all-static topology writes exactly the
+// module list that existed before topology support, so such exports are
+// unchanged; DLL entries append the binding variables that CMake consumers read.
+inline std::string WriteRecompModulesCMake(const RecompTopology& topology) {
+    std::string text = "# Generated alongside recomp_registration.c.\nset(SUYU_RECOMP_MODULES";
+    for (const auto& m : topology.selection_order) {
+        text += " " + m;
+    }
+    text += ")\n";
+    if (!topology.HasDllEntries()) {
+        return text;
+    }
+    std::string dll_modules;
+    std::string per_module;
+    for (const auto& e : topology.entries) {
+        if (e.binding != RecompModuleBinding::Dll) {
+            continue;
+        }
+        dll_modules += (dll_modules.empty() ? "" : " ") + e.name;
+        per_module += "set(SUYU_RECOMP_DLL_TARGET_" + e.name + " " + SharedImageTargetName(e.name) +
+                      ")\n";
+        per_module += "set(SUYU_RECOMP_DLL_FILE_" + e.name + " " + e.dll_file + ")\n";
+    }
+    text += "set(SUYU_RECOMP_TOPOLOGY_VERSION " + std::to_string(topology.version) + ")\n";
+    text += "set(SUYU_RECOMP_BUNDLE_ID " + topology.bundle_id_hex + ")\n";
+    text += "set(SUYU_RECOMP_BUNDLE_ID_BYTES " + BundleIdHexToByteList(topology.bundle_id_hex) +
+            ")\n";
+    text += "set(SUYU_RECOMP_DLL_MODULES " + dll_modules + ")\n";
+    text += per_module;
+    return text;
+}
+
+} // namespace suyu::recomp

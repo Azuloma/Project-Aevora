@@ -79,6 +79,12 @@ include("${SUYU_CMD_RECOMP_DIR}/recomp_modules.cmake")
 if(NOT SUYU_RECOMP_MODULES)
     message(FATAL_ERROR "Export contains no registered modules")
 endif()
+# The kit links static modules only; a split export would otherwise lose its
+# DLL-bound modules silently, so reject it before any target exists.
+if(SUYU_RECOMP_DLL_MODULES)
+    message(FATAL_ERROR "Split (DLL-bound) exports are not supported by the export build kit; "
+                        "use a source build (DLL-bound modules: ${SUYU_RECOMP_DLL_MODULES})")
+endif()
 set(RECOMP_STATIC_ONLY ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 add_compile_definitions(BUILD_ID="amd64" _CRT_SECURE_NO_WARNINGS

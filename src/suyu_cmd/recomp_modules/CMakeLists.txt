@@ -23,6 +23,43 @@ if (NOT SUYU_RECOMP_MODULES)
     message(FATAL_ERROR "SUYU_RECOMP_MODULES is empty")
 endif()
 
+# Module bindings. recomp_modules.cmake is written by the exporter from one
+# topology value (src/core/recompiler/recomp_topology.h); it lists every module
+# and, for a split export, which ones are DLL-bound plus their target and file
+# names. The module list on the command line stays the list to build. It is
+# deliberately not compared with the file's list: the exporter configures this
+# project once with the full list, but rewrites recomp_modules.cmake with a
+# reduced list when a Hybrid retry drops a module, and the include() makes the
+# next build regenerate this project against that file. The build list and the
+# link/registry list may therefore differ legitimately.
+set(_recomp_cmdline_modules "${SUYU_RECOMP_MODULES}")
+set(SUYU_RECOMP_DLL_MODULES "")
+if (EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_modules.cmake")
+    include("${SUYU_CMD_RECOMP_DIR}/recomp_modules.cmake")
+endif()
+set(SUYU_RECOMP_MODULES "${_recomp_cmdline_modules}")
+foreach(_m ${SUYU_RECOMP_DLL_MODULES})
+    if (NOT SUYU_RECOMP_TOPOLOGY_VERSION EQUAL 1)
+        message(FATAL_ERROR "recomp_modules.cmake topology version '${SUYU_RECOMP_TOPOLOGY_VERSION}' "
+                            "is not supported (module '${_m}'); expected 1")
+    endif()
+    if (NOT SUYU_RECOMP_BUNDLE_ID)
+        message(FATAL_ERROR "recomp_modules.cmake has no SUYU_RECOMP_BUNDLE_ID for DLL module '${_m}'")
+    endif()
+    if (NOT SUYU_RECOMP_BUNDLE_ID_BYTES)
+        message(FATAL_ERROR "recomp_modules.cmake has no SUYU_RECOMP_BUNDLE_ID_BYTES for "
+                            "DLL module '${_m}'")
+    endif()
+    foreach(_item SUYU_RECOMP_DLL_TARGET_${_m} SUYU_RECOMP_DLL_FILE_${_m})
+        if (NOT ${_item})
+            message(FATAL_ERROR "recomp_modules.cmake does not define ${_item} for DLL module '${_m}'")
+        endif()
+    endforeach()
+    if (NOT "${_m}" IN_LIST SUYU_RECOMP_MODULES)
+        message(FATAL_ERROR "DLL module '${_m}' is not in SUYU_RECOMP_MODULES '${SUYU_RECOMP_MODULES}'")
+    endif()
+endforeach()
+
 # Every library in one place, so the suyu tree can import them by name.
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
@@ -40,11 +77,59 @@ if (CMAKE_C_COMPILER_ID STREQUAL "Clang")
 endif()
 
 # Tells the generated module projects to emit only the static library.
-set(RECOMP_STATIC_ONLY ON)
 foreach(_m ${SUYU_RECOMP_MODULES})
     if (NOT EXISTS "${SUYU_CMD_RECOMP_DIR}/${_m}/CMakeLists.txt")
         message(FATAL_ERROR "No generated module '${_m}' in ${SUYU_CMD_RECOMP_DIR}")
     endif()
+    if ("${_m}" IN_LIST SUYU_RECOMP_DLL_MODULES)
+        # DLL-bound module: only the SHARED image target is built. The target
+        # name comes from the topology and is verified against the generated
+        # CMake here, so a drift between the two fails the build by name.
+        set(RECOMP_STATIC_ONLY OFF)
+        set(RECOMP_BUILD_STATIC_LIB OFF)
+        add_subdirectory("${SUYU_CMD_RECOMP_DIR}/${_m}" "${CMAKE_CURRENT_BINARY_DIR}/recomp/${_m}")
+        set(_dll_target "${SUYU_RECOMP_DLL_TARGET_${_m}}")
+        if (NOT TARGET ${_dll_target})
+            message(FATAL_ERROR "Generated module '${_m}' does not define the shared image "
+                                "target '${_dll_target}' that the topology expects")
+        endif()
+        # The file name the topology publishes must be the one this target
+        # actually produces, or a later registry/package consumer looks for a
+        # file that does not exist.
+        get_target_property(_dll_type ${_dll_target} TYPE)
+        if (NOT _dll_type STREQUAL "SHARED_LIBRARY")
+            message(FATAL_ERROR "Target '${_dll_target}' of module '${_m}' is ${_dll_type}, "
+                                "not a shared image")
+        endif()
+        get_target_property(_dll_stem ${_dll_target} OUTPUT_NAME)
+        if (NOT _dll_stem)
+            set(_dll_stem "${_dll_target}")
+        endif()
+        get_target_property(_dll_prefix ${_dll_target} PREFIX)
+        if (_dll_prefix MATCHES "NOTFOUND$")
+            set(_dll_prefix "${CMAKE_SHARED_LIBRARY_PREFIX}")
+        endif()
+        get_target_property(_dll_suffix ${_dll_target} SUFFIX)
+        if (_dll_suffix MATCHES "NOTFOUND$")
+            set(_dll_suffix "${CMAKE_SHARED_LIBRARY_SUFFIX}")
+        endif()
+        set(_dll_actual_file "${_dll_prefix}${_dll_stem}${_dll_suffix}")
+        if (NOT "${_dll_actual_file}" STREQUAL "${SUYU_RECOMP_DLL_FILE_${_m}}")
+            message(FATAL_ERROR "Module '${_m}': the topology expects the file "
+                                "'${SUYU_RECOMP_DLL_FILE_${_m}}' but target '${_dll_target}' "
+                                "produces '${_dll_actual_file}'")
+        endif()
+        # The raw digest as a byte list; the exported function returns it.
+        target_compile_definitions(${_dll_target} PRIVATE
+            RECOMP_IDENTITY_NAME="${_m}"
+            RECOMP_IDENTITY_BUNDLE_BYTES=${SUYU_RECOMP_BUNDLE_ID_BYTES})
+        set_target_properties(${_dll_target} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        continue()
+    endif()
+    set(RECOMP_STATIC_ONLY ON)
+    unset(RECOMP_BUILD_STATIC_LIB)
     add_subdirectory("${SUYU_CMD_RECOMP_DIR}/${_m}" "${CMAKE_CURRENT_BINARY_DIR}/recomp/${_m}")
     # Same renames as ../CMakeLists.txt applies (see the comment there).
     target_compile_definitions(recomp_static_${_m} PRIVATE
