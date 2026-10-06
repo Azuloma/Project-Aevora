@@ -24,7 +24,7 @@ Each module prints its own marker with svcOutputDebugString, so a run shows whic
 executed. Optionally one module carries no readable embedded module path (rodata does not
 start with {u32 0, s32 length, path}), the case Core::FindModules cannot name.
 
-Usage: python make_multimodule_fixture.py OUTDIR [--modules a,b,c] [--no-path NAME]
+Usage: python make_multimodule_fixture.py OUTDIR [--modules a,b,c] [--no-path NAME] [--code-less NAME]
 """
 import argparse
 import struct
@@ -157,7 +157,8 @@ def code_words(modules, name: str, offsets: dict) -> list:
     return words
 
 
-def make_module_nso(modules, name: str, offsets: dict, with_path: bool = True) -> bytes:
+def make_module_nso(modules, name: str, offsets: dict, with_path: bool = True,
+                    code_less: bool = False) -> bytes:
     pages = text_pages(name)
     rodata_loc = pages * PAGE
     data_loc = rodata_loc + RODATA_PAGES * PAGE
@@ -178,6 +179,8 @@ def make_module_nso(modules, name: str, offsets: dict, with_path: bool = True) -
         text += struct.pack("<I", word)
     assert len(text) <= pages * PAGE
     text += b"\x00" * (pages * PAGE - len(text))
+    if code_less:
+        text = bytearray()  # a valid NSO header around an empty .text segment
 
     if with_path:
         # {u32 0, s32 length, path}: what Core::FindModules reads to name the module.
@@ -214,7 +217,7 @@ def make_module_nso(modules, name: str, offsets: dict, with_path: bool = True) -
     return nso
 
 
-def write_multimodule_fixture(directory, modules=None, no_path=None) -> dict:
+def write_multimodule_fixture(directory, modules=None, no_path=None, code_less=None) -> dict:
     """Writes the fixture into `directory` and returns what a test needs to know about it."""
     modules = list(modules or DEFAULT_MODULES)
     for name in modules:
@@ -224,13 +227,15 @@ def write_multimodule_fixture(directory, modules=None, no_path=None) -> dict:
         raise ValueError("modules must be unique and in canonical order: %s" % modules)
     if not modules:
         raise ValueError("a fixture needs at least one module")
-    if no_path is not None and no_path not in modules:
-        raise ValueError("no_path module is not in the fixture: " + no_path)
+    for option, value in (("no_path", no_path), ("code_less", code_less)):
+        if value is not None and value not in modules:
+            raise ValueError("%s module is not in the fixture: %s" % (option, value))
     offsets = module_offsets(modules)
     d = Path(directory)
     d.mkdir(parents=True, exist_ok=True)
     for name in modules:
-        (d / name).write_bytes(make_module_nso(modules, name, offsets, with_path=name != no_path))
+        (d / name).write_bytes(make_module_nso(modules, name, offsets, with_path=name != no_path,
+                                                       code_less=name == code_less))
     (d / "main.npdm").write_bytes(make_fixture.make_npdm(TITLE_ID))
     (d / "romfs.bin").write_bytes(make_fixture.make_romfs())
     return {
@@ -240,6 +245,7 @@ def write_multimodule_fixture(directory, modules=None, no_path=None) -> dict:
         "image_sizes": {name: image_size(name) for name in modules},
         "markers": [(MARKER_PREFIX + name) for name in modules] + [CHAIN_COMPLETE_MARKER],
         "no_path": no_path,
+        "code_less": code_less,
         "files": modules + ["main.npdm", "romfs.bin"],
     }
 
@@ -249,10 +255,13 @@ def main() -> int:
     parser.add_argument("outdir")
     parser.add_argument("--modules", default=",".join(DEFAULT_MODULES),
                         help="comma-separated canonical module names, in canonical order")
+    parser.add_argument("--code-less", default=None, metavar="NAME",
+                        help="give this module an empty .text segment")
     parser.add_argument("--no-path", default=None, metavar="NAME",
                         help="give this module no readable embedded module path")
     args = parser.parse_args()
-    info = write_multimodule_fixture(args.outdir, args.modules.split(","), args.no_path)
+    info = write_multimodule_fixture(args.outdir, args.modules.split(","), args.no_path,
+                                       args.code_less)
     for name in info["files"]:
         print(name, (Path(args.outdir) / name).stat().st_size)
     print("title_id=0x%016X" % info["title_id"])

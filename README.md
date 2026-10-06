@@ -1,7 +1,7 @@
 # Aevora
 
 <p align="center">
-  <img src="Assets/icon-rounded.png" />
+  <img alt="aevora-icon" src="Assets/icon-rounded.png" width="200px" />
 <p>
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%20x64-1e90ff" alt="Platform">

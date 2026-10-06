@@ -255,6 +255,9 @@ private:
     bool test_driven_export{false};
     bool test_export_has_result{false};
     bool test_export_succeeded{false};
+    /// The reason RunAotPrecompile() last stopped the export through its rejection path;
+    /// an automated run has no dialog to read it from, so the status line carries it.
+    QString test_export_rejection;
     QString test_export_output;
     quint32 test_app_version{};
     QString test_display_version;

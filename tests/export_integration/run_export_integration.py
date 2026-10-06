@@ -314,25 +314,55 @@ class Run:
         exporter, and a run of its launcher: main is a DLL beside the launcher, the other
         modules are linked into it, and the guest chain crosses every module boundary."""
         variants = (
-            ('default', 'MultiFixture', None, None),
-            ('main without a readable path', 'MultiFixtureNoPath', None, 'main'),
+            ('default', 'MultiFixture', None, None, 'static'),
+            ('main without a readable path', 'MultiFixtureNoPath', None, 'main', 'static'),
             # Every module is DLL-bound: the clang prebuild makes no static runtime library
             # and the launcher's configure must not need one.
-            ('main only, all-DLL', 'MainOnlyFixture', ['main'], None),
+            ('main only, all-DLL', 'MainOnlyFixture', ['main'], None, 'static'),
+            ('Hybrid', 'HybridFixture', None, None, 'hybrid'),
         )
-        for variant, name, modules, no_path in variants:
+        for variant, name, modules, no_path, backend in variants:
+            if self.args.variant and self.args.variant.lower() not in variant.lower():
+                continue
             tag = 'multi-module split (%s)' % variant
             fixture = self.work / name
             info = make_multimodule_fixture.write_multimodule_fixture(fixture, modules, no_path)
             out = self.work / ('out-' + name)
-            status = self.export('static', 'build', rom=fixture, output=out, split_main='1')
-            package = out / fixture.name
+            status = self.export(backend, 'build', rom=fixture, output=out, split_main='1')
+            package_name = name if backend == 'static' else name + ' - Hybrid AOT + JIT'
+            package = out / package_name
             self.record(tag + ': export succeeds', status.get('success'), status.get('status', ''))
             if not status.get('success'):
                 continue
             self.check_split_package(tag, package, info)
-            code, output, log = self.launch(package, fixture.name + '.exe', keys=True, timeout=180)
+            code, output, log = self.launch(package, package_name + '.exe', keys=True, timeout=180)
             self.check_split_run(tag, code, log, info)
+
+    def split_source_failure_scenarios(self):
+        """A split export describes the loader's whole module inventory, so a source with a
+        missing main, a code-less module or an NSO the loader never loads is refused before
+        anything is lifted, with a reason, and leaves no output. (A missing main is stopped by
+        the ExeFS validator before the split-specific check can run.)"""
+        def non_canonical(directory):
+            # A module-shaped NSO under a name the loader never loads.
+            (directory / 'subsdk10').write_bytes((directory / 'sdk').read_bytes())
+
+        cases = (
+            ('no main module', ['rtld', 'subsdk1'], None, None, "needs a main module"),
+            ('code-less module', None, 'subsdk1', None, 'subsdk1'),
+            ('non-canonical NSO', None, None, non_canonical, 'subsdk10'),
+        )
+        for name, modules, code_less, mutate, reason in cases:
+            fixture = self.work / ('Fail-' + name.replace(' ', '-'))
+            make_multimodule_fixture.write_multimodule_fixture(fixture, modules, None, code_less)
+            if mutate:
+                mutate(fixture)
+            out = self.work / 'out-split-failures'
+            status = self.export('static', 'build', rom=fixture, output=out, split_main='1')
+            text = status.get('status', '')
+            leftovers = [p.name for p in out.iterdir()] if out.exists() else []
+            self.record('split source refused (%s)' % name,
+                        not status.get('success') and not leftovers and reason in text, text)
 
     def check_split_package(self, tag, package, info):
         manifest = json.loads((package / 'export-package.json').read_text())
@@ -729,7 +759,11 @@ class Run:
         jit_name = 'SynthFixture - Dynarmic JIT'
         jit = self.out / jit_name
 
+        if a.only_split_failures:
+            self.split_source_failure_scenarios()
+            return
         if a.only_multimodule:
+            self.split_source_failure_scenarios()
             self.multimodule_split_scenarios()
             return
         self.ticket_scenarios()
@@ -883,6 +917,7 @@ class Run:
 
         if not a.skip_multimodule:
             self.multimodule_split_scenarios()
+            self.split_source_failure_scenarios()
 
 
 def main():
@@ -893,6 +928,9 @@ def main():
     parser.add_argument('--skip-aot', action='store_true', help='JIT and policy scenarios only')
     parser.add_argument('--only-multimodule', action='store_true',
                         help='only the multi-module split-export scenarios')
+    parser.add_argument('--only-split-failures', action='store_true',
+                        help='only the split-export source refusal scenarios (no builds)')
+    parser.add_argument('--variant', help='run only multi-module variants whose name contains this')
     parser.add_argument('--skip-multimodule', action='store_true',
                         help='leave out the multi-module split-export scenarios')
     if os.name != 'nt':

@@ -3860,8 +3860,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
 
     // Stops a split export before anything further is built (OnExport already validated the
     // option and the export type; these are the stops that only generation can find).
+    test_export_rejection.clear();
     const auto reject_export = [this](const QString& message) {
         ReportExportRejection(this, test_driven_export, message);
+        test_export_rejection = message;
     };
     if (WantsCompiledOutput() &&
         QFile::exists(QCoreApplication::applicationDirPath() +
@@ -7319,7 +7321,9 @@ void GameExportDialog::OnExport() {
         if (RunAotPrecompile(exefs_work, cache_work, backend, game_name, split_main,
                              split_export)
                 .isEmpty()) {
-            finish_failed(tr("AOT pre-compilation failed."));
+            finish_failed(test_driven_export && !test_export_rejection.isEmpty()
+                              ? tr("AOT pre-compilation failed: %1").arg(test_export_rejection)
+                              : tr("AOT pre-compilation failed."));
             return;
         }
     }
