@@ -338,6 +338,42 @@ class Run:
             code, output, log = self.launch(package, package_name + '.exe', keys=True, timeout=180)
             self.check_split_run(tag, code, log, info)
 
+    def split_failure_injection_scenarios(self):
+        """A build stage that fails during a split export stops it with the stage named and
+        leaves no package behind; the same frontend then exports the same game normally."""
+        fixture = self.work / 'InjectFixture'
+        info = make_multimodule_fixture.write_multimodule_fixture(fixture)
+        out = self.work / 'out-inject'
+        cases = (
+            # (name, fail_stage, fail_module, text the refusal must contain)
+            ('lift of the DLL module', 'emit', 'main', 'stage: lift to C'),
+            ('lift of a static module', 'emit', 'rtld', "Module 'rtld' could not be recompiled"),
+            ('compile of the DLL module', 'compile', 'main', 'module compile stage'),
+            ('DLL link', 'dll_link', 'main', 'DLL link stage'),
+            ('launcher over the 2 GB image limit', 'launcher_lnk1248', '', 'LNK1248'),
+        )
+        for name, stage, module, reason in cases:
+            status = self.export('static', 'build', rom=fixture, output=out, split_main='1',
+                                 fail_stage=stage, fail_module=module)
+            text = status.get('status', '')
+            leftovers = [p.name for p in out.iterdir()] if out.exists() else []
+            self.record('split failure injected (%s)' % name,
+                        not status.get('success') and not leftovers and reason in text, text)
+        unknown = self.mcp.call('trigger_ui_action', {'action': 'aot_test_export',
+                                                     'rom_path': str(fixture), 'output_dir': str(out),
+                                                     'fail_stage': 'no_such_stage'})
+        self.record('unknown fail_stage is refused by name', 'no_such_stage' in json.dumps(unknown)
+                    and not (out.exists() and list(out.iterdir())), json.dumps(unknown))
+        # Retry: the failed attempts left nothing that blocks a normal export.
+        status = self.export('static', 'build', rom=fixture, output=out, split_main='1')
+        self.record('split export succeeds after the injected failures', status.get('success'),
+                    status.get('status', ''))
+        if status.get('success'):
+            package = out / fixture.name
+            self.check_split_package('after failures', package, info)
+            code, output, log = self.launch(package, fixture.name + '.exe', keys=True, timeout=180)
+            self.check_split_run('after failures', code, log, info)
+
     def split_source_failure_scenarios(self):
         """A split export describes the loader's whole module inventory, so a source with a
         missing main, a code-less module or an NSO the loader never loads is refused before
@@ -761,6 +797,7 @@ class Run:
 
         if a.only_split_failures:
             self.split_source_failure_scenarios()
+            self.split_failure_injection_scenarios()
             return
         if a.only_multimodule:
             self.split_source_failure_scenarios()
@@ -918,6 +955,7 @@ class Run:
         if not a.skip_multimodule:
             self.multimodule_split_scenarios()
             self.split_source_failure_scenarios()
+            self.split_failure_injection_scenarios()
 
 
 def main():
@@ -929,7 +967,7 @@ def main():
     parser.add_argument('--only-multimodule', action='store_true',
                         help='only the multi-module split-export scenarios')
     parser.add_argument('--only-split-failures', action='store_true',
-                        help='only the split-export source refusal scenarios (no builds)')
+                        help='only the split-export refusal and failure-injection scenarios')
     parser.add_argument('--variant', help='run only multi-module variants whose name contains this')
     parser.add_argument('--skip-multimodule', action='store_true',
                         help='leave out the multi-module split-export scenarios')

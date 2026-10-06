@@ -6159,6 +6159,16 @@ void GMainWindow::ApplyAppMode(AppMode mode) {
                         if (params.contains(QStringLiteral("split_main"))) {
                             options.split_main = params[QStringLiteral("split_main")].toVariant().toString();
                         }
+                        // Test-only build-stage failure injection (see
+                        // GameExportDialog::TestExportOptions::fail_stage).
+                        options.fail_stage = params[QStringLiteral("fail_stage")].toString().trimmed();
+                        options.fail_module = params[QStringLiteral("fail_module")].toString().trimmed();
+                        if (!GameExportDialog::IsKnownFailStage(options.fail_stage)) {
+                            return QJsonObject{{QStringLiteral("success"), false},
+                                               {QStringLiteral("error"),
+                                                QStringLiteral("Unknown fail_stage: %1")
+                                                    .arg(options.fail_stage)}};
+                        }
                         dialog->SetTestExportOptions(options);
                         QTimer::singleShot(0, dialog, [dialog, rom_path, output_dir, format_index,
                                                        backend_index, full_scan, app_version,

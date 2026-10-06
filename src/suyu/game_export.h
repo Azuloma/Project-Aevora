@@ -115,7 +115,18 @@ public:
         /// SUYU_AOT_SPLIT_MAIN for this export only, validated like the variable (empty/"0" =
         /// off, "1" = split main). Unset leaves the process environment in charge.
         std::optional<QString> split_main;
+        /// Makes one build stage of the next export fail as if its tool had failed, so the
+        /// failure paths can be exercised without a broken toolchain. One of the names
+        /// IsKnownFailStage() accepts; empty = none. Applies to the clang-cl build route.
+        QString fail_stage;
+        /// The module whose emit/compile/dll_link stage fails; empty = "main".
+        QString fail_module;
     };
+    /// Accepts "" or a stage name TestExportOptions::fail_stage understands: "emit" (lift to
+    /// C), "compile" (module compile), "dll_link" (module DLL link, LNK error text),
+    /// "launcher_link" (launcher link, generic error) and "launcher_lnk1248" (launcher image
+    /// over the 2 GB limit).
+    static bool IsKnownFailStage(const QString& stage);
     void SetTestExportOptions(const TestExportOptions& options);
     /// True when the last test export stopped because its destination already existed.
     bool ExportConflictForTesting() const;
@@ -289,6 +300,9 @@ private:
     /// telling the user why when the value is invalid or the export type cannot be split
     /// (Dynarmic, non-Windows, Source format, release export kit only).
     bool ResolveSplitMainOption(RecompileBackend backend, bool* split_main);
+    /// True when a test-driven export asked @p stage to fail (for the module @p module, if
+    /// the stage is per module).
+    bool ShouldInjectFailure(const char* stage, const QString& module = {}) const;
 
     /// Package the translated output into a platform-specific export bundle rooted at
     /// @p package_root, the staging folder that becomes the package once validated.

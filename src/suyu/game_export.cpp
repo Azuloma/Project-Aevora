@@ -3783,6 +3783,23 @@ static void ReportExportRejection(QWidget* parent, bool test_driven, const QStri
     }
 }
 
+bool GameExportDialog::IsKnownFailStage(const QString& stage) {
+    return stage.isEmpty() || stage == QLatin1String("emit") ||
+           stage == QLatin1String("compile") || stage == QLatin1String("dll_link") ||
+           stage == QLatin1String("launcher_link") || stage == QLatin1String("launcher_lnk1248");
+}
+
+bool GameExportDialog::ShouldInjectFailure(const char* stage, const QString& module) const {
+    if (!test_driven_export || test_options_.fail_stage != QLatin1String(stage)) {
+        return false;
+    }
+    // Launcher stages have no module; per-module stages default to main, the DLL-bound one.
+    const QString target = test_options_.fail_module.isEmpty()
+                               ? QString::fromLatin1(kSplitDllModuleName)
+                               : test_options_.fail_module;
+    return module.isEmpty() || module == target;
+}
+
 bool GameExportDialog::ResolveSplitMainOption(RecompileBackend backend, bool* split_main) {
     // A test-driven export may carry its own value so one frontend instance can run split and
     // non-split exports in sequence; the same parser and refusals apply to both sources.
@@ -4474,6 +4491,11 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         } catch (...) {
             LOG_ERROR(Frontend, "EmitProject failed for module {} (unknown error)",
                       mod.name.toStdString());
+        }
+
+        if (emit_ok && ShouldInjectFailure("emit", mod.name)) {
+            LOG_ERROR(Frontend, "Injected failure: lift of module {} to C", mod.name.toStdString());
+            emit_ok = false;
         }
 
         if (!emit_ok) {
@@ -5231,7 +5253,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                         // one unit's code generation over several threads and
                         // clang-cl does not, so at
                         // the MSVC path's 2 jobs clang-cl took ~40% longer.
-                        const int rc = RunProcessDrained(
+                        int rc = RunProcessDrained(
                             p, clang_cmake,
                             {QStringLiteral("--build"), clang_dir, QStringLiteral("--target"),
                              build_target_for(m)},
@@ -5242,6 +5264,13 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                     report(done, total);
                                 }
                             });
+                        if (ShouldInjectFailure("compile", m)) {
+                            rc = 1;
+                            log = QStringLiteral("error C2059: injected compile failure");
+                        } else if (ShouldInjectFailure("dll_link", m)) {
+                            rc = 1;
+                            log = QStringLiteral("LNK1104: injected DLL link failure");
+                        }
                         compiled_bytes += module_bytes;
                         if (rc != 0 && module_dll_file(m)) {
                             stop_for_image_failure(m, QStringLiteral("clang-cl"), log);
@@ -5283,7 +5312,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                         ReportStage(ExportStage::Link, 0.0, link_stage_text);
                         QProcess p;
                         p.setProcessEnvironment(vs_env);
-                        if (RunProcessDrained(
+                        int link_rc = RunProcessDrained(
                                 p, clang_cmake,
                                 {QStringLiteral("--build"), build_tree, QStringLiteral("--target"),
                                  QStringLiteral("suyu-cmd-static"), QStringLiteral("--config"),
@@ -5298,7 +5327,17 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                                         std::max(total, 1),
                                                     link_progress_text(done, total));
                                     }
-                                }) == 0) {
+                                });
+                        if (ShouldInjectFailure("launcher_lnk1248")) {
+                            link_rc = 1;
+                            log = QStringLiteral("LINK : fatal error LNK1248: image size "
+                                                 "(injected) exceeds maximum allowable size");
+                        } else if (ShouldInjectFailure("launcher_link")) {
+                            link_rc = 1;
+                            log = QStringLiteral("LINK : fatal error LNK1104: injected launcher "
+                                                 "link failure");
+                        }
+                        if (link_rc == 0) {
                             ReportStage(ExportStage::Link, 1.0);
                             clang_linked = true;
                             // The prebuild project writes its shared images to bin/.
@@ -5372,8 +5411,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                 LOG_ERROR(Frontend,
                                           "Static launcher exceeds the 2 GB Windows x64 image "
                                           "limit (LNK1248); not retrying with MSVC");
-                                QMessageBox::critical(
-                                    this, tr("Build Failed"),
+                                const QString too_large_text =
                                     tr("The static launcher exceeds the 2 GB Windows x64 "
                                        "image size limit (LNK1248), so it cannot be linked.\n\n"
                                        "Recompiling the modules with MSVC takes many hours and "
@@ -5385,7 +5423,14 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                        "Linker output: %1")
                                         .arg(saved_log.isEmpty()
                                                  ? tr("see the suyu log")
-                                                 : QDir::toNativeSeparators(saved_log)));
+                                                 : QDir::toNativeSeparators(saved_log));
+                                if (test_driven_export) {
+                                    // No one answers a dialog in an automated run.
+                                    reject_export(too_large_text);
+                                } else {
+                                    QMessageBox::critical(this, tr("Build Failed"),
+                                                          too_large_text);
+                                }
                                 return {};
                             }
                             fallback(QStringLiteral("the launcher did not link"));
