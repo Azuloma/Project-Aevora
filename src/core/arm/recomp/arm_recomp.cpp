@@ -1680,6 +1680,10 @@ struct ArmRecomp::Impl {
     std::atomic<bool> interrupted{false};
     Loader::AppLoader::Modules modules{};
     bool modules_read{false};
+    // Whether the "pre-relocation modules" log line was written. Cores of a bound process
+    // share one flag (BindRecompProcess), so the line appears once per process and is tied to
+    // that process's lifetime; an unbound legacy Impl keeps its own.
+    std::shared_ptr<std::atomic_bool> prerelocation_logged{std::make_shared<std::atomic_bool>(false)};
     bool rela_applied{false};
     bool explicitly_prepared{false};
     /// Every exclusive/counter bridge callback is installed (CheckBridgeComplete).
@@ -1784,6 +1788,15 @@ bool PrepareRecompProcess(Kernel::KProcess& process, const RecompModules& module
     return true;
 }
 
+// "name@base" for each module in load (base address) order, for the inventory log lines.
+static std::string DescribeModuleInventory(const RecompModules& modules) {
+    std::string text;
+    for (const auto& [base, name] : modules) {
+        text += fmt::format("{}{}@{:#x}", text.empty() ? "" : " ", name, base);
+    }
+    return text;
+}
+
 bool BindRecompProcess(Kernel::KProcess& process, const RecompModules& inventory) {
     const auto bind = g_recomp_bind.load(std::memory_order_acquire);
     if (!bind) return true;
@@ -1813,12 +1826,17 @@ bool BindRecompProcess(Kernel::KProcess& process, const RecompModules& inventory
         }
     }
     if (!bind(inventory)) return false;
-    for (auto* cpu : cpus) {
+    const std::string inventory_text = DescribeModuleInventory(inventory);
+    const auto process_prerelocation_logged = std::make_shared<std::atomic_bool>(false);
+    for (size_t i = 0; i < Hardware::NUM_CPU_CORES; ++i) {
+        cpus[i]->impl->prerelocation_logged = process_prerelocation_logged;
         // rela_applied and explicitly_prepared stay false: the host pre-relocation
         // still runs, and it must see the full canonical inventory (including a
         // module whose embedded path FindModules cannot read).
-        cpu->impl->modules = inventory;
-        cpu->impl->modules_read = true;
+        cpus[i]->impl->modules = inventory;
+        cpus[i]->impl->modules_read = true;
+        // Greppable by tests that check which inventory a process was bound to.
+        LOG_INFO(Core_ARM, "recomp: bound inventory core {}: {}", i, inventory_text);
     }
     g_counters.RecordModules(inventory);
     return true;
@@ -1978,6 +1996,13 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         std::scoped_lock lock{g_process_init_lock};
         if (!impl->rela_applied) {
             impl->ModuleBaseFor(thread, impl->ctx.pc);
+            // Every core of a bound process relocates the same shared guest memory from the
+            // same map, so the module list is logged once per process (the flag is shared by
+            // its cores and dies with it), not once per core.
+            if (!impl->prerelocation_logged->exchange(true)) {
+                LOG_INFO(Core_ARM, "recomp: pre-relocation modules: {}",
+                         DescribeModuleInventory(impl->modules));
+            }
             impl->ApplyAllRelocations(impl->modules);
             impl->rela_applied = true;
         }

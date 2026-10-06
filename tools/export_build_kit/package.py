@@ -246,6 +246,9 @@ def build_kit(build, staging, manifest, compiler_version, producer_revision, pol
         emit(mode + '.cmake', content + '\n')
     emit('CMakeLists.txt', Path(__file__).with_name('CMakeLists.txt'))
     emit('src/suyu_cmd/recomp_modules/CMakeLists.txt', SOURCE_ROOT / 'src/suyu_cmd/recomp_modules/CMakeLists.txt')
+    # recomp_modules/CMakeLists.txt includes this helper from its own directory.
+    emit('src/suyu_cmd/recomp_modules/RecompDllTarget.cmake',
+         SOURCE_ROOT / 'src/suyu_cmd/recomp_modules/RecompDllTarget.cmake')
     emit('revision.txt', REVISION + '\n')
     files = {relative: hashlib.sha256((staging / relative).read_bytes()).hexdigest() for relative in sorted(written)}
     document = {

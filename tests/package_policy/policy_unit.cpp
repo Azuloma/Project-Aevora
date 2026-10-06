@@ -387,6 +387,47 @@ void TestValidation(const fs::path& root) {
     CHECK(RemoveStaging(*source, &error));
 }
 
+// A split export's module DLLs: listed ones are required and accepted, everything
+// else stays rejected.
+void TestModuleDlls(const fs::path& root) {
+    const std::string title = "0100000000010000";
+    const std::string module_dll = "recompiled_image.dll";
+    std::string error;
+    auto staging = CreateStaging(root / "out-module-dll", &error);
+    CHECK(staging.has_value());
+    const fs::path pkg = MakePackage(*staging, title);
+    auto expect = Expect(title);
+    expect.module_dlls = {module_dll};
+
+    // Listed but not in the package.
+    CHECK(HasRule(ValidateLocalExport(pkg, expect), module_dll, "module-dll-missing"));
+    // Listed and present.
+    Write(pkg / module_dll, "MZ module");
+    CHECK(ValidateLocalExport(pkg, expect).empty());
+    // The case of the file name does not matter on Windows.
+    expect.module_dlls = {"Recompiled_Image.DLL"};
+    CHECK(ValidateLocalExport(pkg, expect).empty());
+    expect.module_dlls = {module_dll};
+    // Present but empty.
+    Write(pkg / module_dll, "");
+    CHECK(HasRule(ValidateLocalExport(pkg, expect), module_dll, "module-dll-empty"));
+    Write(pkg / module_dll, "MZ module");
+    // Not listed: an extra module DLL, and the same DLL without any expectation.
+    Write(pkg / "recompiled_sdk.dll", "MZ extra");
+    CHECK(HasRule(ValidateLocalExport(pkg, expect), "recompiled_sdk.dll", "unexpected"));
+    fs::remove(pkg / "recompiled_sdk.dll");
+    CHECK(HasRule(ValidateLocalExport(pkg, Expect(title)), module_dll, "unexpected"));
+    // Not at the package root.
+    expect.module_dlls = {"sub/" + module_dll};
+    CHECK(HasRule(ValidateLocalExport(pkg, expect), "sub/" + module_dll, "module-dll-name"));
+    // A name shared with a runtime DLL or the launcher is reported, not merged.
+    expect.module_dlls = {"avcodec-61.dll"};
+    CHECK(HasRule(ValidateLocalExport(pkg, expect), "avcodec-61.dll", "module-dll-collision"));
+    expect.module_dlls = {"Game.exe"};
+    CHECK(HasRule(ValidateLocalExport(pkg, expect), "Game.exe", "module-dll-collision"));
+    CHECK(RemoveStaging(*staging, &error));
+}
+
 void TestPortable(const fs::path& root) {
     const std::string title = "0100000000010000";
     std::string error;
@@ -584,6 +625,7 @@ int main(int argc, char** argv) {
     TestLinks(root);
     TestCopy(root);
     TestValidation(root);
+    TestModuleDlls(root);
     TestPortable(root);
     TestPromotion(root);
     TestSettings();

@@ -1,8 +1,22 @@
-# Aevora - Pokemon Legends: Arceus Recompiled
+# Aevora
 
-Aevora is an experimental project aiming to statically recompile **Pokemon Legends: Arceus**, the first entry in the Pokemon Legends series, for PC. It is based on **Suyu v0.0.12** and developed with the assistance of AI.
-
-As of October 5, 2026, the source build works on its original target, Windows x64. The JIT pass runs PLA at 30 FPS in the observation scene, and the v0.0.1-dev8 static AOT export with guest CPU fallback disabled achieved approximately 25-30 FPS in gameplay with zero JIT transitions in the overworld scene. We will not be releasing the release or build artifacts as we feel they are insufficient at this stage of development. The dev build is available, but it still has many rough edges.
+<p align="center">
+  <img src="https://github.com/Azuloma/Aevora/tree/main/Assets/icon-rounded.png" />
+<p>
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-1e90ff?logo=apple" alt="Platform">
+  <img src="https://img.shields.io/badge/Recomp%20type-Static%20AoT-ff6347" alt="Recomp type">
+  <img src="https://img.shields.io/badge/License-GPL%203.0%20(v3)-808080" alt="License">
+<p>
+<p align="center">
+  <strong>An experimental static recompiled version of "Pokémon Legends: Arceus," the landmark first game in the Pokémon Legends series.</strong><br>
+  We plan to add various features in the future, such as quality of life improvements and modding capabilities.
+<p>
+<p align="center">
+  <a href="#Development Approach">Development Approach</a> |
+  <a href="#Planned Features">Planned Features</a> |
+  <a href="#License">License</a>
+<p>
 
 ## Development Approach
 

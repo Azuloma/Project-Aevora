@@ -10,6 +10,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <map>
 #include <random>
 #include <regex>
 #include <set>
@@ -1090,7 +1091,23 @@ std::vector<Finding> ValidateLocalExport(const fs::path& root,
     for (const auto& dll : expect.runtime_dlls) {
         dlls.insert(NormalizeName(dll));
     }
+    // Recompiled module images of a split export: required beside the launcher.
+    // A name that is also a runtime DLL or the launcher cannot be told apart from
+    // it, so such an expectation is reported instead of silently accepted.
+    std::set<std::string> module_dlls;
+    std::map<std::string, std::uintmax_t> module_dll_sizes; // lower-cased name -> size, if found
     const std::string launcher = NormalizeName(expect.package_name + ".exe");
+    for (const auto& dll : expect.module_dlls) {
+        const std::string name = NormalizeName(dll);
+        if (name.empty() || name.find_first_of("/\\:") != std::string::npos) {
+            findings.push_back({dll, "module-dll-name", "a module DLL must be a plain file name"});
+        } else if (dlls.count(name) || name == launcher) {
+            findings.push_back({dll, "module-dll-collision",
+                                "the module DLL name is also a runtime DLL or the launcher"});
+        } else {
+            module_dlls.insert(name);
+        }
+    }
     const std::regex hex16{R"([0-9a-f]{16})"};
     const std::regex hex32{R"([0-9a-f]{32})"};
 
@@ -1166,7 +1183,8 @@ std::vector<Finding> ValidateLocalExport(const fs::path& root,
             }
             if (expect.platform == Platform::Windows) {
                 return name == launcher || name == "launch.bat" || name == "game_source.txt" ||
-                       name == "aot_manifest.json" || name == "discord.ini" || dlls.count(name);
+                       name == "aot_manifest.json" || name == "discord.ini" || dlls.count(name) ||
+                       module_dlls.count(name);
             }
             return false;
         }
@@ -1247,12 +1265,28 @@ std::vector<Finding> ValidateLocalExport(const fs::path& root,
             findings.push_back({relative, "game-container", "game containers are never packaged"});
             continue;
         }
+        if (module_dlls.count(lower)) {
+            std::error_code size_ec;
+            const auto size = fs::file_size(path, size_ec);
+            module_dll_sizes[lower] = size_ec ? 0 : size;
+        }
         if (auto finding = CheckFileContent(path, relative, signature)) {
             findings.push_back(std::move(*finding));
         }
     }
     if (ec) {
         findings.push_back({".", "unreadable", "the package could not be listed: " + ec.message()});
+    }
+    if (expect.platform == Platform::Windows) {
+        for (const auto& name : module_dlls) {
+            const auto found = module_dll_sizes.find(name);
+            if (found == module_dll_sizes.end()) {
+                findings.push_back({name, "module-dll-missing",
+                                    "the split export's module DLL is not in the package"});
+            } else if (found->second == 0) {
+                findings.push_back({name, "module-dll-empty", "the module DLL is empty"});
+            }
+        }
     }
     if (portable && (!has_base || !has_seal)) {
         findings.push_back({std::string{kPortableGameDir}, "portable-incomplete",

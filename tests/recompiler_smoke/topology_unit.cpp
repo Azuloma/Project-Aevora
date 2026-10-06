@@ -6,11 +6,15 @@
 // every validation failure.
 #include <algorithm>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "core/recompiler/pe_image_size.h"
 #include "core/recompiler/recomp_topology.h"
 
 namespace R = suyu::recomp;
@@ -53,6 +57,15 @@ int Naming() {
 }
 
 int LoadOrder() {
+    // The loader's canonical list is the source of the load order; pin its content so a
+    // change to it is a deliberate one (the NSO load order is part of the registry layout).
+    const std::vector<std::string> canonical(Loader::kNsoModuleNames.begin(),
+                                             Loader::kNsoModuleNames.end());
+    CHECK((canonical == std::vector<std::string>{"rtld", "main", "subsdk0", "subsdk1", "subsdk2",
+                                                 "subsdk3", "subsdk4", "subsdk5", "subsdk6",
+                                                 "subsdk7", "subsdk8", "subsdk9", "sdk"}));
+    CHECK(R::OrderModulesForLoad(canonical) == canonical);
+    CHECK(R::OrderModulesForLoad({canonical.rbegin(), canonical.rend()}) == canonical);
     const std::vector<std::string> shuffled = {"sdk",     "zeta",    "subsdk2", "main", "alpha",
                                                "subsdk0", "subsdk9", "rtld"};
     const std::vector<std::string> expected = {"rtld",    "main", "subsdk0", "subsdk2",
@@ -243,7 +256,159 @@ int TopologyMarker() {
     return 0;
 }
 
+// A minimal PE32+ x64 header with the given SizeOfImage, built byte by byte so the
+// reader is tested against the documented layout and not against its own constants.
+std::vector<std::uint8_t> MakePe(std::uint32_t size_of_image, std::uint16_t machine = 0x8664,
+                                 std::uint16_t optional_magic = 0x20B,
+                                 std::uint32_t e_lfanew = 0x80,
+                                 std::uint16_t declared_optional_size = 0xF0) {
+    std::vector<std::uint8_t> bytes(0x200, 0);
+    const auto put16 = [&](std::size_t at, std::uint16_t v) {
+        bytes[at] = static_cast<std::uint8_t>(v);
+        bytes[at + 1] = static_cast<std::uint8_t>(v >> 8);
+    };
+    const auto put32 = [&](std::size_t at, std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) {
+            bytes[at + i] = static_cast<std::uint8_t>(v >> (8 * i));
+        }
+    };
+    bytes[0] = 'M';
+    bytes[1] = 'Z';
+    put32(0x3C, e_lfanew);
+    const std::size_t pe = 0x80;
+    bytes[pe] = 'P';
+    bytes[pe + 1] = 'E';
+    put16(pe + 4, machine);
+    // COFF SizeOfOptionalHeader (offset 16 in the COFF header, which follows "PE\0\0").
+    put16(pe + 4 + 16, declared_optional_size);
+    const std::size_t optional_header = pe + 4 + 20;
+    put16(optional_header, optional_magic);
+    put32(optional_header + 56, size_of_image);
+    return bytes;
+}
+
+bool PeFailsNaming(const std::vector<std::uint8_t>& bytes, const std::string& reason) {
+    std::string error;
+    const auto size = R::ParsePeSizeOfImage(bytes, &error);
+    if (size.has_value() || !Contains(error, reason)) {
+        std::fprintf(stderr, "expected PE failure containing '%s', got '%s'\n", reason.c_str(),
+                     error.c_str());
+        return false;
+    }
+    return true;
+}
+
+int PeImageSize() {
+    std::string error;
+    const auto valid = R::ParsePeSizeOfImage(MakePe(0x12345000u), &error);
+    CHECK(valid.has_value() && *valid == 0x12345000u);
+    const auto over_limit = R::ParsePeSizeOfImage(MakePe(0x90000000u), &error);
+    CHECK(over_limit.has_value() && *over_limit > R::kPeImageLimitBytes);
+    CHECK(R::kPeImageLimitBytes == 0x80000000ull);
+
+    auto truncated = MakePe(0x1000);
+    truncated.resize(0x80 + 4 + 20 + 40); // ends inside the optional header
+    CHECK(PeFailsNaming(truncated, "outside the file"));
+    CHECK(PeFailsNaming({}, "MZ"));
+    CHECK(PeFailsNaming({'M', 'Z', 0, 0}, "MZ"));
+    auto bad_mz = MakePe(0x1000);
+    bad_mz[0] = 'X';
+    CHECK(PeFailsNaming(bad_mz, "MZ"));
+    CHECK(PeFailsNaming(MakePe(0x1000, 0x8664, 0x20B, 0x7FFFFFF0u), "e_lfanew"));
+    CHECK(PeFailsNaming(MakePe(0x1000, 0x8664, 0x20B, 0x10), "e_lfanew"));
+    auto bad_signature = MakePe(0x1000);
+    bad_signature[0x80 + 2] = 1;
+    CHECK(PeFailsNaming(bad_signature, "signature"));
+    CHECK(PeFailsNaming(MakePe(0x1000, 0x014C), "x64"));
+    CHECK(PeFailsNaming(MakePe(0x1000, 0x8664, 0x10B), "PE32+"));
+    // A declared optional header too short for SizeOfImage, even though the bytes follow.
+    CHECK(PeFailsNaming(MakePe(0x1000, 0x8664, 0x20B, 0x80, 0), "too short"));
+    CHECK(PeFailsNaming(MakePe(0x1000, 0x8664, 0x20B, 0x80, 0x38), "too short"));
+    CHECK(R::ParsePeSizeOfImage(MakePe(0x1000, 0x8664, 0x20B, 0x80, 0x3C), &error).has_value());
+    CHECK(PeFailsNaming(MakePe(0), "zero"));
+    // A buffer that ends exactly after SizeOfImage while the COFF header declares a longer
+    // optional header is truncated; one that holds the whole declared header is accepted.
+    {
+        constexpr std::size_t kThroughSizeOfImage = 0x80 + 4 + 20 + 56 + 4;
+        auto cut = MakePe(0x1000, 0x8664, 0x20B, 0x80, 0xF0);
+        cut.resize(kThroughSizeOfImage);
+        CHECK(PeFailsNaming(cut, "extends past the end"));
+        auto whole = MakePe(0x1000, 0x8664, 0x20B, 0x80, 0xF0);
+        whole.resize(0x80 + 4 + 20 + 0xF0);
+        CHECK(R::ParsePeSizeOfImage(whole, &error).has_value());
+    }
+
+    // The file reader reads at the validated e_lfanew, also beyond the first 4 KiB, and names
+    // its supported limit instead of calling a far header "outside the file".
+    const auto write_pe_file = [](const std::vector<std::uint8_t>& bytes) {
+        const auto path = std::filesystem::temp_directory_path() / "aevora_pe_unit.bin";
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char*>(bytes.data()),
+                   static_cast<std::streamsize>(bytes.size()));
+        return path;
+    };
+    {
+        auto far_header = MakePe(0x5000, 0x8664, 0x20B, 0x80);
+        // Move the PE header to 0x2000 and point e_lfanew at it.
+        std::vector<std::uint8_t> bytes(0x2000, 0);
+        bytes.insert(bytes.end(), far_header.begin() + 0x80, far_header.end());
+        std::copy(far_header.begin(), far_header.begin() + 0x40, bytes.begin());
+        bytes[0x3C] = 0x00;
+        bytes[0x3D] = 0x20;
+        const auto path = write_pe_file(bytes);
+        const auto size = R::ReadPeSizeOfImage(path, &error);
+        CHECK(size.has_value() && *size == 0x5000);
+        auto too_far = bytes;
+        too_far[0x3D] = 0x00;
+        too_far[0x3E] = 0x20; // e_lfanew 0x200000, past kPeMaxHeaderOffsetBytes
+        const auto far_path = write_pe_file(too_far);
+        CHECK(!R::ReadPeSizeOfImage(far_path, &error).has_value());
+        CHECK(Contains(error, "supported limit"));
+        std::filesystem::remove(far_path);
+    }
+    {
+        // File ending exactly after SizeOfImage with a longer declaration: refused; the same
+        // file with the whole declared header present: accepted.
+        auto bytes = MakePe(0x7000, 0x8664, 0x20B, 0x80, 0xF0);
+        bytes.resize(0x80 + 4 + 20 + 56 + 4);
+        const auto cut_path = write_pe_file(bytes);
+        CHECK(!R::ReadPeSizeOfImage(cut_path, &error).has_value());
+        CHECK(Contains(error, "extends past the end"));
+        bytes = MakePe(0x7000, 0x8664, 0x20B, 0x80, 0xF0);
+        bytes.resize(0x80 + 4 + 20 + 0xF0);
+        const auto whole_path = write_pe_file(bytes);
+        const auto size = R::ReadPeSizeOfImage(whole_path, &error);
+        CHECK(size.has_value() && *size == 0x7000);
+        // A short declaration is reported as such by the file reader too.
+        bytes = MakePe(0x7000, 0x8664, 0x20B, 0x80, 0x38);
+        CHECK(!R::ReadPeSizeOfImage(write_pe_file(bytes), &error).has_value());
+        CHECK(Contains(error, "too short"));
+        std::filesystem::remove(whole_path);
+    }
+    CHECK(!R::ReadPeSizeOfImage(std::filesystem::temp_directory_path() / "aevora_no_such_pe", &error)
+               .has_value());
+    return 0;
+}
+
 } // namespace
+
+// Prints SizeOfImage of a PE file with the production reader, for tests that
+// inspect a real linked image:
+//   smoke_topology_unit --pe-size-of-image <file>
+int PeSizeOfImageMode(int argc, char** argv) {
+    if (argc != 3) {
+        std::fprintf(stderr, "usage: --pe-size-of-image <file>\n");
+        return 2;
+    }
+    std::string error;
+    const auto size = R::ReadPeSizeOfImage(argv[2], &error);
+    if (!size) {
+        std::fprintf(stderr, "%s: %s\n", argv[2], error.c_str());
+        return 2;
+    }
+    std::printf("%llu\n", static_cast<unsigned long long>(*size));
+    return 0;
+}
 
 // Writes recomp_registration.c (registry v1) with the production writer:
 //   smoke_topology_unit --write-registry-v1 <out.c> <bundle hex> <abi> <features> <fastmem 0|1>
@@ -344,6 +509,9 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "--write-registry-v1") {
         return WriteRegistryV1Mode(argc, argv);
     }
+    if (argc > 1 && std::string(argv[1]) == "--pe-size-of-image") {
+        return PeSizeOfImageMode(argc, argv);
+    }
     if (int rc = Naming()) return rc;
     if (int rc = LoadOrder()) return rc;
     if (int rc = AllStaticText()) return rc;
@@ -353,6 +521,7 @@ int main(int argc, char** argv) {
     if (int rc = BasenameRule()) return rc;
     if (int rc = RegistryV1Text()) return rc;
     if (int rc = TopologyMarker()) return rc;
+    if (int rc = PeImageSize()) return rc;
     std::puts("topology unit checks passed");
     return 0;
 }

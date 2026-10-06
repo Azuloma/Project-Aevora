@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-06. HEAD: `1d9ba61` (v0.0.1-dev11). Last session handoff: 2026-10-06, eighth session (see [Session handoff](#session-handoff-2026-10-06-eighth-session-complete)).
+Handoff prepared: 2026-10-06. HEAD: `e38f7ad` (v0.0.1-dev12). Last session handoff: 2026-10-06, ninth session (see [Session handoff](#session-handoff-2026-10-06-ninth-session)).
 Older history (2026-10-04 handoff through the fourth session close on 2026-10-05, plus earlier export evidence) is archived in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
@@ -14,7 +14,7 @@ Start with a reproducible Windows x64 build and a correctly running game. Procee
 | Item | Evidence/status |
 |---|---|
 | Source repository | Root contains the Suyu-derived source, build files, dependency metadata, and archived upstream documentation. |
-| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `1d9ba61` (v0.0.1-dev11); the user commits and pushes. |
+| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `e38f7ad` (v0.0.1-dev12); the user commits and pushes. |
 | Configured origin | `https://github.com/Azuloma/Aevora.git`; remote publication was not independently verified during this handoff. |
 | README | English draft describes feasibility status, planned features, support scope, versioning, and the hobby/no-donations policy. |
 | License | Root `LICENSE.txt` is copied unchanged from the archived upstream license; README specifies `GPL-3.0-or-later`. Existing notices are retained. |
@@ -128,7 +128,7 @@ The cleanup already removed upstream automation, temporary material, old screens
 1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3. (done 2026-10-06)
 2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change. (done 2026-10-06)
 3. Prototype measurement before full implementation: from a Source-format export, build the generated `main` module's existing SHARED target with `RECOMP_STATIC_ONLY` off, without and with FMI; measure the DLL image and dependency evidence, then record it. (done 2026-10-06; see progress entry)
-4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode ((a) done 2026-10-06; (b) done 2026-10-06), (c) exporter packaging/manifest/wording, (d) build-kit decision. Code reviewer reviews each step.
+4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode ((a) done 2026-10-06; (b) done 2026-10-06), (c) exporter packaging/manifest/wording (part 1 done 2026-10-06; part 2 pending), (d) build-kit decision. Code reviewer reviews each step.
 5. Tests: extend `tests/recompiler_smoke` with a mixed static+DLL variant (synthetic modules) covering load order, base routing, cross-module dispatch, guard checks, GG1, and FPX; keep existing goldens unchanged for non-split exports; run the fastmem and FPX harnesses.
 6. PLA verification: export static AOT (fallback disabled) without FMI, then with FMI; record per-image sizes, link time, zero JIT transitions, FPS in the same overworld scene, and sampling; compare with dev8 (25-30 FPS) and JIT (30 FPS).
 
@@ -250,6 +250,26 @@ The following criteria are carried from the accepted step 4(b) review and must b
 - **4(c):** Produce a real split export through the exporter and execute a linked v1 launcher with fallback disabled; cover an unreadable-embedded-path middle-module variant while checking every core's complete inventory and relocation input; exercise Core load refusals with named diagnostics and zero guest execution; verify lookup-removal unregister and fresh-process rebinding; wire registry, marker, and targets coherently and run the unchanged all-static v4 regression.
 - **4(d):** Exercise a three-or-more-module static/DLL/static fixture through the production dispatcher with GG1, guard, and FPX checks; cover cross-image reservation in both directions, STXR success/failure, CLREX, LDXP/STXP, and counter continuity; require bridge-null refusal per callback and strict lookup-miss refusal; complete remaining loader/handshake refusals and kit/package/cache/path tests, goldens, fastmem, and reduced/full FPX.
 
+### Step 4(c) part 2 acceptance (from the part 1 reviews)
+
+The part 1 reviews accepted the split wiring as an intermediate step, not as completion of step 4(c). Part 2 must:
+
+- Drive real synthetic split static and Hybrid exports through `tests/export_integration`, run a linked v1 launcher with guest JIT fallback disabled, and inspect the registry, marker, selection, DLL collection, manifests, package hashes, and per-image `SizeOfImage`.
+- Exercise VFS/deconstructed-source failures for `main` and a canonical static module: zero text with data, unreadable text, decompression failure, bad or short NSO header, missing `main`, and all analyses failing; allow ancillary non-NSO files, but refuse an analyzable non-canonical NSO with a named diagnostic.
+- Inject emission, compiler, DLL link, and launcher LNK1248 failures, including clang-to-MSVC retry, and verify split never removes a module or finalizes a failed package; diagnostics must name the module/image, stage, and saved compiler/linker log where applicable.
+- Exercise `SUYU_AOT_SPLIT_MAIN` unset, empty, `0`, `1`, and invalid values across Dynarmic, Hybrid, strict static, non-Windows, Source, and kit-only paths; verify common-entry validation, the per-export snapshot, and re-entry protection.
+- In one dialog, cover successful split followed by option-off JIT/all-static, and failure after DLL collection followed by JIT/all-static retry; verify no stale split record, DLL requirement, bundle id, or identity remains.
+- Verify identical split cache reuse and invalidation for ancillary ExeFS files, omitted/extra bindings, main binding, selection/DLL lists, bundle id, topology disagreement, DLL file/size/hash, and missing DLL; all-static and split caches must not cross-reuse.
+- Cover main-only, all-DLL, and mixed topology from clang prebuilt and in-tree MSVC paths; all-DLL prebuild must create no static runtime and the launcher must import none, while mixed/all-static still require it.
+- Complete the carried runtime checks: unreadable embedded path in a middle canonical module, complete inventory and pre-relocation input on every core, named `Core::Load` refusals with zero guest execution, lookup unregister, fresh-process rebinding, and two application lifetimes with one pre-relocation log per bound process.
+- Verify split completion-dialog wording, unchanged all-static v4 artifacts and `tests/export_regression`, Windows non-ASCII/space/bracket paths, and the PE truncated-header/file regressions.
+
+#### Part 2 planning notes
+
+The part 2 survey found that the MCP harness can drive real exports and isolated launchers but cannot mutate `SUYU_AOT_SPLIT_MAIN` inside one running frontend; use a small per-export seam or separate frontend processes. A valid multi-module fixture can use sparse canonical ExeFS sets with contiguous page-aligned bases in canonical order, but cross-module targets must be seeded as discovery roots and fixed-seed base formulas must be used. `FindModules` drops a loaded module when its embedded path read fails, so the bound canonical inventory must remain independent of that debug-name scan. The smallest two-lifetime seam is a test-only host around independent `Core::System` loads with lookup unregister/rebind, although normal renderer and service dependencies still need verification. Existing named export failure injection covers staging checkpoints, not emission/compiler/link failures; lower-level failures need synthetic toolchain or process-runner injection. The `export_regression` blocker was a Qt-root layout mismatch: resolve the CPM Qt package root rather than the build tree.
+
+These are survey findings to verify during implementation, not completed acceptance evidence.
+
 #### Open questions
 
 1. Resolved by step 3: measured main-DLL `SizeOfImage` is 1,459.1 MiB without FMI and 1,783.7 MiB with FMI, leaving margins of 588.9 MiB and 264.3 MiB to the 2,048 MiB limit, respectively.
@@ -283,6 +303,15 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 **Acceptance:** a clean checkout reproduces the documented software build, release contents match the license/input policy, and support claims match testing evidence. Reaching `v1.0.0` requires an explicitly agreed stable scope.
 
+
+## Session handoff (2026-10-06, ninth session)
+
+### State at handoff
+
+- **Repository:** HEAD is `e38f7ad` (v0.0.1-dev12, committed and pushed at the user's request); uncommitted changes are the v0.0.1-dev13 Milestone 4a step 4(c) part 1 implementation and documentation. The separate uncommitted `README.md` and `Assets/` changes are user work and are not part of this handoff.
+- **Current local state:** Split export wiring is present across the exporter, registry/marker, CMake, cache, package policy, manifest, and launcher paths. No exporter end-to-end run or linked v1 launcher guest execution has been verified.
+- **Open issue 1:** Milestone 4a step 4(c) part 2: execute and complete the acceptance list above, including real synthetic exports, failure/retry/cache coverage, and two-lifetime/runtime checks.
+- **Immediate next action:** Plan and implement part 2 against the acceptance list, starting with the per-export split-option seam and a valid multi-module synthetic ExeFS fixture.
 
 ## Session handoff (2026-10-06, eighth session, complete)
 
@@ -366,6 +395,15 @@ After each meaningful change, add a dated entry with:
 - Next action or blocking information.
 
 Keep raw logs, machine-specific paths, and game-derived artifacts local. Link only to sanitized, shareable evidence from public documentation.
+
+### 2026-10-06: Milestone 4a step 4(c) part 1: split export wiring in exporter, CMake, cache, and package (v0.0.1-dev13)
+
+- **Milestone and revision:** Milestone 4a step 4(c), part 1; base HEAD `e38f7ad` (v0.0.1-dev12); implementation remained uncommitted.
+- **Problem and evidence:** The main-module DLL split needed exporter ownership of the option, bundle identity, canonical topology, cache/package records, and linked launcher/CMake handling. `SUYU_AOT_SPLIT_MAIN` is resolved once per export; split mode emits registry v1 and its marker, binds every canonical module, collects and verifies DLLs, and records per-image PE `SizeOfImage`; all-static v4 remains unchanged.
+- **Files changed and reasons:** `src/suyu/game_export.cpp` adds split validation, bundle-id/cache/manifest/package wiring, image-size diagnostics, and completion wording; `src/core/recompiler/pe_image_size.h` adds a validated PE32+ reader; `src/core/loader/nso_module_names.h` centralizes the canonical list; `src/suyu_cmd/CMakeLists.txt` and `src/suyu_cmd/recomp_modules/RecompDllTarget.cmake` implement v1 in-tree/prebuild DLL handling; `src/common/package_policy.*` records required module DLLs; `src/core/arm/recomp/arm_recomp.cpp` adds bound-inventory and process-scoped pre-relocation diagnostics; packaging and test files cover the corresponding checks.
+- **Commands/settings:** Smoke (including PE/canonical-list units, 21 bundle cases, and all-DLL prebuild), fastmem, reduced FPX, package-policy, export-build-kit, host `suyu`/`suyu-cmd` build with export variables cleared, and split/all-static in-tree/prebuilt configure/link checks were run under Build Tools 2026 `vcvars64`; exact local logs remain outside the repository.
+- **Result and untested behavior:** Smoke, fastmem, reduced FPX, package policy, kit tests, host build, and configure/link checks passed. Exporter end-to-end execution, linked v1 launcher guest execution, loader behavior against a game, and `export_regression` remain unverified; part 2 acceptance is still open.
+- **Next action:** Plan and implement Milestone 4a step 4(c) part 2 from the acceptance list above.
 
 ### 2026-10-06: Milestone 4a step 4(b): registry v1, bundle loading, and inventory binding (v0.0.1-dev12)
 

@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/loader/nso_module_names.h"
 #include "recomp_image_identity.h"
 
 namespace suyu::recomp {
@@ -57,11 +58,11 @@ inline std::string SharedImageFileName(std::string_view module) {
     return SharedImageTargetName(module) + std::string(kSharedImageFileSuffix);
 }
 
-// NSO load order, which is also the index order Core's base setter uses: rtld,
-// main, subsdk0..subsdk9, sdk, then any other module in input order. Modules
+// NSO load order, which is also the index order Core's base setter uses: the loader's
+// canonical module list (core/loader/nso_module_names.h: rtld, main, subsdk0..subsdk9,
+// sdk), then any other module in input order. Modules
 // absent from the input are not invented.
 inline std::vector<std::string> OrderModulesForLoad(const std::vector<std::string>& modules) {
-    constexpr int kSubsdkCount = 10;
     std::vector<std::string> ordered;
     ordered.reserve(modules.size());
     const auto contains = [](const std::vector<std::string>& list, const std::string& name) {
@@ -72,12 +73,10 @@ inline std::vector<std::string> OrderModulesForLoad(const std::vector<std::strin
             ordered.push_back(name);
         }
     };
-    take("rtld");
-    take("main");
-    for (int i = 0; i < kSubsdkCount; ++i) {
-        take("subsdk" + std::to_string(i));
+    // The loader's module list is the load order (rtld, main, subsdk0..9, sdk).
+    for (const char* canonical : Loader::kNsoModuleNames) {
+        take(canonical);
     }
-    take("sdk");
     for (const auto& m : modules) {
         if (!contains(ordered, m)) {
             ordered.push_back(m);

@@ -100,7 +100,9 @@
 #include "core/file_sys/vfs/vfs_real.h"
 #include "core/loader/loader.h"
 #include "core/loader/nso.h"
+#include "core/loader/nso_module_names.h"
 #include "core/recompiler/arm64_to_c.h"
+#include "core/recompiler/pe_image_size.h"
 #include "core/recompiler/recomp_topology.h"
 #include "frontend_common/content_manager.h"
 #include "frontend_common/firmware_manager.h"
@@ -3410,30 +3412,453 @@ void GameExportDialog::OnExportCoverage() {
            "instruction bytes, file paths or module names are included."));
 }
 
+// ---------------------------------------------------------------------------
+// Split export (SUYU_AOT_SPLIT_MAIN): module images beside the launcher
+// ---------------------------------------------------------------------------
+
+// Correctness revision of the generated code: bumped when a generator change makes
+// earlier cached output wrong. aot_manifest.json records it, the cache reuse check
+// compares it, and the bundle id binds it, so all three use this one value.
+static constexpr char kGeneratorCorrectnessRevision[] = "20260927-hybrid-guard-control-units-v3";
+
+static constexpr char kSplitMainEnvironmentVariable[] = "SUYU_AOT_SPLIT_MAIN";
+
+// The module a split export binds as a DLL. Only main is supported: it is the module that
+// does not fit the launcher's 2 GiB image on PLA.
+static constexpr char kSplitDllModuleName[] = "main";
+
+// Reads SUYU_AOT_SPLIT_MAIN once: unset, empty or 0 = off, 1 = bind main as a DLL. Any
+// other value is an error naming the variable and the value.
+static bool ReadSplitMainOption(bool* split_main, QString* error) {
+    const QString value = qEnvironmentVariable(kSplitMainEnvironmentVariable);
+    if (value.isEmpty() || value == QStringLiteral("0")) {
+        *split_main = false;
+        return true;
+    }
+    if (value == QStringLiteral("1")) {
+        *split_main = true;
+        return true;
+    }
+    *error = QStringLiteral("%1 has the value '%2'; it must be unset, 0 or 1.")
+                 .arg(QLatin1String(kSplitMainEnvironmentVariable), value);
+    return false;
+}
+
+// True when the running frontend sits in a configured source build (a CMakeCache.txt up to
+// four levels above it), as opposed to a release that carries only the export build kit.
+static bool ApplicationDirHasSourceBuild() {
+    constexpr int kMaxLevelsAboveApplicationDir = 5;
+    QDir up(QCoreApplication::applicationDirPath());
+    for (int level = 0; level < kMaxLevelsAboveApplicationDir; ++level) {
+        if (QFile::exists(up.absoluteFilePath(QStringLiteral("CMakeCache.txt")))) {
+            return true;
+        }
+        if (!up.cdUp()) {
+            break;
+        }
+    }
+    return false;
+}
+
+// What decides the content of a split export's images, and so its bundle id.
+struct BundleIdInputs {
+    QString source_exefs_sha256;
+    QString effective_backend;
+    bool full_scan{};
+    bool translate_all{};
+    bool fastmem{};
+    bool guard_gen{};
+    bool fpx{};
+    bool fm_inline{};
+    unsigned image_abi{};
+    unsigned image_features{};
+    QString coverage_fingerprint;
+    bool fallback_enabled{};
+    std::vector<std::string> dll_modules;
+};
+
+// The bundle id of a split export: lower-case hex SHA-256 over a versioned, fixed-order text
+// of the inputs above plus the generator revision. The launcher's registry and every module
+// DLL carry it, so a DLL left over from another export is refused at load.
+//
+// The list of modules that fell back to the JIT is deliberately not an input: it is an
+// outcome that can still change after the id is baked into a DLL (a Hybrid retry drops a
+// static module that failed to compile or link), and the registry's module list is checked
+// separately against the process inventory.
+static std::string ComputeBundleId(const BundleIdInputs& inputs) {
+    const auto flag = [](bool value) { return value ? "1" : "0"; };
+    QByteArray text = "aevora-bundle-id-v1\n";
+    const auto add = [&text](const char* key, const QByteArray& value) {
+        text += key;
+        text += '=';
+        text += value;
+        text += '\n';
+    };
+    add("source_hash", inputs.source_exefs_sha256.toUtf8());
+    add("generator_revision", kGeneratorCorrectnessRevision);
+    add("effective_backend", inputs.effective_backend.toUtf8());
+    add("full_scan", flag(inputs.full_scan));
+    add("translate_all", flag(inputs.translate_all));
+    add("fastmem", flag(inputs.fastmem));
+    add("guard_gen", flag(inputs.guard_gen));
+    add("fpx", flag(inputs.fpx));
+    add("fm_inline", flag(inputs.fm_inline));
+    add("image_abi", QByteArray::number(inputs.image_abi));
+    add("image_features", QByteArray::number(inputs.image_features));
+    add("coverage_fingerprint", inputs.coverage_fingerprint.toUtf8());
+    add("fallback_enabled", flag(inputs.fallback_enabled));
+    QByteArray dll_modules;
+    for (const auto& module : inputs.dll_modules) {
+        dll_modules += (dll_modules.isEmpty() ? "" : ",") + QByteArray::fromStdString(module);
+    }
+    add("dll_modules", dll_modules);
+    return QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex().toStdString();
+}
+
+// SHA-256 (lower-case hex) and length of a file.
+static bool HashFileSha256(const QString& path, QString* sha256_hex, qint64* size_bytes) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&file)) {
+        return false;
+    }
+    *sha256_hex = QString::fromLatin1(hash.result().toHex());
+    *size_bytes = file.size();
+    return true;
+}
+
+// Reads the PE SizeOfImage of a linked image and logs it with the margin to the 2 GiB MSVC
+// x64 image limit. On failure returns nullopt with `error` naming the image and the cause;
+// the caller decides whether that is an export error.
+static std::optional<quint64> ReadAndLogImageSize(const QString& image_label, const QString& path,
+                                                  QString* error) {
+    constexpr double kBytesPerMiB = 1024.0 * 1024.0;
+    std::string pe_error;
+    const auto size = suyu::recomp::ReadPeSizeOfImage(ToFsPath(path), &pe_error);
+    if (!size) {
+        *error = QStringLiteral("cannot read the image size of %1 (%2): %3")
+                     .arg(image_label, QDir::toNativeSeparators(path),
+                          QString::fromStdString(pe_error));
+        return std::nullopt;
+    }
+    const double margin_mib =
+        (static_cast<double>(suyu::recomp::kPeImageLimitBytes) - static_cast<double>(*size)) /
+        kBytesPerMiB;
+    LOG_INFO(Frontend,
+             "Image size: {}: SizeOfImage {} bytes ({:.1f} MiB), {:.1f} MiB left below the "
+             "2 GiB limit",
+             image_label.toStdString(), *size, static_cast<double>(*size) / kBytesPerMiB,
+             margin_mib);
+    return static_cast<quint64>(*size);
+}
+
+// Which stage of a DLL target build failed, from its Ninja/MSVC output: a linker error
+// (LNKnnnn) or a failed edge that produces the .dll is the link; anything else is a compile.
+static QString ImageBuildFailureStage(const QString& log) {
+    static const QRegularExpression link_failure(
+        QStringLiteral("LNK\\d{4}|FAILED:[^\\r\\n]*\\.dll"));
+    return log.contains(link_failure) ? QStringLiteral("DLL link")
+                                      : QStringLiteral("module compile");
+}
+
+static QString FindBuiltImage(const QStringList& directories, const QString& file) {
+    for (const auto& directory : directories) {
+        const QString path = directory + QLatin1Char('/') + file;
+        if (QFileInfo(path).isFile()) {
+            return path;
+        }
+    }
+    return {};
+}
+
+static QJsonObject ModuleImageToJson(const ExportModuleImage& image) {
+    return QJsonObject{
+        {QStringLiteral("name"), QString::fromStdString(image.module)},
+        {QStringLiteral("file"), QString::fromStdString(image.file)},
+        {QStringLiteral("size_bytes"), static_cast<qint64>(image.size_bytes)},
+        {QStringLiteral("size_of_image"), static_cast<qint64>(image.size_of_image)},
+        {QStringLiteral("sha256"), image.sha256},
+    };
+}
+
+// The topology as export-package.json records it: NSO load order, each module's binding and,
+// for a DLL, the built file. Written from the export's topology and its recorded images.
+static QJsonArray ModuleTopologyToJson(const SplitExportRecord& record) {
+    QJsonArray entries;
+    for (const auto& entry : record.topology.entries) {
+        const bool is_dll = entry.binding == suyu::recomp::RecompModuleBinding::Dll;
+        QJsonObject object{
+            {QStringLiteral("name"), QString::fromStdString(entry.name)},
+            {QStringLiteral("binding"), is_dll ? QStringLiteral("dll") : QStringLiteral("static")},
+        };
+        if (is_dll) {
+            const auto image = std::find_if(
+                record.images.begin(), record.images.end(),
+                [&](const ExportModuleImage& candidate) { return candidate.module == entry.name; });
+            if (image != record.images.end()) {
+                object = ModuleImageToJson(*image);
+                object[QStringLiteral("binding")] = QStringLiteral("dll");
+            }
+        }
+        entries.append(object);
+    }
+    return entries;
+}
+
+// Checks a cached split export against the manifest. On success returns the record rebuilt
+// from the manifest; otherwise nullopt with `mismatch` naming the item that differs. The
+// recorded DLLs must still be in `launcher_dir` with the recorded size and SHA-256.
+static std::optional<SplitExportRecord> ReadCachedSplitExport(
+    const QJsonObject& manifest, const std::string& expected_bundle_id,
+    const std::vector<std::string>& source_modules, const QString& selection_path,
+    const QString& launcher_dir, QString* mismatch) {
+    namespace R = suyu::recomp;
+    const auto fail = [mismatch](const QString& item) {
+        *mismatch = item;
+        return std::optional<SplitExportRecord>{};
+    };
+    if (manifest.value(QStringLiteral("topology_version")).toInt(-1) !=
+        static_cast<int>(R::kRecompTopologyVersion)) {
+        return fail(QStringLiteral("topology_version"));
+    }
+    if (manifest.value(QStringLiteral("bundle_id")).toString().toStdString() !=
+        expected_bundle_id) {
+        return fail(QStringLiteral("bundle_id"));
+    }
+    const auto bindings = manifest.value(QStringLiteral("module_bindings"));
+    if (!bindings.isObject()) {
+        return fail(QStringLiteral("module_bindings"));
+    }
+    // Only main is DLL-bound by this exporter; any other recorded binding is a different export.
+    R::RecompTopologyRequest request;
+    request.dll_modules = {kSplitDllModuleName};
+    request.bundle_id_hex = expected_bundle_id;
+    bool has_dll_module = false;
+    const QJsonObject binding_object = bindings.toObject();
+    for (auto it = binding_object.begin(); it != binding_object.end(); ++it) {
+        const std::string name = it.key().toStdString();
+        const QString binding = it.value().toString();
+        const bool is_dll_module = name == kSplitDllModuleName;
+        if (binding != (is_dll_module ? QStringLiteral("dll") : QStringLiteral("static"))) {
+            return fail(QStringLiteral("module_bindings.%1").arg(it.key()));
+        }
+        has_dll_module |= is_dll_module;
+        request.modules.push_back(name);
+    }
+    if (!has_dll_module) {
+        return fail(QStringLiteral("module_bindings.%1").arg(QLatin1String(kSplitDllModuleName)));
+    }
+    std::string topology_error;
+    auto topology = R::BuildRecompTopology(request, &topology_error);
+    if (!topology) {
+        return fail(QStringLiteral("module_bindings (%1)")
+                        .arg(QString::fromStdString(topology_error)));
+    }
+
+    // A split cache describes the complete module set of the source: the launcher's registry
+    // must list exactly the loader's inventory. Compare the names with the current source
+    // before trusting any other part of the cache.
+    {
+        std::set<std::string> cached_names(request.modules.begin(), request.modules.end());
+        std::set<std::string> source_names(source_modules.begin(), source_modules.end());
+        for (const auto& name : source_names) {
+            if (!cached_names.count(name)) {
+                return fail(QStringLiteral("module_bindings (source module '%1' is missing)")
+                                .arg(QString::fromStdString(name)));
+            }
+        }
+        for (const auto& name : cached_names) {
+            if (!source_names.count(name)) {
+                return fail(QStringLiteral("module_bindings (cached module '%1' is not in the "
+                                           "source)")
+                                .arg(QString::fromStdString(name)));
+            }
+        }
+    }
+    // The generated selection that produced the cached launcher must say the same: rebuilt
+    // with the one writer from the modules it lists, it has to match the file byte for byte
+    // (modules, DLL list and bundle id), and its topology must equal the manifest's.
+    {
+        QFile selection_file(selection_path);
+        if (!selection_file.open(QIODevice::ReadOnly)) {
+            return fail(QStringLiteral("recomp_modules.cmake (missing or unreadable)"));
+        }
+        // Written in text mode, so Windows line endings must not count as a difference.
+        QString selection_text = QString::fromUtf8(selection_file.readAll());
+        selection_text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        static const QRegularExpression modules_line(
+            QStringLiteral("set\\(SUYU_RECOMP_MODULES([^)]*)\\)"));
+        const auto match = modules_line.match(selection_text);
+        if (!match.hasMatch()) {
+            return fail(QStringLiteral("recomp_modules.cmake (SUYU_RECOMP_MODULES)"));
+        }
+        R::RecompTopologyRequest selection_request;
+        selection_request.dll_modules = {kSplitDllModuleName};
+        selection_request.bundle_id_hex = expected_bundle_id;
+        for (const auto& name :
+             match.captured(1).split(QRegularExpression(QStringLiteral("\\s+")),
+                                     Qt::SkipEmptyParts)) {
+            selection_request.modules.push_back(name.toStdString());
+        }
+        std::string selection_error;
+        const auto selection_topology = R::BuildRecompTopology(selection_request, &selection_error);
+        if (!selection_topology) {
+            return fail(QStringLiteral("recomp_modules.cmake (%1)")
+                            .arg(QString::fromStdString(selection_error)));
+        }
+        if (selection_text.toStdString() != R::WriteRecompModulesCMake(*selection_topology)) {
+            return fail(QStringLiteral("recomp_modules.cmake (DLL modules or bundle id)"));
+        }
+        const auto same_entries = [](const R::RecompTopologyEntry& a,
+                                     const R::RecompTopologyEntry& b) {
+            return a.name == b.name && a.binding == b.binding && a.dll_file == b.dll_file;
+        };
+        if (!std::equal(selection_topology->entries.begin(), selection_topology->entries.end(),
+                        topology->entries.begin(), topology->entries.end(), same_entries)) {
+            return fail(QStringLiteral("recomp_modules.cmake (disagrees with module_bindings)"));
+        }
+    }
+
+    SplitExportRecord record;
+    record.topology = std::move(*topology);
+    const auto images = manifest.value(QStringLiteral("module_images")).toArray();
+    std::size_t expected_images = 0;
+    for (const auto& entry : record.topology.entries) {
+        if (entry.binding != R::RecompModuleBinding::Dll) {
+            continue;
+        }
+        ++expected_images;
+        const auto found = std::find_if(images.begin(), images.end(), [&](const QJsonValue& v) {
+            return v.toObject().value(QStringLiteral("name")).toString().toStdString() ==
+                   entry.name;
+        });
+        if (found == images.end()) {
+            return fail(QStringLiteral("module_images.%1").arg(QString::fromStdString(entry.name)));
+        }
+        const QJsonObject recorded = found->toObject();
+        ExportModuleImage image;
+        image.module = entry.name;
+        image.file = entry.dll_file;
+        image.size_bytes = recorded.value(QStringLiteral("size_bytes")).toVariant().toLongLong();
+        image.size_of_image =
+            recorded.value(QStringLiteral("size_of_image")).toVariant().toULongLong();
+        image.sha256 = recorded.value(QStringLiteral("sha256")).toString();
+        if (recorded.value(QStringLiteral("file")).toString().toStdString() != image.file) {
+            return fail(QStringLiteral("module_images.%1.file").arg(QString::fromStdString(entry.name)));
+        }
+        QString actual_sha256;
+        qint64 actual_size_bytes = 0;
+        const QString path = launcher_dir + QLatin1Char('/') + QString::fromStdString(image.file);
+        if (!HashFileSha256(path, &actual_sha256, &actual_size_bytes)) {
+            return fail(QStringLiteral("%1 (missing or unreadable)")
+                            .arg(QDir::toNativeSeparators(path)));
+        }
+        if (actual_size_bytes != image.size_bytes) {
+            return fail(QStringLiteral("%1 size").arg(QDir::toNativeSeparators(path)));
+        }
+        if (actual_sha256 != image.sha256 || image.size_of_image == 0) {
+            return fail(QStringLiteral("%1 sha256").arg(QDir::toNativeSeparators(path)));
+        }
+        record.images.push_back(std::move(image));
+    }
+    if (images.size() != static_cast<qsizetype>(expected_images)) {
+        return fail(QStringLiteral("module_images (count)"));
+    }
+    if (manifest.contains(QStringLiteral("launcher_size_of_image"))) {
+        record.launcher_size_of_image =
+            manifest.value(QStringLiteral("launcher_size_of_image")).toVariant().toULongLong();
+    }
+    return record;
+}
+
+// Reports a refused or stopped export: always in the log, and in a dialog unless an
+// automated run drives the export.
+static void ReportExportRejection(QWidget* parent, bool test_driven, const QString& message) {
+    LOG_ERROR(Frontend, "Export stopped: {}", message.toStdString());
+    if (!test_driven) {
+        QMessageBox::critical(parent, GameExportDialog::tr("Unsupported Export Settings"),
+                              message);
+    }
+}
+
+bool GameExportDialog::ResolveSplitMainOption(RecompileBackend backend, bool* split_main) {
+    QString option_error;
+    if (!ReadSplitMainOption(split_main, &option_error)) {
+        ReportExportRejection(this, test_driven_export, option_error);
+        return false;
+    }
+    if (!*split_main) {
+        return true;
+    }
+    const QString variable = QLatin1String(kSplitMainEnvironmentVariable);
+    QString refusal;
+    if (platform_combo->currentData().toInt() != static_cast<int>(TargetPlatform::Windows)) {
+        refusal = tr("%1 needs a Windows target: module DLLs are a Windows-only feature.")
+                      .arg(variable);
+    } else if (backend == RecompileBackend::Dynarmic) {
+        refusal = tr("%1 needs a recompiled export (suyu static AOT or Hybrid), not the JIT "
+                     "baseline.")
+                      .arg(variable);
+    } else if (!WantsCompiledOutput()) {
+        refusal = tr("%1 needs the Build export format: Source output has no launcher or module "
+                     "DLL.")
+                      .arg(variable);
+    } else if (!ApplicationDirHasSourceBuild()) {
+        refusal = tr("%1 requires a source build: the release export kit cannot build module "
+                     "DLLs.")
+                      .arg(variable);
+    }
+    if (!refusal.isEmpty()) {
+        ReportExportRejection(this, test_driven_export, refusal);
+        return false;
+    }
+    return true;
+}
+
+// Names of the canonical modules present in the source ExeFS: the loader's inventory, which a
+// split bundle must match exactly. Empty when the source has none.
+static std::vector<std::string> ListSourceModuleNames(const FileSys::VirtualDir& source_exefs,
+                                                      const QString& exefs_dir) {
+    // Only the loader's canonical module names count (core/loader/nso_module_names.h): the
+    // loader probes exactly these files, so any other ExeFS file (main.npdm, metadata, ...)
+    // is not part of the module topology, though it stays in the source fingerprint.
+    std::vector<std::string> names;
+    for (const char* name : Loader::kNsoModuleNames) {
+        const bool present = source_exefs
+                                 ? source_exefs->GetFile(name) != nullptr
+                                 : QFileInfo(exefs_dir + QLatin1Char('/') + QLatin1String(name))
+                                       .isFile();
+        if (present) {
+            names.push_back(name);
+        }
+    }
+    return names;
+}
+
 QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                            const QString& cache_dir,
                                            RecompileBackend backend,
-                                           const QString& game_name) {
+                                           const QString& game_name, bool split_main,
+                                           std::optional<SplitExportRecord>& last_split_export) {
     const QString manifest_path = cache_dir + QDir::separator() + QStringLiteral("aot_manifest.json");
     last_recomp_compiler.clear();
+    last_split_export.reset();
+
+    // Stops a split export before anything further is built (OnExport already validated the
+    // option and the export type; these are the stops that only generation can find).
+    const auto reject_export = [this](const QString& message) {
+        ReportExportRejection(this, test_driven_export, message);
+    };
     if (WantsCompiledOutput() &&
         QFile::exists(QCoreApplication::applicationDirPath() +
                       QStringLiteral("/export-build-kit/revision.txt")) &&
         (qEnvironmentVariable("SUYU_AOT_FASTMEM") == QStringLiteral("0") ||
          qEnvironmentVariable("SUYU_AOT_GUARD_GEN") == QStringLiteral("0") ||
          qEnvironmentVariable("SUYU_AOT_FPX") == QStringLiteral("0"))) {
-        bool has_source_build = false;
-        QDir up(QCoreApplication::applicationDirPath());
-        for (int level = 0; level < 5; ++level) {
-            if (QFile::exists(up.absoluteFilePath(QStringLiteral("CMakeCache.txt")))) {
-                has_source_build = true;
-                break;
-            }
-            if (!up.cdUp()) {
-                break;
-            }
-        }
-        if (!has_source_build) {
+        if (!ApplicationDirHasSourceBuild()) {
             QMessageBox::critical(
                 this, tr("Unsupported Export Settings"),
                 tr("The release export kit needs the default AOT features. Remove the "
@@ -3514,6 +3939,9 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                (suyu::recomp::EmitGuardGen() ? Core::RecompImageFeature::GuardGen1 : 0u) |
                (suyu::recomp::g_emit_fpx ? Core::RecompImageFeature::ExactFpX1 : 0u))
             : 0u;
+    // Set explicitly in both directions: the globals outlive an export, so a split export
+    // must not leave identity code in the next all-static one.
+    suyu::recomp::g_emit_image_identity = split_main;
     const QString debug_root = cache_dir + QDir::separator() + QStringLiteral("debug");
     const QString blockmap_dir = debug_root + QDir::separator() + QStringLiteral("blockmaps");
     const QString code_dir = debug_root + QDir::separator() + QStringLiteral("code");
@@ -3555,6 +3983,23 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     const QString coverage_fingerprint =
         QString::fromStdString(Core::RecompGaps::Fingerprint(recorded_gaps));
 
+    // The export's module bindings and bundle id, decided once. Every consumer (generated
+    // CMake, registry, cache manifest, package files, export-package.json, package check)
+    // is written from the topology built from them, never from a second copy.
+    std::vector<std::string> dll_modules;
+    std::string bundle_id_hex;
+    if (split_main) {
+        dll_modules.push_back(kSplitDllModuleName);
+        bundle_id_hex = ComputeBundleId(BundleIdInputs{
+            source_hash, effective_backend_name, full_scan, translate_all,
+            suyu::recomp::g_emit_fastmem, suyu::recomp::EmitGuardGen(), suyu::recomp::g_emit_fpx,
+            fm_inline, suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
+            coverage_fingerprint, fallback_enabled, dll_modules});
+        LOG_INFO(Frontend, "Split export: main is built as a DLL, bundle id {}", bundle_id_hex);
+    }
+    // The topology of the registry as last written (see write_registration below).
+    std::optional<suyu::recomp::RecompTopology> export_topology;
+
     // A completed export is immutable for a given game/output directory and
     // scan mode. Reusing it makes re-opening the export dialog or packaging
     // the same title again effectively instant instead of decompressing every
@@ -3588,7 +4033,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 fm_inline ? contents.contains(QStringLiteral("\"fm_inline\": true,"))
                           : !contents.contains(QStringLiteral("\"fm_inline\": true,"));
             const bool same_correctness_revision = contents.contains(
-                QStringLiteral("\"correctness_revision\": \"20260927-hybrid-guard-control-units-v3\","));
+                QStringLiteral("\"correctness_revision\": \"") +
+                QLatin1String(kGeneratorCorrectnessRevision) + QStringLiteral("\","));
             const bool same_translate_all = contents.contains(
                 QStringLiteral("\"translate_all\": ") +
                 (translate_all ? QStringLiteral("true,") : QStringLiteral("false,")));
@@ -3605,11 +4051,36 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             QStringList cached_fallback_modules;
             const bool same_fallback_policy = ReadCachedFallbackPolicy(
                 manifest_bytes, fallback_enabled, cached_fallback_modules);
+            // The topology fields are parsed, not searched for: a split cache needs the same
+            // bundle id and bindings and its DLLs intact; an all-static export never reuses
+            // a split cache (and a split export never reuses an all-static one).
+            const QJsonObject manifest_object = QJsonDocument::fromJson(manifest_bytes).object();
+            bool same_topology = false;
+            std::optional<SplitExportRecord> cached_split;
+            if (split_main) {
+                QString mismatch;
+                cached_split = ReadCachedSplitExport(
+                    manifest_object, bundle_id_hex,
+                    ListSourceModuleNames(source_exefs, exefs_dir),
+                    cache_dir + QStringLiteral("/exefs/recomp_modules.cmake"),
+                    cache_dir + QDir::separator() + QStringLiteral("launcher"), &mismatch);
+                same_topology = cached_split.has_value();
+                if (!same_topology) {
+                    LOG_INFO(Frontend, "AOT cache not reused: split export mismatch in {}",
+                             mismatch.toStdString());
+                }
+            } else {
+                same_topology = !manifest_object.contains(QStringLiteral("bundle_id"));
+                if (!same_topology) {
+                    LOG_INFO(Frontend, "AOT cache not reused: it is a split export (bundle_id)");
+                }
+            }
             if (same_scan && same_backend && same_image_abi && same_image_features &&
                 same_fm_inline && same_correctness_revision && same_coverage &&
-                same_translate_all && same_source && same_fallback_policy &&
+                same_translate_all && same_source && same_fallback_policy && same_topology &&
                 has_recompiled_project && has_required_launcher) {
                 last_fallback_modules = std::move(cached_fallback_modules);
+                last_split_export = std::move(cached_split);
                 LOG_INFO(Frontend, "Reusing completed AOT cache at {}", cache_dir.toStdString());
                 return cache_dir;
             }
@@ -3745,8 +4216,49 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         }
     }
 
-    if (module_results.empty()) {
+    if (module_results.empty() && !split_main) {
         return QString();
+    }
+    // Split exports describe the loader's whole module inventory, so every canonical module
+    // of the source must come out of analysis with code. Checked before any module is lifted,
+    // so a title with an unusable module fails here and not after generating gigabytes of C.
+    // (All-static exports keep skipping modules that analysis rejects.)
+    if (split_main) {
+        const auto expected_modules = ListSourceModuleNames(source_exefs, exefs_dir);
+        if (std::find(expected_modules.begin(), expected_modules.end(), kSplitDllModuleName) ==
+            expected_modules.end()) {
+            reject_export(tr("%1 binds module '%2' as a DLL, but this title has no '%2' module.")
+                              .arg(QLatin1String(kSplitMainEnvironmentVariable),
+                                   QLatin1String(kSplitDllModuleName)));
+            return {};
+        }
+        for (const auto& name : expected_modules) {
+            const auto analyzed = std::find_if(
+                module_results.cbegin(), module_results.cend(),
+                [&](const NsoAnalysisResult& mod) { return mod.name.toStdString() == name; });
+            if (analyzed == module_results.cend() || analyzed->text_bytes.empty()) {
+                reject_export(
+                    tr("Module '%1' produced no analysis result with code (stage: module "
+                       "analysis: it is empty, unreadable, has a bad NSO header, or its text "
+                       "could not be decompressed; see the suyu log). A split export (%2) "
+                       "describes every module of the game and never drops one, so the export "
+                       "stopped before lifting any module.")
+                        .arg(QString::fromStdString(name),
+                             QLatin1String(kSplitMainEnvironmentVariable)));
+                return {};
+            }
+        }
+        // An NSO the loader never loads cannot be part of the registry either.
+        for (const auto& mod : module_results) {
+            if (std::find(expected_modules.begin(), expected_modules.end(),
+                          mod.name.toStdString()) == expected_modules.end()) {
+                reject_export(tr("File '%1' is an NSO but not one of the loader's modules "
+                                 "(rtld, main, subsdk0-9, sdk), so a split export (%2) cannot "
+                                 "register it; the export stopped.")
+                                  .arg(mod.name, QLatin1String(kSplitMainEnvironmentVariable)));
+                return {};
+            }
+        }
     }
     ReportStage(ExportStage::Extract, 1.0);
 
@@ -3820,6 +4332,14 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
 
     for (const auto& mod : module_results) {
         if (mod.text_bytes.empty()) {
+            if (split_main) {
+                // The registry must list the loader's whole inventory, so a module without
+                // code cannot be left out of a split export.
+                reject_export(tr("Module '%1' has no code to recompile, and a split export (%2) "
+                                 "describes every module of the game; the export stopped.")
+                                  .arg(mod.name, QLatin1String(kSplitMainEnvironmentVariable)));
+                return {};
+            }
             continue;
         }
         ReportStage(ExportStage::Lift,
@@ -3944,6 +4464,15 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         }
 
         if (!emit_ok) {
+            // The DLL-bound module is never routed to the JIT: a split export without it is
+            // not the export that was asked for.
+            if (split_main) {
+                reject_export(tr("Module '%1' could not be recompiled (stage: lift to C; see the "
+                                 "suyu log). A split export (%2) describes every module of the "
+                                 "game and never drops one to the JIT, so the export stopped.")
+                                  .arg(mod.name, QLatin1String(kSplitMainEnvironmentVariable)));
+                return {};
+            }
             if (!fallback_enabled) {
                 QMessageBox::critical(
                     this, tr("Export Failed"),
@@ -4048,10 +4577,14 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         const auto write_registration = [&](const QStringList& mods) {
             // The module topology is the single source for the selection file
             // and the load order below.
+            // The bindings and bundle id are fixed for the whole export: a Hybrid retry only
+            // shortens the static list, and the DLL-bound module is never dropped.
             suyu::recomp::RecompTopologyRequest topology_request;
             for (const auto& m : mods) {
                 topology_request.modules.push_back(m.toStdString());
             }
+            topology_request.dll_modules = dll_modules;
+            topology_request.bundle_id_hex = bundle_id_hex;
             std::string topology_error;
             const auto topology =
                 suyu::recomp::BuildRecompTopology(topology_request, &topology_error);
@@ -4059,6 +4592,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 LOG_ERROR(Frontend, "Invalid recompiled module topology: {}", topology_error);
                 return false;
             }
+            export_topology = *topology;
 
             QFile selection(recomp_root + QStringLiteral("/recomp_modules.cmake"));
             if (!selection.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -4080,6 +4614,66 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             for (const auto& entry : topology->entries) {
                 ordered.append(QString::fromStdString(entry.name));
             }
+
+            const QString topology_marker_path =
+                recomp_root + QStringLiteral("/recomp_topology_v1.h");
+            if (topology->HasDllEntries()) {
+                // Split export: registry v1 names each module's binding and carries the
+                // ABI and features per entry, so none of the v4-only handshake markers
+                // below exist (a stale one from an earlier export would make the build
+                // expect the v4 handshake functions this registry does not export).
+                suyu::recomp::RecompRegistryOptions registry_options;
+                registry_options.image_abi = suyu::recomp::g_emit_fastmem ? 6u : 5u;
+                registry_options.expected_features = image_features;
+                registry_options.fastmem = suyu::recomp::g_emit_fastmem;
+                registry_options.guard_gen = suyu::recomp::EmitGuardGen();
+                registry_options.fpx = suyu::recomp::g_emit_fpx;
+                const std::string registry_text =
+                    suyu::recomp::WriteRecompRegistryV1C(*topology, registry_options);
+                if (registry_text.empty()) {
+                    LOG_ERROR(Frontend,
+                              "Could not write the registry v1 of the split export: the "
+                              "topology (bundle id '{}', {} module(s)) and the image options "
+                              "(ABI {}, features {:#x}, FM1 {}, GG1 {}, FPX1 {}) do not describe "
+                              "a registry v1",
+                              topology->bundle_id_hex, topology->entries.size(),
+                              registry_options.image_abi, registry_options.expected_features,
+                              registry_options.fastmem, registry_options.guard_gen,
+                              registry_options.fpx);
+                    return false;
+                }
+                const auto write_marker = [&](const QString& path, const std::string& text) {
+                    QFile marker(path);
+                    if (!marker.open(QIODevice::WriteOnly) ||
+                        marker.write(text.data(), static_cast<qint64>(text.size())) !=
+                            static_cast<qint64>(text.size()) ||
+                        !marker.flush() || marker.error() != QFile::NoError) {
+                        LOG_ERROR(Frontend, "Could not write {}: {}",
+                                  QDir::toNativeSeparators(path).toStdString(),
+                                  marker.errorString().toStdString());
+                        return false;
+                    }
+                    return true;
+                };
+                if (!write_marker(recomp_root + QStringLiteral("/recomp_registration.c"),
+                                  registry_text) ||
+                    !write_marker(topology_marker_path,
+                                  suyu::recomp::WriteRecompTopologyV1Marker()) ||
+                    !write_marker(recomp_root + QStringLiteral("/recomp_abi_v4.h"),
+                                  "/* ABI 4 registry includes nonrecursive slice and image ABI "
+                                  "exports. */\n")) {
+                    return false;
+                }
+                for (const char* v4_only_marker :
+                     {"recomp_guard_v2.h", "recomp_fastmem_v1.h", "recomp_features_v1.h",
+                      "recomp_guard_gen_v1.h", "recomp_fpx_v1.h"}) {
+                    QFile::remove(recomp_root + QLatin1Char('/') + QLatin1String(v4_only_marker));
+                }
+                return true;
+            }
+            // All-static: the v4 registry below; a topology marker left by a split export
+            // in the same directory would switch the build to registry v1.
+            QFile::remove(topology_marker_path);
 
             QFile reg(recomp_root + QDir::separator() + QStringLiteral("recomp_registration.c"));
             if (!reg.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -4316,6 +4910,13 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         const bool use_portable_kit = build_tree.isEmpty() &&
                                      QFile::exists(portable_kit + QStringLiteral("/revision.txt")) &&
                                      QFile::exists(portable_kit + QStringLiteral("/CMakeLists.txt"));
+        if (use_portable_kit && split_main) {
+            // Also checked before generation; kept here because this is where the kit
+            // is chosen, so the two cannot disagree silently.
+            reject_export(tr("%1 requires a source build: the release export kit cannot build "
+                             "module DLLs.").arg(QLatin1String(kSplitMainEnvironmentVariable)));
+            return {};
+        }
         if (use_portable_kit) {
             source_tree = portable_kit;
             build_tree = cache_dir + QStringLiteral("/host_build");
@@ -4436,6 +5037,71 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                   QStringLiteral("-DCMAKE_BUILD_TYPE=Release")}
                     : QStringList{};
             bool clang_linked = false;
+
+            // Build targets and artifacts come from the export's topology, as last written by
+            // write_registration: a DLL-bound module builds its shared image target and
+            // never becomes a static library, and a failure of that target stops the export.
+            const auto module_dll_file = [&export_topology](const QString& m)
+                -> std::optional<QString> {
+                if (!export_topology) {
+                    return std::nullopt;
+                }
+                for (const auto& entry : export_topology->entries) {
+                    if (entry.name == m.toStdString() &&
+                        entry.binding == suyu::recomp::RecompModuleBinding::Dll) {
+                        return QString::fromStdString(entry.dll_file);
+                    }
+                }
+                return std::nullopt;
+            };
+            const auto build_target_for = [&module_dll_file](const QString& m) {
+                return module_dll_file(m)
+                           ? QString::fromStdString(suyu::recomp::SharedImageTargetName(
+                                 m.toStdString()))
+                           : QStringLiteral("recomp_static_") + m;
+            };
+            // A DLL-bound module is never a pruning candidate, in Hybrid exports either: a
+            // package without its image cannot run, so there is no retry and no fallback. In a
+            // split export no static module is one either: the registry must list the loader's
+            // whole inventory, so any module that fails stops the export (all-static exports
+            // keep their per-module Hybrid fallback).
+            const auto stop_for_image_failure = [&](const QString& m, const QString& compiler,
+                                                    const QString& log) {
+                const QString image_file =
+                    module_dll_file(m).value_or(QStringLiteral("module ") + m);
+                const QString stage = ImageBuildFailureStage(log);
+                LOG_ERROR(Frontend, "{} failed for {} (module {}):\n{}",
+                          stage.toStdString(), image_file.toStdString(), m.toStdString(),
+                          log.right(4000).toStdString());
+                const QString saved_log = SaveBuildFailureLog(
+                    compiler + QStringLiteral(" ") + stage + QStringLiteral(" of ") + image_file,
+                    log);
+                const bool image_too_large = log.contains(QStringLiteral("LNK1248"));
+                reject_export(
+                    tr("%1 failed at the %2 stage (%3).%4\n\nThe export "
+                       "stopped: a split export describes every module of the game, so it "
+                       "cannot do without one, and Hybrid mode does not route it to the "
+                       "JIT.\n\nBuild output: %5")
+                        .arg(image_file, stage, compiler,
+                             image_too_large
+                                 ? tr(" The image exceeds the 2 GB Windows x64 image limit "
+                                      "(LNK1248).")
+                                 : QString{},
+                             saved_log.isEmpty() ? tr("see the suyu log")
+                                                 : QDir::toNativeSeparators(saved_log)));
+            };
+            // Where the built module DLLs are, set by the build that produced them.
+            QStringList image_search_dirs;
+            const QString link_stage_text = split_main
+                                                ? tr("Linking the launcher...")
+                                                : tr("Linking the single-file executable...");
+            const auto link_progress_text = [split_main](int done, int total) {
+                return split_main
+                           ? tr("Linking the launcher (%1/%2)").arg(done).arg(total)
+                           : tr("Linking the single-file executable (%1/%2)")
+                                 .arg(done)
+                                 .arg(total);
+            };
 #ifdef _WIN32
             {
                 const auto fallback = [&](const QString& why) {
@@ -4555,7 +5221,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                         const int rc = RunProcessDrained(
                             p, clang_cmake,
                             {QStringLiteral("--build"), clang_dir, QStringLiteral("--target"),
-                             QStringLiteral("recomp_static_") + m},
+                             build_target_for(m)},
                             &log, [&](const QString& text) {
                                 int done = 0;
                                 int total = 0;
@@ -4564,6 +5230,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                 }
                             });
                         compiled_bytes += module_bytes;
+                        if (rc != 0 && module_dll_file(m)) {
+                            stop_for_image_failure(m, QStringLiteral("clang-cl"), log);
+                            return {};
+                        }
                         if (rc != 0) {
                             LOG_ERROR(Frontend, "clang-cl failed to compile module {}:\n{}",
                                       m.toStdString(), log.right(4000).toStdString());
@@ -4597,8 +5267,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     }
                     while (ok) {
                         ReportStage(ExportStage::Compile, 1.0);
-                        ReportStage(ExportStage::Link, 0.0,
-                                    tr("Linking the single-file executable..."));
+                        ReportStage(ExportStage::Link, 0.0, link_stage_text);
                         QProcess p;
                         p.setProcessEnvironment(vs_env);
                         if (RunProcessDrained(
@@ -4614,14 +5283,13 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                         ReportStage(ExportStage::Link,
                                                     static_cast<double>(done) /
                                                         std::max(total, 1),
-                                                    tr("Linking the single-file executable "
-                                                       "(%1/%2)")
-                                                        .arg(done)
-                                                        .arg(total));
+                                                    link_progress_text(done, total));
                                     }
                                 }) == 0) {
                             ReportStage(ExportStage::Link, 1.0);
                             clang_linked = true;
+                            // The prebuild project writes its shared images to bin/.
+                            image_search_dirs = {clang_dir + QStringLiteral("/bin")};
                             last_recomp_compiler =
                                 QStringLiteral("clang-cl (%1, %2) /O2")
                                     .arg(clang_version, QDir::toNativeSeparators(clang));
@@ -4637,11 +5305,21 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                             const QString saved_log = SaveBuildFailureLog(
                                 QStringLiteral("suyu-cmd-static link (clang-cl modules)"), log);
                             const bool image_too_large = log.contains(QStringLiteral("LNK1248"));
-                            if (fallback_enabled && image_too_large &&
-                                recomp_module_dirs.size() > 1) {
+                            // Only static modules can be moved to the JIT; the DLL-bound
+                            // module is not linked into the launcher in the first place.
+                            QStringList prunable_modules;
+                            for (const auto& m : recomp_module_dirs) {
+                                if (!module_dll_file(m)) {
+                                    prunable_modules.append(m);
+                                }
+                            }
+                            // A split export never drops a module for size: the registry must
+                            // list the loader's whole inventory. It stops below instead.
+                            if (fallback_enabled && !split_main && image_too_large &&
+                                prunable_modules.size() > 1) {
                                 QString largest;
                                 qint64 largest_size = -1;
-                                for (const auto& m : recomp_module_dirs) {
+                                for (const auto& m : prunable_modules) {
                                     const qint64 size =
                                         QFileInfo(clang_dir + QStringLiteral("/lib/recomp_static_") +
                                                   m + QStringLiteral(".lib")).size();
@@ -4773,10 +5451,17 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     QProcess mod_build;
                     mod_build.setProcessEnvironment(vs_env);
                     QString mod_log;
+                    if (const auto stale_image = module_dll_file(m)) {
+                        // An image of an earlier export in this tree must not be mistaken
+                        // for the one this build produces.
+                        for (const char* subdir : {"/recomp_dll/", "/recomp_dll/Release/"}) {
+                            QFile::remove(build_tree + QLatin1String(subdir) + *stale_image);
+                        }
+                    }
                     const int mod_rc = RunProcessDrained(
                         mod_build, cmake_exe,
                         {QStringLiteral("--build"), build_tree, QStringLiteral("--target"),
-                         QStringLiteral("recomp_static_") + m, QStringLiteral("--config"),
+                         build_target_for(m), QStringLiteral("--config"),
                          QStringLiteral("Release"), QStringLiteral("--parallel"),
                          QStringLiteral("2")},
                         &mod_log, [&](const QString& text) {
@@ -4789,6 +5474,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     compiled_bytes += module_bytes;
                     if (mod_rc == 0) {
                         continue;
+                    }
+                    if (module_dll_file(m) || split_main) {
+                        stop_for_image_failure(m, QStringLiteral("MSVC"), mod_log);
+                        return {};
                     }
                     LOG_ERROR(Frontend, "Recompiled module {} failed to compile:\n{}",
                               m.toStdString(), mod_log.right(4000).toStdString());
@@ -4855,8 +5544,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 QProcess bld;
                 bld.setProcessEnvironment(vs_env);
                 ReportStage(ExportStage::Compile, 1.0);
-                ReportStage(ExportStage::Link, 0.0,
-                            tr("Linking the single-file executable..."));
+                ReportStage(ExportStage::Link, 0.0, link_stage_text);
                 link_rc = RunProcessDrained(
                     bld, cmake_exe,
                     {QStringLiteral("--build"), build_tree, QStringLiteral("--target"),
@@ -4868,9 +5556,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                         if (LastBuildStep(text, done, total)) {
                             ReportStage(ExportStage::Link,
                                         static_cast<double>(done) / std::max(total, 1),
-                                        tr("Linking the single-file executable (%1/%2)")
-                                            .arg(done)
-                                            .arg(total));
+                                        link_progress_text(done, total));
                         }
                     });
                 ReportStage(ExportStage::Link, 1.0);
@@ -4880,6 +5566,9 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     SaveBuildFailureLog(QStringLiteral("suyu-cmd-static link (MSVC modules)"),
                                         link_log);
                 } else {
+                    // Multi-config generators add the configuration folder.
+                    image_search_dirs = {build_tree + QStringLiteral("/recomp_dll"),
+                                         build_tree + QStringLiteral("/recomp_dll/Release")};
                     last_recomp_compiler =
                         QStringLiteral("MSVC cl.exe %1 /O2 /bigobj")
                             .arg(vs_env.value(QStringLiteral("VCToolsVersion")));
@@ -4913,6 +5602,61 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     QFile::remove(dst);
                     if (QFile::copy(c, dst)) {
                         LOG_INFO(Frontend, "Built single-file launcher from {}", c.toStdString());
+                        QString size_error;
+                        const auto launcher_size = ReadAndLogImageSize(
+                            QStringLiteral("launcher"), dst, &size_error);
+                        if (split_main && !launcher_size) {
+                            // A split image's size is part of the export's record.
+                            reject_export(tr("The split export's launcher cannot be recorded: "
+                                             "%1").arg(size_error));
+                            return {};
+                        }
+                        if (!launcher_size) {
+                            LOG_WARNING(Frontend, "Image size not reported: {}",
+                                        size_error.toStdString());
+                        }
+                        if (split_main && export_topology) {
+                            SplitExportRecord record;
+                            record.topology = *export_topology;
+                            record.launcher_size_of_image = launcher_size;
+                            // Each DLL of the topology goes beside the launcher: the package
+                            // takes it from here, and a missing one is an export error.
+                            for (const auto& entry : record.topology.entries) {
+                                if (entry.binding != suyu::recomp::RecompModuleBinding::Dll) {
+                                    continue;
+                                }
+                                const QString file = QString::fromStdString(entry.dll_file);
+                                const QString built = FindBuiltImage(image_search_dirs, file);
+                                if (built.isEmpty()) {
+                                    reject_export(
+                                        tr("The module image %1 of module '%2' was not found "
+                                           "after the build; searched: %3")
+                                            .arg(file, QString::fromStdString(entry.name),
+                                                 QDir::toNativeSeparators(
+                                                     image_search_dirs.join(QStringLiteral("; ")))));
+                                    return {};
+                                }
+                                const QString image_dst = dst_dir + QDir::separator() + file;
+                                QFile::remove(image_dst);
+                                ExportModuleImage image;
+                                image.module = entry.name;
+                                image.file = entry.dll_file;
+                                const auto image_size = ReadAndLogImageSize(file, built, &size_error);
+                                if (!QFile::copy(built, image_dst) || !image_size ||
+                                    !HashFileSha256(image_dst, &image.sha256,
+                                                    &image.size_bytes)) {
+                                    reject_export(
+                                        tr("The module image %1 could not be collected from %2: "
+                                           "%3").arg(file, QDir::toNativeSeparators(built),
+                                                     image_size ? tr("copy or hash failed")
+                                                                : size_error));
+                                    return {};
+                                }
+                                image.size_of_image = *image_size;
+                                record.images.push_back(std::move(image));
+                            }
+                            last_split_export = std::move(record);
+                        }
                     }
                     break;
                 }
@@ -5043,7 +5787,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             out << "  \"image_features\": " << image_features << ",\n";
             out << "  \"fm_inline\": " << (fm_inline ? "true" : "false") << ",\n";
         }
-        out << "  \"correctness_revision\": \"20260927-hybrid-guard-control-units-v3\",\n";
+        out << "  \"correctness_revision\": \"" << kGeneratorCorrectnessRevision << "\",\n";
         out << "  \"source_exefs_sha256\": \"" << source_hash << "\",\n";
         out << "  \"translate_all\": " << (translate_all ? "true" : "false") << ",\n";
         out << "  \"requested_backend\": \"" << requested_backend_name << "\",\n";
@@ -5073,6 +5817,35 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const QString quoted = QString::fromUtf8(
                 QJsonDocument(QJsonArray{last_recomp_compiler}).toJson(QJsonDocument::Compact));
             out << "  \"recomp_compiler\": " << quoted.mid(1, quoted.size() - 2) << ",\n";
+        }
+        if (split_main && export_topology) {
+            // Split exports only; an all-static manifest has none of these fields. Written
+            // from the export's topology and the images collected from it.
+            out << "  \"topology_version\": " << export_topology->version << ",\n";
+            out << "  \"bundle_id\": \"" << QString::fromStdString(export_topology->bundle_id_hex)
+                << "\",\n";
+            // An ordered object (NSO load order); QJsonObject would sort the keys.
+            out << "  \"module_bindings\": {";
+            for (std::size_t i = 0; i < export_topology->entries.size(); ++i) {
+                const auto& entry = export_topology->entries[i];
+                out << (i ? ", " : "") << "\"" << QString::fromStdString(entry.name) << "\": \""
+                    << (entry.binding == suyu::recomp::RecompModuleBinding::Dll ? "dll" : "static")
+                    << "\"";
+            }
+            out << "},\n";
+            QJsonArray image_array;
+            if (last_split_export) {
+                for (const auto& image : last_split_export->images) {
+                    image_array.append(ModuleImageToJson(image));
+                }
+            }
+            out << "  \"module_images\": "
+                << QString::fromUtf8(QJsonDocument(image_array).toJson(QJsonDocument::Compact))
+                << ",\n";
+            if (last_split_export && last_split_export->launcher_size_of_image) {
+                out << "  \"launcher_size_of_image\": " << *last_split_export->launcher_size_of_image
+                    << ",\n";
+            }
         }
         out << "  \"requires_runtime_codegen\": false,\n";
         out << "  \"modules\": [\n";
@@ -5186,7 +5959,8 @@ static QString UpdateOutsideInstalledContent(Core::System& system, u64 program_i
 
 bool GameExportDialog::PackageNativeExport(const QString& rom_path, const QString& cache_dir,
                                            const QString& package_root, const QString& game_name,
-                                           TargetPlatform platform, RecompileBackend backend) {
+                                           TargetPlatform platform, RecompileBackend backend,
+                                           const std::optional<SplitExportRecord>& last_split_export) {
     const bool uses_aot = backend != RecompileBackend::Dynarmic;
     const bool is_hybrid = backend == RecompileBackend::Hybrid;
     const QString package_name =
@@ -5362,6 +6136,34 @@ bool GameExportDialog::PackageNativeExport(const QString& rom_path, const QStrin
                     QFile::copy(src, pkg_dir + QDir::separator() + QLatin1String(dll));
                 }
             }
+
+            // A split export's module DLLs sit beside the launcher, which loads them from
+            // its own folder. Each is checked against what the build recorded before the
+            // staged aot_cache (their source) is removed below.
+            if (has_static_launcher && last_split_export) {
+                for (const auto& image : last_split_export->images) {
+                    const QString file = QString::fromStdString(image.file);
+                    const QString image_src = cache_dir + QStringLiteral("/launcher/") + file;
+                    const QString image_dst = pkg_dir + QDir::separator() + file;
+                    if (!CopyFileReplacingExisting(image_src, image_dst)) {
+                        return fail(QStringLiteral("could not copy the module image %1 from %2")
+                                        .arg(file, QDir::toNativeSeparators(image_src)));
+                    }
+                    QString packaged_sha256;
+                    qint64 packaged_size_bytes = 0;
+                    if (!HashFileSha256(image_dst, &packaged_sha256, &packaged_size_bytes) ||
+                        packaged_size_bytes != image.size_bytes ||
+                        packaged_sha256 != image.sha256) {
+                        return fail(QStringLiteral("the packaged module image %1 does not match "
+                                                   "the build record (size %2 vs %3 bytes, "
+                                                   "sha256 %4 vs %5)")
+                                        .arg(file)
+                                        .arg(packaged_size_bytes)
+                                        .arg(image.size_bytes)
+                                        .arg(packaged_sha256, image.sha256));
+                    }
+                }
+            }
         }
 
         // No -g argument: the exe reads user/config/game-source.ini and starts the
@@ -5444,17 +6246,40 @@ bool GameExportDialog::PackageNativeExport(const QString& rom_path, const QStrin
                         : "Recompiled native build — suyu static AOT (Experimental), no JIT "
                           "fallback (local game export)\n\n");
             out << "Run: double-click launch.bat (or " << package_name << ".exe directly)\n\n";
-            out << "Code translated from the game, compiled to x86 machine code, is linked into\n";
-            out << package_name << ".exe alongside suyu's HLE/GPU/audio backend. It runs only\n";
-            out << "together with your game file, read with your keys.\n\n";
+            // Split export: the launcher plus the module DLL(s) are the program.
+            QStringList module_dll_names;
+            if (last_split_export) {
+                for (const auto& image : last_split_export->images) {
+                    module_dll_names.append(QString::fromStdString(image.file));
+                }
+            }
+            const bool is_split = !module_dll_names.isEmpty();
+            if (is_split) {
+                out << "Code translated from the game, compiled to x86 machine code, is split\n";
+                out << "between " << package_name << ".exe (alongside suyu's HLE/GPU/audio backend)\n";
+                out << "and " << module_dll_names.join(QStringLiteral(", "))
+                    << ". The .exe needs these DLL(s) in the same\n";
+                out << "folder and they must stay together with it. It runs only together with\n";
+                out << "your game file, read with your keys.\n\n";
+            } else {
+                out << "Code translated from the game, compiled to x86 machine code, is linked into\n";
+                out << package_name << ".exe alongside suyu's HLE/GPU/audio backend. It runs only\n";
+                out << "together with your game file, read with your keys.\n\n";
+            }
             out << kExportContentNotice << "\n";
             if (!last_recomp_compiler.isEmpty()) {
                 out << "Game code compiled with: " << QFileInfo(last_recomp_compiler).fileName()
                     << "\n\n";
             }
             out << "What runs native vs emulated:\n";
-            out << "- Native  : AOT CPU code, translated ahead of time to C and compiled into\n";
-            out << "            this exe. This portion needs no instruction decoding at runtime.\n";
+            if (is_split) {
+                out << "- Native  : AOT CPU code, translated ahead of time to C and compiled into\n";
+                out << "            this exe and its module DLL(s). This portion needs no instruction\n";
+                out << "            decoding at runtime.\n";
+            } else {
+                out << "- Native  : AOT CPU code, translated ahead of time to C and compiled into\n";
+                out << "            this exe. This portion needs no instruction decoding at runtime.\n";
+            }
             out << "- Emulated: system calls, OS services (filesystem, input, audio, sockets)\n";
             out << "            and the GPU, all served by suyu's HLE backend built into the\n";
             out << "            same exe. A console game cannot run without these.\n";
@@ -5471,15 +6296,27 @@ bool GameExportDialog::PackageNativeExport(const QString& rom_path, const QStrin
                     << "the suyu Hybrid JIT + AOT and suyu Dynarmic JIT exports.\n\n";
             }
             out << "Contents:\n";
-            out << "- " << package_name
-                << ".exe : the game's recompiled code + suyu's HLE/GPU backend, one file\n";
+            if (is_split) {
+                out << "- " << package_name
+                    << ".exe : the launcher: suyu's HLE/GPU backend + part of the game's code\n";
+                out << "- " << module_dll_names.join(QStringLiteral(", "))
+                    << " : the rest of the game's recompiled code; must stay in\n";
+                out << "                    the same folder as the .exe\n";
+            } else {
+                out << "- " << package_name
+                    << ".exe : the game's recompiled code + suyu's HLE/GPU backend, one file\n";
+            }
             out << "- launch.bat      : one-click launcher\n";
             if (has_static_launcher) {
                 out << "- aot_manifest.json : how the game code was recompiled and compiled\n";
             }
             out << "- user/config/game-source.ini : where your game file is; the game is read\n";
             out << "                    from it each time, with the keys installed in suyu\n";
-            out << "- *.dll           : runtime libraries (FFmpeg, DirectX shader compiler, OpenSSL)\n";
+            out << (is_split
+                        ? "- other *.dll     : runtime libraries (FFmpeg, DirectX shader compiler, "
+                          "OpenSSL)\n"
+                        : "- *.dll           : runtime libraries (FFmpeg, DirectX shader compiler, "
+                          "OpenSSL)\n");
             out << "- LICENSES/       : suyu's license, third-party notices and source information\n";
             out << "- mods/           : optional; drop <title_id>/<mod name>/ folders here\n";
             out << "- user/           : this game's own config, saves, and logs (not suyu's)\n\n";
@@ -5925,7 +6762,8 @@ static QString Latin1(std::string_view text) {
 static bool WriteExportManifest(const QString& package_root, const QString& export_id,
                                 u64 program_id, GameExportDialog::RecompileBackend backend,
                                 bool compiled, bool saves, bool shader_cache, bool settings,
-                                bool portable, int dlc_count) {
+                                bool portable, int dlc_count,
+                                const std::optional<SplitExportRecord>& split_export) {
     const bool uses_aot = backend != GameExportDialog::RecompileBackend::Dynarmic;
     QJsonObject manifest;
     manifest[QStringLiteral("schema")] = Latin1(PackagePolicy::kExportManifestSchema);
@@ -5968,6 +6806,13 @@ static bool WriteExportManifest(const QString& package_root, const QString& expo
         {QStringLiteral("shader_cache"), shader_cache},
         {QStringLiteral("per_game_settings"), settings},
     };
+    if (split_export) {
+        // Split exports only: which modules are DLLs beside the launcher, from the same
+        // topology the build and the package check use.
+        manifest[QStringLiteral("bundle_id")] =
+            QString::fromStdString(split_export->topology.bundle_id_hex);
+        manifest[QStringLiteral("module_topology")] = ModuleTopologyToJson(*split_export);
+    }
     manifest[QStringLiteral("producer")] = QJsonObject{
         {QStringLiteral("suyu_revision"), QString::fromLatin1(Common::g_scm_rev)},
         {QStringLiteral("suyu_build"), QString::fromUtf8(Common::g_build_fullname)},
@@ -6033,6 +6878,23 @@ void GameExportDialog::OnExport() {
         return;
     }
     const ExportRunGuard run_guard{export_in_progress};
+
+    // Per-export split state, local to this run: nothing from an earlier export in this
+    // dialog (a split export, a failure after its images were collected) can reach this
+    // one's manifest or package check.
+    std::optional<SplitExportRecord> split_export;
+    // SUYU_AOT_SPLIT_MAIN is read and validated once, here, for every export type; AOT
+    // processing receives this snapshot and never reads the environment again. An invalid
+    // value, or a split request for a JIT, non-Windows, Source or kit-only export, stops here.
+    bool split_main = false;
+    if (!ResolveSplitMainOption(
+            static_cast<RecompileBackend>(backend_combo->currentData().toInt()), &split_main)) {
+        if (test_driven_export) {
+            test_export_has_result = true;
+            test_export_succeeded = false;
+        }
+        return;
+    }
 
     const QString rom_path = rom_path_edit->text();
     const QString output_dir = output_path_edit->text();
@@ -6443,7 +7305,9 @@ void GameExportDialog::OnExport() {
                       : tr("Running AOT pre-compilation: suyu static AOT (Experimental)..."));
         QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
 
-        if (RunAotPrecompile(exefs_work, cache_work, backend, game_name).isEmpty()) {
+        if (RunAotPrecompile(exefs_work, cache_work, backend, game_name, split_main,
+                             split_export)
+                .isEmpty()) {
             finish_failed(tr("AOT pre-compilation failed."));
             return;
         }
@@ -6452,7 +7316,8 @@ void GameExportDialog::OnExport() {
     // Step 4: Package native export artifacts
     ReportStage(ExportStage::Package, 0.0, tr("Packaging native export artifacts..."));
 
-    if (!PackageNativeExport(rom_path, cache_work, staging_root, game_name, platform, backend)) {
+    if (!PackageNativeExport(rom_path, cache_work, staging_root, game_name, platform, backend,
+                             split_export)) {
         finish_failed(tr("Packaging failed."));
         return;
     }
@@ -6603,7 +7468,7 @@ void GameExportDialog::OnExport() {
         !WriteExportManifest(staging_root, export_id, export_program_id, backend,
                              uses_aot && WantsCompiledOutput(), include_save_data,
                              include_shader_cache, include_custom_config, portable,
-                             static_cast<int>(dlc_titles.size()))) {
+                             static_cast<int>(dlc_titles.size()), split_export)) {
         throw std::runtime_error("Could not write the package notices");
     }
 
@@ -6621,6 +7486,11 @@ void GameExportDialog::OnExport() {
         uses_aot && (platform != TargetPlatform::Windows || !WantsCompiledOutput());
     for (const char* dll : kExportRuntimeDlls) {
         expect.runtime_dlls.emplace_back(dll);
+    }
+    if (split_export) {
+        for (const auto& image : split_export->images) {
+            expect.module_dlls.push_back(image.file);
+        }
     }
     expect.portable = portable;
     const auto findings = PackagePolicy::ValidateLocalExport(staging->root, expect);
@@ -6697,6 +7567,18 @@ void GameExportDialog::OnExport() {
                  "your game file with the keys installed in suyu. Do not upload it to suyu's "
                  "release or support channels.");
 
+    // A split export's package is the launcher plus its module DLL(s); say so, and that they
+    // must stay together, from this export's own record.
+    QString split_note;
+    if (split_export && !split_export->images.empty()) {
+        QStringList dll_names;
+        for (const auto& image : split_export->images) {
+            dll_names.append(QString::fromStdString(image.file));
+        }
+        split_note = tr("\n\nThis is a split export: %1.exe needs %2 in the same folder, and they "
+                        "must stay together.")
+                         .arg(export_name, dll_names.join(QStringLiteral(", ")));
+    }
     if (!uses_aot) {
         QMessageBox::information(
             this, tr("JIT Baseline Export Complete"),
@@ -6713,6 +7595,32 @@ void GameExportDialog::OnExport() {
                "code. Performance varies by game; compare it with the suyu Dynarmic JIT "
                "export.")
                     .arg(final_path) +
+                split_note + local_note + fallback_note);
+    } else if (WantsCompiledOutput() && split_export) {
+        QMessageBox::information(
+            this, tr("suyu static AOT (Experimental) Export Complete"),
+            tr("Game exported and compiled to a launcher plus module DLL(s) at:\n%1\n\n"
+               "This experimental build disables JIT fallback and can load or run more slowly. "
+               "Performance varies by game; compare it with the suyu Hybrid JIT + AOT and suyu "
+               "Dynarmic JIT exports.\n\n"
+               "The package contains:\n"
+               "- %2.exe — the launcher: suyu's HLE/GPU backend and part of the game's "
+               "translated code. It starts your game file with your installed keys.\n"
+               "- %3 — the rest of the translated code. It must stay in the same folder as "
+               "%2.exe; the launcher refuses to start without it.\n"
+               "- mods/ — drop patch/mod folders here\n"
+               "- user/ — this export's own config, save data, and logs (independent of suyu's)\n"
+               "- LICENSES/ — suyu's license, third-party notices and source information\n"
+               "- Runtime DLLs (FFmpeg, DirectX shader compiler, OpenSSL) alongside the exe\n\n"
+               "Just run %2.exe.")
+                    .arg(final_path, export_name,
+                         [&] {
+                             QStringList names;
+                             for (const auto& image : split_export->images) {
+                                 names.append(QString::fromStdString(image.file));
+                             }
+                             return names.join(QStringLiteral(", "));
+                         }()) +
                 local_note + fallback_note);
     } else if (WantsCompiledOutput()) {
         QMessageBox::information(

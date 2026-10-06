@@ -181,6 +181,10 @@ struct LocalExportExpectation {
     std::string title_id_hex;              ///< 16 upper-case hex digits
     bool allow_aot_cache = false;          ///< Source-format exports keep the C project
     std::vector<std::string> runtime_dlls; ///< names allowed beside the launcher
+    /// Recompiled module images of a split export (Windows layout only). Each listed name
+    /// must be present and non-empty beside the launcher; a DLL that is not listed here or
+    /// in runtime_dlls stays rejected. Empty for an all-static or JIT export.
+    std::vector<std::string> module_dlls;
     /// A portable export (Windows layout only): game/ may hold the sealed game file, sealed
     /// update NCAs (update-<n>.sealed), sealed DLC NCAs (dlc-<n>.sealed) and seal.json, and
     /// the manifest must say so.

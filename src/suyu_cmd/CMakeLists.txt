@@ -100,25 +100,70 @@ if (SUYU_CMD OR YUZU_CMD)
              "${_recomp_dir_escaped}/*")
         # Hybrid exports retain generated sources for modules that failed to
         # build. Only the modules in the registry may participate in the link.
+        set(SUYU_RECOMP_DLL_MODULES "")
         if (EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_modules.cmake")
             include("${SUYU_CMD_RECOMP_DIR}/recomp_modules.cmake")
             set(_recomp_children "${SUYU_RECOMP_MODULES}")
-            # DLL-bound modules need the topology v1 registry and launcher
-            # loader, which this build does not implement yet. Marker file is
-            # written by the exporter together with that registry. Fail here
-            # instead of linking the module statically against its binding.
-            if (SUYU_RECOMP_DLL_MODULES AND
-                NOT EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_topology_v1.h")
-                message(FATAL_ERROR
-                    "This export binds module(s) ${SUYU_RECOMP_DLL_MODULES} as DLLs, which needs "
-                    "the topology v1 registry; this build does not implement it yet")
+        endif()
+        # Topology v1 (a split export): some modules are shared images (DLLs)
+        # beside the launcher. The exporter writes the marker together with the
+        # v1 registry and the DLL variables in recomp_modules.cmake, from one
+        # topology value; the two must agree, or the registry would name a
+        # binding the build does not produce.
+        set(_recomp_topology_v1_marker "${SUYU_CMD_RECOMP_DIR}/recomp_topology_v1.h")
+        set(_recomp_topology_v1 OFF)
+        if (EXISTS "${_recomp_topology_v1_marker}")
+            set(_recomp_topology_v1 ON)
+        endif()
+        if (SUYU_RECOMP_DLL_MODULES AND NOT _recomp_topology_v1)
+            message(FATAL_ERROR
+                "This export binds module(s) ${SUYU_RECOMP_DLL_MODULES} as DLLs, but "
+                "${_recomp_topology_v1_marker} is missing; the DLL binding needs the topology v1 "
+                "registry. Re-export the title.")
+        endif()
+        if (_recomp_topology_v1 AND NOT SUYU_RECOMP_DLL_MODULES)
+            message(FATAL_ERROR
+                "${_recomp_topology_v1_marker} marks a topology v1 export, but "
+                "recomp_modules.cmake binds no module as a DLL (SUYU_RECOMP_DLL_MODULES is empty). "
+                "Re-export the title.")
+        endif()
+        if (_recomp_topology_v1)
+            include("${CMAKE_CURRENT_LIST_DIR}/recomp_modules/RecompDllTarget.cmake")
+            if (NOT SUYU_RECOMP_TOPOLOGY_VERSION EQUAL 1)
+                message(FATAL_ERROR "recomp_modules.cmake topology version "
+                                    "'${SUYU_RECOMP_TOPOLOGY_VERSION}' is not supported; expected 1")
+            endif()
+            foreach(_m ${SUYU_RECOMP_DLL_MODULES})
+                if (NOT "${_m}" IN_LIST SUYU_RECOMP_MODULES)
+                    message(FATAL_ERROR "DLL module '${_m}' is not in SUYU_RECOMP_MODULES "
+                                        "'${SUYU_RECOMP_MODULES}'")
+                endif()
+                foreach(_item SUYU_RECOMP_DLL_TARGET_${_m} SUYU_RECOMP_DLL_FILE_${_m})
+                    if (NOT ${_item})
+                        message(FATAL_ERROR "recomp_modules.cmake does not define ${_item} for "
+                                            "DLL module '${_m}'")
+                    endif()
+                endforeach()
+            endforeach()
+            if (NOT SUYU_RECOMP_BUNDLE_ID OR NOT SUYU_RECOMP_BUNDLE_ID_BYTES)
+                message(FATAL_ERROR "recomp_modules.cmake has no bundle id for the DLL modules "
+                                    "${SUYU_RECOMP_DLL_MODULES}")
             endif()
         endif()
+        set(_recomp_dll_targets "")
         # SUYU_CMD_RECOMP_PREBUILT_DIR: the modules were already compiled by
         # recomp_modules/ (the Windows Build export does that with clang-cl,
         # since one CMake project has one C compiler). Link its libraries
         # instead of compiling the generated sources in this tree.
-        if (SUYU_CMD_RECOMP_PREBUILT_DIR)
+        # The shared runtime library exists only where a static module was built, so a
+        # split export whose every module is DLL-bound has none to import.
+        set(_recomp_static_modules "")
+        foreach(_m ${_recomp_children})
+            if (NOT "${_m}" IN_LIST SUYU_RECOMP_DLL_MODULES)
+                list(APPEND _recomp_static_modules "${_m}")
+            endif()
+        endforeach()
+        if (SUYU_CMD_RECOMP_PREBUILT_DIR AND (NOT _recomp_topology_v1 OR _recomp_static_modules))
             set(_recomp_runtime_lib "${SUYU_CMD_RECOMP_PREBUILT_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}recomp_runtime_shared${CMAKE_STATIC_LIBRARY_SUFFIX}")
             if (NOT EXISTS "${_recomp_runtime_lib}")
                 message(FATAL_ERROR "SUYU_CMD_RECOMP_PREBUILT_DIR has no ${_recomp_runtime_lib}")
@@ -127,6 +172,13 @@ if (SUYU_CMD OR YUZU_CMD)
             set_target_properties(recomp_runtime_shared PROPERTIES
                 IMPORTED_LOCATION "${_recomp_runtime_lib}")
         endif()
+        foreach(_m ${SUYU_RECOMP_DLL_MODULES})
+            if (NOT EXISTS "${SUYU_CMD_RECOMP_DIR}/${_m}/CMakeLists.txt" OR
+                NOT EXISTS "${SUYU_CMD_RECOMP_DIR}/${_m}/recomp_export.c")
+                message(FATAL_ERROR "DLL module '${_m}' has no generated sources in "
+                                    "${SUYU_CMD_RECOMP_DIR}/${_m}")
+            endif()
+        endforeach()
         foreach(_m ${_recomp_children})
             if (EXISTS "${SUYU_CMD_RECOMP_DIR}/${_m}/CMakeLists.txt" AND
                 EXISTS "${SUYU_CMD_RECOMP_DIR}/${_m}/recomp_export.c")
@@ -160,6 +212,26 @@ if (SUYU_CMD OR YUZU_CMD)
                 if (NOT EXISTS "${SUYU_CMD_RECOMP_DIR}/${_m}/recomp_runtime.h")
                     message(FATAL_ERROR "Generated module '${_m}' has no runtime header")
                 endif()
+                if (_recomp_topology_v1 AND "${_m}" IN_LIST SUYU_RECOMP_DLL_MODULES)
+                    # A DLL-bound module is never linked into the launcher. The
+                    # launcher loads it from its own directory; the registry names it.
+                    if (NOT SUYU_CMD_RECOMP_PREBUILT_DIR)
+                        # Built here as a shared image. It goes to recomp_dll/,
+                        # not bin/, so the non-static suyu-cmd.exe's legacy
+                        # recompiled_*.dll probe in bin/ never sees a game DLL.
+                        set(RECOMP_STATIC_ONLY OFF)
+                        set(RECOMP_BUILD_STATIC_LIB OFF)
+                        add_subdirectory("${SUYU_CMD_RECOMP_DIR}/${_m}"
+                                         "${CMAKE_CURRENT_BINARY_DIR}/recomp/${_m}")
+                        set(RECOMP_STATIC_ONLY ON)
+                        unset(RECOMP_BUILD_STATIC_LIB)
+                        suyu_recomp_setup_dll_target("${_m}" "${CMAKE_BINARY_DIR}/recomp_dll")
+                        list(APPEND _recomp_dll_targets "${SUYU_RECOMP_DLL_TARGET_${_m}}")
+                    endif()
+                    # With SUYU_CMD_RECOMP_PREBUILT_DIR the exporter took the DLL
+                    # from the prebuild tree (recomp_modules/).
+                    continue()
+                endif()
                 if (SUYU_CMD_RECOMP_PREBUILT_DIR)
                     set(_recomp_lib "${SUYU_CMD_RECOMP_PREBUILT_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}recomp_static_${_m}${CMAKE_STATIC_LIBRARY_SUFFIX}")
                     if (NOT EXISTS "${_recomp_lib}")
@@ -188,10 +260,21 @@ if (SUYU_CMD OR YUZU_CMD)
             endif()
         endforeach()
         set_directory_properties(PROPERTIES COMPILE_OPTIONS "${_recomp_host_opts}")
-        if (_recomp_libs)
+        # A split export can bind every module as a DLL, leaving no static library.
+        if (_recomp_libs OR _recomp_topology_v1)
             add_executable(suyu-cmd-static ${SUYU_CMD_SOURCES}
                            "${SUYU_CMD_RECOMP_DIR}/recomp_registration.c")
             target_compile_definitions(suyu-cmd-static PRIVATE SUYU_CMD_STATIC_RECOMP=1)
+            if (_recomp_topology_v1)
+                # recomp_registration.c is a registry v1 (carries ABI/features per
+                # entry), so the v4 handshake definitions below do not apply.
+                target_compile_definitions(suyu-cmd-static PRIVATE SUYU_RECOMP_REGISTRY_V1=1)
+                # The launcher does not link the DLLs, but they must be built
+                # before the export collects them.
+                if (_recomp_dll_targets)
+                    add_dependencies(suyu-cmd-static ${_recomp_dll_targets})
+                endif()
+            endif()
             if (NOT SUYU_RECOMP_HYBRID)
                 target_compile_definitions(suyu-cmd-static PRIVATE
                                            SUYU_CMD_STATIC_RECOMP_STRICT=1)
@@ -199,10 +282,10 @@ if (SUYU_CMD OR YUZU_CMD)
                 target_compile_definitions(suyu-cmd-static PRIVATE
                                            SUYU_CMD_STATIC_RECOMP_HYBRID=1)
             endif()
-            if (EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_guard_v2.h")
+            if (NOT _recomp_topology_v1 AND EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_guard_v2.h")
                 target_compile_definitions(suyu-cmd-static PRIVATE SUYU_RECOMP_GUARD_V2=1)
             endif()
-            if (_recomp_bundle_abi STREQUAL "6")
+            if (NOT _recomp_topology_v1 AND _recomp_bundle_abi STREQUAL "6")
                 if (NOT EXISTS "${SUYU_CMD_RECOMP_DIR}/recomp_fastmem_v1.h")
                     message(FATAL_ERROR "ABI 6 modules need a registry with the fastmem "
                                         "handshake; re-export the title with this build")
@@ -224,7 +307,9 @@ if (SUYU_CMD OR YUZU_CMD)
                     target_compile_definitions(suyu-cmd-static PRIVATE SUYU_RECOMP_FPX_V1=1)
                 endif()
             endif()
-            target_link_libraries(suyu-cmd-static PRIVATE ${_recomp_libs})
+            if (_recomp_libs)
+                target_link_libraries(suyu-cmd-static PRIVATE ${_recomp_libs})
+            endif()
             list(APPEND SUYU_CMD_TARGETS suyu-cmd-static)
         else()
             message(WARNING "SUYU_CMD_RECOMP_DIR set but no recompiled modules found in it")

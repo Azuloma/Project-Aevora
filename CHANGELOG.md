@@ -2,6 +2,21 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev13 - Unreleased
+
+*Development commit 13 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added exporter, cache, manifest, package-policy, and launcher wiring for the opt-in `SUYU_AOT_SPLIT_MAIN` main-module DLL topology, including a versioned canonical bundle id and registry-v1 marker.
+- Added shared PE `SizeOfImage` validation, canonical NSO module names, shared DLL-target verification, per-image manifest metadata, and package staging/verification for split exports.
+- Added bound-inventory and pre-relocation INFO diagnostics, plus topology, PE, policy, prebuild, and export-fixture regression coverage.
+
+### Changed
+- The v1 launcher and in-tree/prebuilt CMake paths now build and collect split DLLs without importing them into the launcher; all-static v4 output remains unchanged.
+- Split exports refuse missing or failed canonical modules, validate cache/package topology and DLL identities, and report image sizes against the 2 GiB Windows x64 limit.
+
+Split export wiring is implemented, but exporter end-to-end execution, linked launcher guest execution, and the remaining Milestone 4a step 4(c) acceptance coverage are not yet verified (part 2).
+
 ## v0.0.1-dev12 - Unreleased
 
 *Development commit 12 toward v0.0.1. Not a release; no build artifacts are published.*

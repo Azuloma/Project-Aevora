@@ -5,6 +5,7 @@
 
 #include <array>
 #include <optional>
+#include <string>
 #include <vector>
 #include <QCheckBox>
 #include <QDialog>
@@ -20,11 +21,32 @@
 
 #include "common/package_policy.h"
 #include "core/file_sys/vfs/vfs_types.h"
+#include "core/recompiler/recomp_topology.h"
 #include "suyu/wikipedia_cover.h"
 
 namespace Core {
 class System;
 }
+
+/// A module image built as a shared library (DLL) beside the launcher in a split export.
+/// The module and file name come from the export's topology
+/// (core/recompiler/recomp_topology.h); size and digests describe the built file.
+struct ExportModuleImage {
+    std::string module;
+    std::string file;        ///< SharedImageFileName(module)
+    qint64 size_bytes{};     ///< file length
+    quint64 size_of_image{}; ///< PE SizeOfImage (the value the 2 GiB linker limit applies to)
+    QString sha256;          ///< lower-case hex
+};
+
+/// What a split export (SUYU_AOT_SPLIT_MAIN=1) produced: the topology every consumer
+/// (generated CMake, registry, cache manifest, package files, export-package.json, package
+/// policy) was written from, and the images built from it. Empty for an all-static export.
+struct SplitExportRecord {
+    suyu::recomp::RecompTopology topology;
+    std::vector<ExportModuleImage> images;       ///< DLL-bound modules, in NSO load order
+    std::optional<quint64> launcher_size_of_image;
+};
 
 /**
  * Dialog for exporting a game as a native-export artifact bundle using
@@ -245,16 +267,30 @@ private:
     /// compiled. Written to the export log, aot_manifest.json and the README.
     QString last_recomp_compiler;
 
+
     /// AOT export: scan ARM code and serialize translated compiler artifacts.
     /// Returns path to the generated cache directory, or empty string on failure.
+    ///
+    /// @p split_main is this export's snapshot of SUYU_AOT_SPLIT_MAIN, already validated by
+    /// OnExport (see ResolveSplitMainOption). For a split export @p split_export receives the
+    /// topology and images the build (or the reused cache) describes; it is export-local state
+    /// owned by OnExport, reset here, so no earlier export can supply metadata.
     QString RunAotPrecompile(const QString& exefs_dir, const QString& cache_dir,
-                             RecompileBackend backend, const QString& game_name);
+                             RecompileBackend backend, const QString& game_name, bool split_main,
+                             std::optional<SplitExportRecord>& split_export);
+
+    /// Reads and validates SUYU_AOT_SPLIT_MAIN for an export of @p backend. Returns false after
+    /// telling the user why when the value is invalid or the export type cannot be split
+    /// (Dynarmic, non-Windows, Source format, release export kit only).
+    bool ResolveSplitMainOption(RecompileBackend backend, bool* split_main);
 
     /// Package the translated output into a platform-specific export bundle rooted at
     /// @p package_root, the staging folder that becomes the package once validated.
+    /// @p split_export is this export's split record (empty unless it is a split export).
     bool PackageNativeExport(const QString& rom_path, const QString& cache_dir,
                              const QString& package_root, const QString& game_name,
-                             TargetPlatform platform, RecompileBackend backend);
+                             TargetPlatform platform, RecompileBackend backend,
+                             const std::optional<SplitExportRecord>& split_export);
 
     QLineEdit* rom_path_edit{};
     QLineEdit* output_path_edit{};

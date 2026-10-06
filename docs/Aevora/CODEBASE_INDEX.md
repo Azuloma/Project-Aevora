@@ -36,6 +36,8 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 
 The shared topology and image identity contracts are defined in `src/core/recompiler/recomp_topology.h` (versioned module bindings, load ordering, image names, validation, bundle-byte conversion, and `recomp_modules.cmake` output; `kRecompTopologyVersion:31`, `BuildRecompTopology:160`, `WriteRecompModulesCMake:234`) and `src/core/recompiler/recomp_image_identity.h` (v1 symbol and raw 32-byte bundle digest contract; `RECOMP_IMAGE_IDENTITY_V1_SYMBOL:15`, `RecompImageIdentityV1Fn:24`). Registry v1 is defined once in `src/core/recompiler/recomp_registry_v1.h:64` (`SuyuRecompRegistryV1`, entries, ABI/features, and DLL export-name macros); `WriteRecompRegistryV1C:300` and `WriteRecompTopologyV1Marker:397` in `recomp_topology.h` emit the registry and marker.
 
+`src/core/recompiler/pe_image_size.h:64` parses validated PE32+ headers and reads `SizeOfImage` from files (`:114`), rejecting truncated, zero-sized, or out-of-range headers. `src/core/loader/nso_module_names.h:19` defines the 13-name canonical NSO order shared by the loader, topology, and exporter.
+
 | Symbol | Location | Purpose |
 |---|---|---|
 | `struct Block` | `arm64_to_c.h:60` (v) | Discovered code block (vaddr, size, count, entry flag). |
@@ -66,7 +68,9 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `WantsCompiledOutput()` | `game_export.cpp:3139` (v) | Build (compile) versus Source-only output. |
 | `RunAotPrecompile()` | `game_export.cpp:3355` (v) | Block discovery and translation orchestration. |
 | `recomp_modules.cmake` / `recomp_registration.c` generation | `game_export.cpp:3950-4030` (v: `:3991`, `:4019`) | Module list in NSO load order and `suyu_recomp_static_modules_v4()` registration table. **The object involved in the earlier `LNK1181` failure is built from this file.** |
+| Split option and bundle identity | `game_export.cpp:3416-3551`, `:3990-3999`, `:6886-6890` (v, 2026-10-06) | Resolves `SUYU_AOT_SPLIT_MAIN` once per export, computes the versioned canonical bundle id, emits registry-v1/topology data, and logs each image's PE `SizeOfImage`; split cache and package records include topology, bindings, DLL hashes, and launcher size. |
 | Prebuild DLL-bound module validation | `src/suyu_cmd/recomp_modules/CMakeLists.txt:26-126` (v, 2026-10-06) | Reads topology DLL bindings, checks version, bundle ID/bytes, module membership, target existence/type, and effective file name, then builds the shared image with identity definitions. |
+| Shared DLL target helper | `src/suyu_cmd/recomp_modules/RecompDllTarget.cmake:4-17` (v, 2026-10-06) | Shared verification/setup helper used by prebuild and in-tree CMake; checks topology-bound target identity and writes DLLs to the launcher-side `recomp_dll/` directory. |
 | Generated-tree CMake configure/build | around `game_export.cpp:4229` (v) | Invokes CMake on the generated tree. |
 | Pruning of registration entries | around `game_export.cpp:4701` (v) | Comment on modules dropped from the registration. |
 | `PackageNativeExport()` | `game_export.cpp:5059` (v) | Stages the final export package. |
@@ -101,6 +105,7 @@ Key runtime facts:
 - Fallback: `ArmRecomp::EnterFallback()`, `arm_recomp.cpp:1715` (v), lazily creates an `ArmDynarmic64` and marks GG1 via `RecompGuardGen::OnJitFallback()`. It always refuses when built with `SUYU_NO_JIT`. Call sites are around `:2241` and `:2346` (v).
 - Chain budget: defaults `kShortSliceChainBudget = 32` and `kLongSliceChainBudget = 256`, `arm_recomp.cpp:209-210` (v). `SetRecompLongSlices()` selects between them (~`:750` (v)). Override: `SUYU_RECOMP_CHAIN_BUDGET` (1-8192) read at startup, `arm_recomp.cpp:220` (v).
 - `RecompGuardGen::OnJitFallback()`, `recomp_guard_gen.cpp:481` (v, 2026-10-05), pins every module to verify-always the first time a JIT fallback is created. Pin causes are logged by `EnsureGuardGenPinLogger()` in `arm_recomp.cpp` (~`:815`). The cited design document (`diagnostics/suyu-guard-generation-20260923/DESIGN.md`) is not in this repository.
+- Bound split processes log each core's canonical inventory at `arm_recomp.cpp:1839` and one process-scoped pre-relocation module list at `:2003`; these are diagnostics only and do not change execution behavior.
 - Exported packages write `user/log/recomp_coverage.txt` (static/JIT transitions, unimplemented opcodes, SVC counts) and `recomp_gaps.json`.
 - `suyu_cmd` sets `SUYU_RECOMP_STRICT` explicitly, at `src/suyu_cmd/suyu.cpp:1351-1359` (v).
 
@@ -122,7 +127,10 @@ Key runtime facts:
 | Services/IPC | `hle/service/service.h:49` (`ServiceFrameworkBase`), `hle_ipc.h`, `server_manager.h`, `sm/`. Major services include `acc`, `am`, `apm`, `audio`, `filesystem`, `hid`, `ns`, `nvdrv` (GPU driver ioctls), and `vi` (display). |
 | Loading | `loader/loader.h:164` (`AppLoader`; NSP/XCI/NCA/NSO/NRO/KIP). Canonical NSO inventory comes from `loader/deconstructed_rom_directory.cpp:191-265` and `ReadNSOModules` ~`:334`; NCA/NAX/NSP/XCI loaders forward it. Standalone NSO records its file name in `loader/nso.cpp:242-252`. The launcher registration/DLL loader is `src/suyu_cmd/suyu.cpp:1889-2227` (v1 registry path, static registry v4 path, legacy DLL probe, base binding). `file_sys/patch_manager.h` handles updates. `crypto/key_manager.h` handles keys. |
 | v1 launcher path | `src/suyu_cmd/suyu.cpp:1931-1950`, `:2216-2227` (macro-gated `SUYU_RECOMP_REGISTRY_V1`) | Loads and retains a validated bundle, publishes lookup/handshakes, and binds the canonical inventory before `Core::Load` publishes the process. |
+| v1 CMake mode | `src/suyu_cmd/CMakeLists.txt:131-275` (v, 2026-10-06) | Cross-checks topology marker/DLL lists, builds in-tree DLLs under `recomp_dll/`, skips DLLs in the prebuilt path, imports the shared runtime only when static modules exist, and leaves all-static mode unchanged. |
 | Shared libraries | `src/common` (settings, logging, `string_util` UTF-8 helpers, `fs/` paths), `src/hid_core`, `src/audio_core`, `src/input_common`, `src/network`. |
+
+`src/common/package_policy.h:187` adds `LocalExportExpectation::module_dlls`; `package_policy.cpp:1097-1108` validates the required split DLL basenames and `:1187`, `:1268-1281` rejects collisions or unlisted DLLs.
 
 **Boot sequence (*inference*):** `System::Load` → loader → `CreateApplicationProcess` → `ReadNSOModules` → recomp bind (if registered) → recomp prepare (if registered) → `InitializeInterfaces` chooses the backend → GPU/audio/services setup → `AppletManager` starts the main thread → `System::Run`.
 

@@ -319,6 +319,18 @@ def find_one(root, names):
     return found[0]
 
 
+def check_pe_size_of_image(topology_unit, image):
+    """The exporter's PE reader on a real linked image: SizeOfImage is plausible."""
+    image_limit_bytes = 2 * 1024 ** 3
+    text = subprocess.run([str(topology_unit), "--pe-size-of-image", str(image)], check=True,
+                          capture_output=True, text=True, timeout=15).stdout.strip()
+    size_of_image = int(text)
+    # SizeOfImage is the section-aligned in-memory size; it is not compared with the
+    # file length (a file may carry debug data past the sections, or be smaller).
+    if not 0 < size_of_image < image_limit_bytes:
+        raise RuntimeError(f"{image}: SizeOfImage {size_of_image} is not in (0, 2 GiB)")
+
+
 def check_prebuild(root, cmake, source, identity_tree, topology_unit, identity_run_dir,
                    compiler_options):
     """The clang-cl prebuild project against a split topology written by the production writer."""
@@ -384,11 +396,27 @@ def check_prebuild(root, cmake, source, identity_tree, topology_unit, identity_r
     if on_windows:
         image = find_one(build_dir / "bin", ("recompiled_second.dll",))
         call([executable(identity_run_dir, "identity_host"), image, "second", bundle], timeout=15)
+        check_pe_size_of_image(topology_unit, image)
         check_identity_in_unicode_dir(root / "unicode-prebuild", executable(identity_run_dir,
                                       "identity_host"), image, bundle)
         # The static module must not have been built as a shared image.
         if list(build_dir.rglob("recompiled_smoke.dll")):
             raise RuntimeError("the static module was built as a shared image")
+    if on_windows:
+        # Every module DLL-bound (main-only exports): the prebuild project builds the image
+        # and no static runtime library, which the launcher configure must not require.
+        write_modules((bundle, "second", "--dll", "second"))
+        all_dll_dir = root / "prebuild-all-dll"
+        code, output = prebuild_cmake(cmake, source, all_dll_dir, exefs, ("second",),
+                                      compiler_options)
+        if code != 0:
+            raise RuntimeError(f"all-DLL prebuild configure failed:\n{output[-3000:]}")
+        call([cmake, "--build", all_dll_dir, "--config", "Release", "--target",
+              "recompiled_second", "--parallel", "2"], timeout=300)
+        find_one(all_dll_dir / "bin", ("recompiled_second.dll",))
+        if list((all_dll_dir / "lib").glob("*recomp_runtime_shared*")) if (all_dll_dir / "lib").is_dir() else []:
+            raise RuntimeError("the all-DLL prebuild produced a static runtime library; the "
+                               "launcher's configure only skips it when none exists")
     # Hybrid retry: the exporter rewrites recomp_modules.cmake with a reduced
     # list after configuring with the full one. The next build regenerates the
     # project against the rewritten file and must still succeed.

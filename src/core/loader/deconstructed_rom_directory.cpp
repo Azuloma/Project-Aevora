@@ -18,6 +18,7 @@
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/loader/deconstructed_rom_directory.h"
 #include "core/loader/nso.h"
+#include "core/loader/nso_module_names.h"
 
 #ifdef HAS_NCE
 #include "core/arm/nce/patcher.h"
@@ -188,9 +189,7 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     const bool is_application = metadata.GetPoolPartition() == FileSys::PoolPartition::Application;
     Settings::SetNceEnabled(is_39bit);
 
-    const std::array static_modules = {"rtld",    "main",    "subsdk0", "subsdk1", "subsdk2",
-                                       "subsdk3", "subsdk4", "subsdk5", "subsdk6", "subsdk7",
-                                       "subsdk8", "subsdk9", "sdk"};
+    const auto& static_modules = kNsoModuleNames;
 
     std::size_t code_size{};
 

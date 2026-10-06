@@ -61,8 +61,14 @@ def main() -> int:
     registration = extract(
         source, "const auto write_registration =", "if (!write_registration(recomp_module_dirs))"
     )
+    # The variables write_registration captures from RunAotPrecompile: an all-static export
+    # has no DLL-bound module, bundle id or recorded topology.
     registration_helper = (
         "static bool WriteRegistration(const QString& recomp_root, const QStringList& mods) {\n"
+        "const std::vector<std::string> dll_modules;\n"
+        "const std::string bundle_id_hex;\n"
+        "const unsigned image_features = 0;\n"
+        "std::optional<suyu::recomp::RecompTopology> export_topology;\n"
         + registration + "\nreturn write_registration(mods);\n}\n"
     )
     prefix = r'''
@@ -82,9 +88,11 @@ def main() -> int:
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include "common/package_policy.h"
+#include "core/recompiler/recomp_topology.h"
 #define LOG_ERROR(...) do {} while (false)
 #define LOG_INFO(...) do {} while (false)
 using u64 = std::uint64_t;
