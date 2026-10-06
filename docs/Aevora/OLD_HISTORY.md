@@ -33,7 +33,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - Milestone: preparation for Milestones 1-2. Revision `9f932d5` plus untracked handoff docs.
 - Added [CODEBASE_INDEX.md](CODEBASE_INDEX.md), a read-only survey of the recompiler, exporter, runtime, GPU, build system, frontends, and tests. Key references were checked against source and marked "(v)".
 - Findings relevant to later milestones:
-  - The ARM64竊辰 translator is `src/core/recompiler/arm64_to_c.h` (`EmitProject`).
+  - The ARM64驕ｶ鬘假ｽｾ・ｰ translator is `src/core/recompiler/arm64_to_c.h` (`EmitProject`).
   - The backend switch is `KProcess::InitializeInterfaces`.
   - Strict mode is `SUYU_RECOMP_STRICT`, and JIT-less builds use `SUYU_NO_JIT`.
   - `tests/` contains recompiler partitioning and export tests that were not yet run.
@@ -60,13 +60,13 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - Milestone 1. Revision `9f932d5` plus untracked handoff docs and one source change (below).
 - **Prerequisites installed by the user:** Git for Windows 2.56.0 (GNU patch 2.8, perl in `usr/bin`); Vulkan SDK 1.4.363.0 (glslang 16.6.0).
 - **Configure command:** Build Tools 2026 `vcvars64.bat`, then `cmake -S <source> -B <ascii-build-dir>/msvc-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DYUZU_TESTS=OFF -DCPM_SOURCE_CACHE=<ascii-build-dir>/cpm "-DGIT_EXECUTABLE=C:/Program Files/Git/cmd/git.exe" "-DGLSLANGVALIDATOR=<VulkanSDK>/Bin/glslangValidator.exe"`. `GIT_EXECUTABLE` is passed explicitly because CPMUtil locates `patch` relative to the first Git found, and GitHub Desktop's MinGit may precede Git for Windows on PATH.
-- **Problem: Boost extraction failure.** `file(ARCHIVE_EXTRACT)` (CMake 4.4.3) aborted on `boost-1.90.0-cmake.tar.xz` with `archive_write_header(): Invalid empty pathname`. Evidence: extraction stopped just before entry `libs/wave/test/testwave/testfiles/utf8-test-ﾃ淞ｵ邃｢竏・`; system ANSI code page is 932; a minimal `cmake -P` script reproduced the failure; `cmake -E tar xf` extracted the full archive including that directory under both console code pages 932 and 65001. A path-length hypothesis (longest entry 278 characters under the original cache path; LongPathsEnabled=1) was tested by moving the CPM cache to a short path and ruled out.
+- **Problem: Boost extraction failure.** `file(ARCHIVE_EXTRACT)` (CMake 4.4.3) aborted on `boost-1.90.0-cmake.tar.xz` with `archive_write_header(): Invalid empty pathname`. Evidence: extraction stopped just before entry `libs/wave/test/testwave/testfiles/utf8-test-繝ｻ繝ｻ・ｷ讖ｸ・ｽ・ｵ鬩阪・・ｽ・｢驕ｶ荳翫・`; system ANSI code page is 932; a minimal `cmake -P` script reproduced the failure; `cmake -E tar xf` extracted the full archive including that directory under both console code pages 932 and 65001. A path-length hypothesis (longest entry 278 characters under the original cache path; LongPathsEnabled=1) was tested by moving the CPM cache to a short path and ruled out.
 - **Fix:** `CMakeModules/CPMUtil.cmake` `fetch_package` now extracts with `execute_process(${CMAKE_COMMAND} -E tar xf ...)` in the destination directory and calls `fatal` with archive path, destination, exit result, and stderr on failure. Other `file(ARCHIVE_EXTRACT)` uses (`externals/nx_tzdb/CMakeLists.txt`, `tools/cpm/cmake/update.cmake`) were not changed; nx_tzdb extracted without error in this run. The short CPM cache path was kept for an ASCII-only reproduction.
 - **Configure result:** success in 167 s. All CPMUtil packages resolved as bundled, matching `cpmfile.json` (e.g. OpenSSL v4.0.0-11b7b6ea3b CI build, Boost 1.90.0, fmt 12.1.0, SDL3 3.4.8, FFmpeg 8.0.1, sirit v1.0.5, Vulkan-Headers v1.4.345, Qt6 6.11.1 bundled). Warnings: optional Qt components Svg and Test missing from the bundled Qt; `windeployqt` not found (`src/suyu/CMakeLists.txt:532`); RenderDoc and Doxygen not found (optional).
 - **Build command:** same environment, `cmake --build <build-dir> --target suyu suyu-cmd -j 8` (parallelism limited for a 16 GB host).
 - **Build result:** all compilation steps succeeded; `suyu-cmd.exe` linked (about 31.6 MB). `suyu.exe` failed to link with `LNK1169` after many `LNK2005` errors: VMA (VulkanMemoryAllocator) symbols such as `VmaAllocator_T::VmaAllocator_T` are defined both in bundled `Qt6Gui.lib(qrhivulkan.cpp.obj)` and in `video_core.lib(vma.cpp.obj)` (`src/video_core/vulkan_common/vma.cpp` defines `VMA_IMPLEMENTATION`). The bundled Qt 6.11.1 for windows-amd64 is a static build (no Qt DLLs; `Qt6Gui.lib` about 33 MB) using the `/MD` CRT, matching the project. A `LNK4098` LIBCMT defaultlib conflict warning also appeared (not yet investigated). Linker messages were emitted in Japanese and appear garbled in the UTF-8 log because of console code-page mismatch.
 - **Not yet verified:** application startup, PLA loading, export kit.
-- **Next / decision needed:** choose how to resolve the VMA duplicate definition 窶・e.g. build against a shared (DLL) Qt with `-DYUZU_USE_BUNDLED_QT=OFF` (the archived predecessor README documents Qt 6.9.3 msvc2022_64), versus a source-level change. Linker options such as `/FORCE:MULTIPLE` would hide an ODR conflict and are not preferred.
+- **Next / decision needed:** choose how to resolve the VMA duplicate definition 驕ｯ・ｶ郢晢ｽｻe.g. build against a shared (DLL) Qt with `-DYUZU_USE_BUNDLED_QT=OFF` (the archived predecessor README documents Qt 6.9.3 msvc2022_64), versus a source-level change. Linker options such as `/FORCE:MULTIPLE` would hide an ODR conflict and are not preferred.
 
 ### 2026-10-04: VMA implementation moved to executables; suyu.exe links
 
@@ -94,7 +94,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 ### 2026-10-04: GPL rendering defect isolated; GPL disabled by default
 
 - Milestone 1 (JIT baseline). Base revision `be6181c` plus uncommitted changes below.
-- **A/B results (user, PLA 1.1.1, same locations):** ASTC decoding Gpu竊辰pu: no change. Clearing the per-title pipeline cache: the originally affected objects rendered correctly, but other objects broke instead (player character showed another texture in patches; a large black triangle covered part of the sky), i.e. the affected objects depend on pipeline build order. GPU accuracy changes: no change. Prebuilt Suyu v0.0.12: same defect, so it is inherited code, not caused by this build's toolchain or the VMA change. Setting `use_graphics_pipeline_library=false` (edited in qt-config.ini): rendering correct.
+- **A/B results (user, PLA 1.1.1, same locations):** ASTC decoding Gpu驕ｶ鬘假ｽｾ・ｰpu: no change. Clearing the per-title pipeline cache: the originally affected objects rendered correctly, but other objects broke instead (player character showed another texture in patches; a large black triangle covered part of the sky), i.e. the affected objects depend on pipeline build order. GPU accuracy changes: no change. Prebuilt Suyu v0.0.12: same defect, so it is inherited code, not caused by this build's toolchain or the VMA change. Setting `use_graphics_pipeline_library=false` (edited in qt-config.ini): rendering correct.
 - **Interpretation (hypothesis):** the fork's graphics pipeline library implementation (`vk_graphics_pipeline.cpp` ~1107 onward) caches four library parts under reduced keys (`GraphicsPipelineLibraryKey`, state bits masked per part, e.g. lines ~1141-1169); a key that drops state that matters would let a part built for another pipeline be reused. Not yet confirmed.
 - **Relevance:** GPL only reduces pipeline-compilation stutter; it is unrelated to static CPU recompilation and should not change rendering results.
 - **UI finding:** the `RendererExtensions` settings (GPL, `dyna_state`, `vertex_input_dynamic_state`, `sample_shading`) were not reachable from the Qt frontend: `configure_graphics_extensions.*` was compiled but never instantiated and populated itself from `RendererAdvanced`; `src/suyu/configuration/shared_translation.cpp` lacked entries for the three EDS-related settings and the `ExtendedDynamicState` enumeration.
@@ -115,7 +115,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - **Compatibility note:** the kit README says release CI uses the VS 2022 14.44 toolset as the baseline so newer MSVC can consume a kit; this local kit was produced with MSVC 14.51, so a consumer must use 14.51 or newer. Decide the release baseline before publishing kits (Milestone 6).
 - **Licensing note for Milestone 6:** the build prints "Warning static builds of getopt violate the Lesser GNU Public License" (MSVC targets link `getopt` statically). Review before distributing binaries.
 - **Not verified:** consuming the kit through the GUI exporter (Build output) with PLA; generated-code compilation and linking; the earlier `LNK1181`/`C1002` failures.
-- **Next:** Milestone 2 窶・reproduce the PLA export with this application and kit in an ASCII-only export path, collect the export/build logs, and separate the missing-object (`recomp_registration.c.obj`) and compiler-memory (`C1002`) investigations.
+- **Next:** Milestone 2 驕ｯ・ｶ郢晢ｽｻreproduce the PLA export with this application and kit in an ASCII-only export path, collect the export/build logs, and separate the missing-object (`recomp_registration.c.obj`) and compiler-memory (`C1002`) investigations.
 
 ### 2026-10-04: Generated-code build parallelism (Milestone 2)
 
@@ -124,7 +124,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - **Cause:** `arm64_to_c.h` emitted `RECOMP_JOBS = min(cores, total RAM MB / 8192)`; 16191 MB / 8192 = 1. The 8 GB budget came from cl.exe heap failures (C1060/C1002), not clang-cl. Units were limited mainly by the 20,000-block ceiling.
 - **Change:**
   - Unit limits: new constants `kDefaultUnitSourceBytes` (8 MiB) and `kDefaultUnitBlocks` (5,000) replace the 32 MiB / 20,000-block production limits; `EmitProject` gains a `unit_block_limit` parameter (0 treated as 1). The exporter accepts `SUYU_RECOMP_UNIT_BLOCKS` and `SUYU_RECOMP_UNIT_KB` overrides (positive integers; invalid values are logged and ignored) and logs the effective limits once.
-  - Job count in the generated CMake: per-compile budget 8192 MB for real MSVC cl.exe and 1536 MB for clang/clang-cl/GCC; 4096 MB reserved for the OS and emulator; jobs = clamp((RAM 竏・reserve) / budget, 1, logical cores). Overrides: `SUYU_RECOMP_JOB_MEMORY_MB`, `SUYU_RECOMP_JOBS`, or `-DRECOMP_JOBS`.
+  - Job count in the generated CMake: per-compile budget 8192 MB for real MSVC cl.exe and 1536 MB for clang/clang-cl/GCC; 4096 MB reserved for the OS and emulator; jobs = clamp((RAM 驕ｶ荳翫・reserve) / budget, 1, logical cores). Overrides: `SUYU_RECOMP_JOB_MEMORY_MB`, `SUYU_RECOMP_JOBS`, or `-DRECOMP_JOBS`.
   - Files: `src/core/recompiler/arm64_to_c.h`, `src/suyu/game_export.cpp`, `tests/recompiler_partition/{export.cpp,run.py,README.md}` (block-ceiling fixture now 5,001 blocks; baseline mode passes an explicit 20,000-block limit).
 - **Verification:** `python -B tests/recompiler_partition/run.py --build <ascii-dir>` from a VS 2026 Build Tools x64 environment: PASS (exact bodies/dispatch entries, GG slots, single- and multi-module execution). Configuring the generated test project reports 1 job with cl.exe (8192 MB budget) and 7 jobs with clang-cl (1536 MB budget) on this 16 GB / 12-thread host; `SUYU_RECOMP_JOBS=3` yields 3.
 - **Not verified yet:** suyu has not been rebuilt with this change (the running export locks `suyu.exe`); no PLA export with the new limits; actual peak memory of 8 MiB / 5,000-block units; total export time; link time with ~4x more objects; runtime performance (fewer cross-unit inlining opportunities may reduce FPS); `build_native_unix.sh` (Source export helper for Linux/macOS) still uses RAM / 8192 and was not changed.
@@ -136,7 +136,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - **Settings (user):** PLA 1.1.1, CPU backend suyu Hybrid JIT + AOT, format Build, Dynarmic fallback allowed, ASCII-only output parent directory. Compiler: clang-cl 22.1.8 (LLVM). Duration about 4 hours (user), dominated by one-at-a-time compilation of 223 generated units.
 - **Result:** export reported success. `aot_manifest.json`: `effective_backend` suyu-hybrid, `image_abi` 6, `total_modules` 5, `fallback_modules` empty (no module left to JIT), `recompiled_c_blocks` 4,131,332, `total_blocks_analyzed` 3,854,104, `total_instructions` 17,169,816, `total_text_bytes` 68,679,264, `requires_runtime_codegen` false. The single-file launcher is about 1.87 GB (1,870,654,976 bytes).
 - **Earlier failures:** neither the `LNK1181` missing `recomp_registration.c.obj` nor the MSVC `C1002` heap failure reproduced in this run (clang-cl path, ASCII parent directory). This does not prove they are fixed: the earlier run used a non-ASCII-containing path, and the MSVC fallback path was not exercised.
-- **Non-ASCII naming:** the package folder and launcher name are derived from the game title and contain a non-ASCII character (`Pokﾃｩmon Legends_ Arceus - Hybrid AOT + JIT`), even with an ASCII output parent directory.
+- **Non-ASCII naming:** the package folder and launcher name are derived from the game title and contain a non-ASCII character (`Pok繝ｻ繝ｻ・ｽ・ｩmon Legends_ Arceus - Hybrid AOT + JIT`), even with an ASCII output parent directory.
 - **Defect found:** `README_NATIVE_EXPORT.txt` says "Game code compiled with: O2" and the manifest has `recomp_compiler` = `O2`; the compiler name (clang-cl) is not recorded correctly (`last_recomp_compiler` handling in `src/suyu/game_export.cpp`). Not yet investigated.
 - **Launch failure (user):** double-clicking the launcher does not start the game. Not yet investigated; deferred until after the next commit at the user's request. Hypotheses to check: image size (~1.87 GB) and loader limits, the non-ASCII executable/package name, missing runtime files or keys/firmware lookup, and the package's own `user/` log.
 - **Next:** commit the pending changes, then diagnose the launch failure from the package log and a console launch; afterwards re-export with the parallel build to measure time and compare.
@@ -145,9 +145,9 @@ Created the root agent guide and this work plan. Verified the existing repositor
 
 - **Milestone 2.** Base revision `6f4dffd` (v0.0.1-dev4) plus uncommitted changes below.
 - **Evidence:** the package log (`user/log/suyu_log.txt` in the export) ended 0.4 s after start with `Frontend <Critical> suyu_cmd\suyu.cpp:2937:main: Unhandled fatal exception in suyu-cmd: No mapping for the Unicode character exists in the target multi-byte code page.` The last step logged before it was the SDL configuration write; `Window created, loading game...` was never logged.
-- **Cause:** `src/suyu_cmd/emu_window/emu_window_sdl2_vk.cpp` (static-recompiled launcher builds) derived the window title with `exe.stem().string()`. On Windows, `std::filesystem::path::string()` converts through the ANSI code page; the launcher name contains `ﾃｩ`, which code page 932 cannot represent, so the conversion threw. The same class of conversion existed in `src/suyu_cmd/suyu.cpp` for the Discord title fallback (`std::filesystem::path(filepath).stem().string()`, which also interpreted UTF-8 as the ANSI code page). Other `.string()` uses in `suyu_cmd` are in non-Windows branches.
+- **Cause:** `src/suyu_cmd/emu_window/emu_window_sdl2_vk.cpp` (static-recompiled launcher builds) derived the window title with `exe.stem().string()`. On Windows, `std::filesystem::path::string()` converts through the ANSI code page; the launcher name contains `繝ｻ繝ｻ・ｽ・ｩ`, which code page 932 cannot represent, so the conversion threw. The same class of conversion existed in `src/suyu_cmd/suyu.cpp` for the Discord title fallback (`std::filesystem::path(filepath).stem().string()`, which also interpreted UTF-8 as the ANSI code page). Other `.string()` uses in `suyu_cmd` are in non-Windows branches.
 - **Fix:** both sites now use `Common::FS::PathToUTF8String` (and `Common::FS::ToU8String` for the UTF-8 input path). Files: `src/suyu_cmd/emu_window/emu_window_sdl2_vk.cpp`, `src/suyu_cmd/suyu.cpp`.
-- **Verification:** rebuilt `suyu`, `suyu-cmd`, and `export-build-kit`. Copied the rebuilt `suyu-export-host-hybrid.exe` (built with `SUYU_CMD_STATIC_RECOMP`) to a portable folder under a name containing `ﾃｩ`, with an empty `exefs/main` so startup proceeds past ROM discovery: the log reached `Window created, loading game...` and then failed to load the dummy ROM (Error 30), as expected. A full PLA launch still requires a new export, because the existing package cannot be relinked: the export's hidden working directory (generated sources and `recomp_registration.c`) is deleted after export.
+- **Verification:** rebuilt `suyu`, `suyu-cmd`, and `export-build-kit`. Copied the rebuilt `suyu-export-host-hybrid.exe` (built with `SUYU_CMD_STATIC_RECOMP`) to a portable folder under a name containing `繝ｻ繝ｻ・ｽ・ｩ`, with an empty `exefs/main` so startup proceeds past ROM discovery: the log reached `Window created, loading game...` and then failed to load the dummy ROM (Error 30), as expected. A full PLA launch still requires a new export, because the existing package cannot be relinked: the export's hidden working directory (generated sources and `recomp_registration.c`) is deleted after export.
 - **Exporter side effects found:** when `suyu.exe` runs from a source build, the exporter configures the source build tree itself with `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`, leaves those cache entries pointing at the deleted hidden directory, links `bin/suyu-cmd-static.exe` (game-derived, ~1.87 GB) in the build tree, and builds generated modules in `<build-dir>/recomp_clang`. With those entries set, `package.py` refuses to package an export build kit. They were removed with `cmake -U ...`, which then rebuilt the whole tree (1,740 steps) because compile definitions changed. Treat the build tree's `bin/suyu-cmd-static.exe` and `recomp_clang/` as local game-derived output.
 - **Kit note:** the regenerated kit records `producer_source_revision` `6f4dffd` although it was built with uncommitted changes; the manifest records HEAD only.
 - **Next:** user commits; then re-export PLA (Hybrid, Build, ASCII parent directory) with the rebuilt `suyu.exe` to verify launch and measure export time, peak memory per compile, and job count with the new parallel limits.
@@ -157,7 +157,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - Milestones 2-3. Exporter `suyu.exe` built with the v0.0.1-dev5 changes (committed afterwards as `28e6caf`); PLA 1.1.1, Hybrid JIT + AOT, Build format, ASCII-only output parent directory, clang-cl 22.1.8.
 - **Parallel compile (sampled every 15 s):** 881 generated units (223 before); 7 concurrent clang-cl compiles in nearly all samples; per-process peak working set 0.97 GB (budget 1.5 GB); total clang-cl working set at most ~5.0 GB; CPU load average 52%, maximum 76%. Compilation took ~46 min (02:37-03:22), versus ~3.4 h at one job.
 - **Remaining export time:** ~28 min full rebuild of the source build tree at `-j 2` after the exporter changed its cache entries (03:22-03:50), then the MSVC link of `suyu-cmd-static` with a PDB from 03:50; `link.exe` reached ~7.8 GB working set, free RAM fell to ~0.2 GB, and commit charge reached ~30.1 of 30.9 GB. The export completed successfully (user); the exact end time was not recorded.
-- **Launch:** the launcher (name containing `ﾃｩ`) now starts and plays (user), confirming the v0.0.1-dev5 window-title fix in a real export.
+- **Launch:** the launcher (name containing `繝ｻ繝ｻ・ｽ・ｩ`) now starts and plays (user), confirming the v0.0.1-dev5 window-title fix in a real export.
 - **Performance (user):** about 17 FPS in the overworld, unstable, versus 30 FPS on the JIT baseline. Settings differ (package: GPU accuracy Normal, CPU video decoding, GPL off, EDS2; JIT baseline: GPU accuracy High).
 - **Coverage (package `user/log/recomp_coverage.txt`):** 9,453,517,616 static blocks executed; 16,300,755 SVCs; 219,674 static-to-JIT transitions, all from unimplemented opcodes, 0 lookup misses; 43,034 blocks per transition. All 15 unimplemented encodings decode to `SHL` (vector, immediate) with 32-bit elements (Q=0 and Q=1).
 - **Guard state:** at activation, 0 of 5 modules verified on every entry; after the first JIT fallback the log reports `module N pinned to verify-always: JIT fallback created` for all five modules (`RecompGuardGen::OnJitFallback`).
@@ -202,7 +202,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 ### 2026-10-05: Long-slice chain budget lowered to 256 (v0.0.1-dev6, unverified in export)
 
 - **Milestone:** 3 (performance investigation and runtime tuning). **Base revision:** uncommitted changes in `src/core/arm/recomp/arm_recomp.cpp`.
-- **Budget sweep results (user, PLA Hybrid, overworld, per `SUYU_RECOMP_CHAIN_BUDGET`):** 4096 (previous default) about 14 FPS; 256 竊・15-20 FPS; 128 and 512 竊・same as 256; 1024 竊・about 1 FPS lower than 256; 32 was tried earlier and was not better than 256. CPU sampling at 256 reduced `KScheduler::ScheduleImplFiber` spinning from 21-24% to 8-10% on busy cores.
+- **Budget sweep results (user, PLA Hybrid, overworld, per `SUYU_RECOMP_CHAIN_BUDGET`):** 4096 (previous default) about 14 FPS; 256 驕ｶ鄙ｫ繝ｻ15-20 FPS; 128 and 512 驕ｶ鄙ｫ繝ｻsame as 256; 1024 驕ｶ鄙ｫ繝ｻabout 1 FPS lower than 256; 32 was tried earlier and was not better than 256. CPU sampling at 256 reduced `KScheduler::ScheduleImplFiber` spinning from 21-24% to 8-10% on busy cores.
 - **Code change:** defined new constants `kShortSliceChainBudget = 32` and `kLongSliceChainBudget = 256` in `arm_recomp.cpp` (~lines 209-210), with a comment recording the PLA measurement that led to the 256 choice. `SetRecompLongSlices(true)` now selects `kLongSliceChainBudget` instead of a hard-coded 4096. The environment variable `SUYU_RECOMP_CHAIN_BUDGET` (1-8192) still overrides at runtime.
 - **Verified:** `arm_recomp.cpp` compiled successfully (object file `core.dir/arm/recomp/arm_recomp.cpp.obj` updated; only pre-existing LOG_* macro redefinition warnings emitted).
 - **Not verified:** full `suyu` rebuild, new PLA Hybrid export with the default, in-game FPS confirmation with the new default, recompiler smoke tests (`tests/recompiler_smoke/run.c` sets chain budgets explicitly and does not depend on the runtime default; no test runs were performed).
@@ -223,7 +223,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 
 ### 2026-10-05: First static AOT export (v0.0.1-dev6) runs with no fallback, 16-20 FPS
 
-- **Milestone:** 4 (fully static execution evaluation). The `suyu.exe` exporter was built from v0.0.1-dev6. The export package recorded backend `static`, format `build`, producer revision `a6b869025143832cd6f6488f9c4abb25ad8e8568` (dev6), and the existing `suyu v0.0.11 (mk8-recomp)` build string. The parent output directory was ASCII-only; the package folder and launcher name contained `ﾃｩ`, and the launcher started successfully.
+- **Milestone:** 4 (fully static execution evaluation). The `suyu.exe` exporter was built from v0.0.1-dev6. The export package recorded backend `static`, format `build`, producer revision `a6b869025143832cd6f6488f9c4abb25ad8e8568` (dev6), and the existing `suyu v0.0.11 (mk8-recomp)` build string. The parent output directory was ASCII-only; the package folder and launcher name contained `繝ｻ繝ｻ・ｽ・ｩ`, and the launcher started successfully.
 - **Settings:** PLA `suyu static AOT (Experimental)` export with fallback disabled and translate-all enabled. `aot_manifest.json` recorded requested/effective backend `suyu-static`, `fallback_enabled: false`, no fallback modules, `requires_runtime_codegen: false`, image ABI 6, and five modules (`main`, `rtld`, `sdk`, `subsdk0`, `subsdk1`). It recorded 4,131,332 recompiled C blocks, 17,169,816 total instructions, and 68,679,264 total text bytes. The package was written at 12:20; export start time and stage timings were not recorded. `recomp_compiler` still recorded `O2`, which is a known defect. The launcher size was about 1.87 GB (1,870,680,576 bytes). The user did not report setting `SUYU_RECOMP_CHAIN_BUDGET`; the dev6 default of 256 is therefore assumed.
 - **Result:** The launcher reached gameplay and ran stably at about 16-20 FPS in the user's observed scene. The user compared this with about 30 FPS for the JIT baseline and 15-20 FPS for the earlier Hybrid translate-all run with a manual budget of 256. The scene was not specified, so this is not a fully matched performance comparison.
 - **Coverage and runtime diagnostics:** The run lasted about 417 seconds. All five modules reported `ArmRecomp active`; guard-v2 was ready; image ABI 6, page-table fastmem, and FPX1 native FP were negotiated; and the application process used ArmRecomp. Coverage recorded 9,716,893,306 static blocks, 10,977,276 SVCs, zero static-to-JIT transitions (zero lookup misses and zero unimplemented opcodes), zero JIT-to-static transitions, zero unresolved import traps, and no transitions because execution was fully static. `recomp_gaps.json` recorded one strict-static run, one clean run, `last_run_strict_static: true`, no unimplemented opcodes, and no unattributed misses. At exit, guard sticky, JIT-bump, and code-write counters were zero; at activation, zero of five modules verified on every entry. There were no Critical log lines or crash dump.
@@ -253,7 +253,7 @@ Created the root agent guide and this work plan. Verified the existing repositor
 - **Hypothesis (not confirmed):** PLA sets FZ early on its threads, so FPX1 never applies and float-heavy blocks such as this hot block run the software FP body. Dynarmic handles FZ with host FTZ/DAZ natively, which could explain much of the JIT gap.
 - The `recomp_runtime.h` comment records that inlining memory helpers at every access was measured worse on MK8D (image 100 to 222 MB, -14% FPS). A `game_export.cpp` comment records that ABI 6 features (FM1, GG1, FPX1) together raised MK8D from 34.6 to 56.3 FPS; whether MK8D runs with FZ set is unknown.
 - Also observed: every guest instruction in a block is a possible entry point (a switch on `c->pc` with one label per instruction in `arm64_to_c.h`, approximately lines 5254-5288), because lookup indexes every instruction; guest registers live in `GuestContext` memory.
-- **Proposed next steps:** (1) verify guest FPCR and gate-open rate at runtime with a diagnostic counter or shadow build; (2) if confirmed, extend the FPX1 gate to accept FZ only when no input is denormal and the result is a normal finite value (or an exact zero case), so FZ cannot change the value or add IDC/UFC. An FZ-aware sum rule is needed because 窶彗ny finite sum窶・may be tiny. Add targeted tests, expect generated output and `tests/recompiler_smoke` hashes to change, re-export, and measure FPS.
+- **Proposed next steps:** (1) verify guest FPCR and gate-open rate at runtime with a diagnostic counter or shadow build; (2) if confirmed, extend the FPX1 gate to accept FZ only when no input is denormal and the result is a normal finite value (or an exact zero case), so FZ cannot change the value or add IDC/UFC. An FZ-aware sum rule is needed because 驕ｯ・ｶ陟匁ｺｶy finite sum驕ｯ・ｶ郢晢ｽｻmay be tiny. Add targeted tests, expect generated output and `tests/recompiler_smoke` hashes to change, re-export, and measure FPS.
 
 ### 2026-10-05: Guest FPCR measured: PLA runs with FZ set (FPX1 gate closed)
 
@@ -415,3 +415,384 @@ After each meaningful change, add a dated entry with:
 - Next action or blocking information.
 
 Keep raw logs, machine-specific paths, and game-derived artifacts local. Link only to sanitized, shareable evidence from public documentation.
+
+## Archived on 2026-10-06 (from WORK_PLAN.md)
+
+The following sections were moved from WORK_PLAN.md on 2026-10-06 and are unchanged from the committed source.
+
+## Milestone 4a: Main-module DLL split (design plan)
+
+**Why (evidence):** Estimated image budget (see the image-budget progress entry): dev8 static launcher about 1,820 MiB (about 228 MiB margin); `main` is about 1,455 MiB (no FMI) / 1,780 MiB (FMI) of generated code. With `main` split out, the estimate is main DLL about 1,455 / 1,780 MiB and the launcher about 365 / 460 MiB (other modules plus runtime, estimate). Risk: `main` alone keeps only about 268 MiB margin with FMI; further growth of `main` would require splitting `main` itself, which is harder (intra-module direct calls).
+
+**Existing building blocks (survey, 2026-10-05; verify line numbers before use):**
+
+- The generator already emits a per-module shared library (`recompiled_image` for `main`, `recompiled_<module>` otherwise) with `SUYU_HOSTED_RECOMP=1` / `RECOMP_SHARED_MODULE=1` and an exported ABI surface (image ABI, guard v2, optional guard_gen/features/fastmem/fpx, image_lookup, run_slice, index, set_base, entry) in `src/core/recompiler/arm64_to_c.h` (~5570-5909). `RECOMP_STATIC_ONLY` suppresses it for static exports.
+- `src/suyu_cmd/suyu.cpp` (~2021-2186) loads module DLLs from the executable directory in NSO order with `GetProcAddress` handshakes (ABI, ABI6), combines lookup/run_slice, and routes bases by load-order index - but only when the static registry is empty (~2024).
+- Static registration: `game_export.cpp` (~4043-4210) writes `recomp_registration.c` (NSO-order externs/table, guard and ABI6 registries); `src/suyu_cmd/CMakeLists.txt` (~107-218) imports `recomp_runtime_shared` once and each `recomp_static_<module>` with per-module renames, and links `suyu-cmd-static`; `src/suyu_cmd/recomp_modules/CMakeLists.txt` repeats the renames for the clang-cl prebuild.
+- Generated code reaches the host through `RecompHostMem` callbacks and `GuestContext` fields filled by `src/core/arm/recomp/arm_recomp.cpp` (~908-1043), not host symbol imports. Cross-module guest calls go through the dispatcher (generated direct calls only within one module, `arm64_to_c.h` ~378-410) and guest GOT/PLT relocation (`arm_recomp.cpp` ~1357-1480); no native cross-module symbol references were found.
+- Per-image state exists: `g_module_base`, GG1 watch word, FPX shadow static/_Thread_local state, exclusive-monitor fallback state (`arm64_to_c.h` ~6836-6847, ~7630). CRT is /MD in the project and the export build kit.
+- Packaging assumes one file: `game_export.cpp` (~5190-5486) packages `static_launcher.exe` only and README_NATIVE_EXPORT says one executable; the export build kit (`tools/export_build_kit/`) imports static libraries only and `package.py` rejects `recomp_static_*` inputs; manifests carry no module binary topology.
+
+**Design decisions to make (each recorded with rationale before implementation):**
+
+- D1 Runtime placement: the main DLL carries its own `recomp_runtime.c` copy (memory helpers stay DLL-local calls) versus importing helpers from the launcher (DLL-to-exE call per access). Default proposal: DLL-local copy; verify that no runtime global must be process-wide.
+- D2 Per-image globals: list every global/TLS in `recomp_runtime.c`/`.h` and the generated units; classify as per-image (fine duplicated) or shared (must move into `GuestContext`/host callbacks). Must cover GG1 watch word, FPX shadow, exclusive state, guard generation, chain budget.
+- D3 Mixed registry and loading: how `recomp_registration.c` represents a DLL module (placeholder entry filled at load, or a separate DLL list) while keeping NSO order, base routing, and the ABI6 all-module handshake; the launcher must load the DLL even when the static registry is non-empty; error behaviour when the DLL is missing or mismatched (fail fast; no JIT fallback in strict mode).
+- D4 Build: generator/CMake mode to build `main` as a DLL and others as static libs in both the in-tree MSVC path and the clang-cl `recomp_modules` prebuild (clang-cl compiles, link.exe or lld-link links the DLL); module renames; import library handling; /MD; PDB size.
+- D5 Packaging and manifest: the Build export ships `static_launcher.exe` plus the main DLL; update the package layout, README_NATIVE_EXPORT and UI “single-file” wording, package policy, manifest field for module binary topology, cache reuse, and the LNK1248 handling (per-image size check).
+- D6 Export build kit: decide whether the kit supports the split now or is explicitly documented as static-only for now.
+- D7 Selection: always split main for PLA static exports, or split only when the estimated image (from `dumpbin /summary` sizes) exceeds a threshold; name the threshold constant.
+
+**Design work steps:**
+
+1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3. (done 2026-10-06)
+2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change. (done 2026-10-06)
+3. Prototype measurement before full implementation: from a Source-format export, build the generated `main` module's existing SHARED target with `RECOMP_STATIC_ONLY` off, without and with FMI; measure the DLL image and dependency evidence, then record it. (done 2026-10-06; see progress entry)
+4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode ((a) done 2026-10-06; (b) done 2026-10-06), (c) exporter packaging/manifest/wording (part 1 done 2026-10-06; part 2 pending), (d) build-kit decision. Code reviewer reviews each step.
+5. Tests: extend `tests/recompiler_smoke` with a mixed static+DLL variant (synthetic modules) covering load order, base routing, cross-module dispatch, guard checks, GG1, and FPX; keep existing goldens unchanged for non-split exports; run the fastmem and FPX harnesses.
+6. PLA verification: export static AOT (fallback disabled) without FMI, then with FMI; record per-image sizes, link time, zero JIT transitions, FPS in the same overworld scene, and sampling; compare with dev8 (25-30 FPS) and JIT (30 FPS).
+
+**Acceptance:** design note reviewed with no unresolved findings; main DLL and launcher each link under 2 GB for PLA with FMI; strict static mode shows zero JIT transitions and no lookup misses in the exercised scene; synthetic mixed-mode tests pass; packaging, manifest, and documentation describe the two-file layout; remaining limits (main margin, build-kit support) are documented.
+
+### Step 4(c) part 2 acceptance (from the part 1 reviews)
+
+The part 1 reviews accepted the split wiring as an intermediate step, not as completion of step 4(c). Part 2 must:
+
+- Drive real synthetic split static and Hybrid exports through `tests/export_integration`, run a linked v1 launcher with guest JIT fallback disabled, and inspect the registry, marker, selection, DLL collection, manifests, package hashes, and per-image `SizeOfImage`.
+- Exercise VFS/deconstructed-source failures for `main` and a canonical static module: zero text with data, unreadable text, decompression failure, bad or short NSO header, missing `main`, and all analyses failing; allow ancillary non-NSO files, but refuse an analyzable non-canonical NSO with a named diagnostic.
+- Inject emission, compiler, DLL link, and launcher LNK1248 failures, including clang-to-MSVC retry, and verify split never removes a module or finalizes a failed package; diagnostics must name the module/image, stage, and saved compiler/linker log where applicable.
+- Exercise `SUYU_AOT_SPLIT_MAIN` unset, empty, `0`, `1`, and invalid values across Dynarmic, Hybrid, strict static, non-Windows, Source, and kit-only paths; verify common-entry validation, the per-export snapshot, and re-entry protection.
+- In one dialog, cover successful split followed by option-off JIT/all-static, and failure after DLL collection followed by JIT/all-static retry; verify no stale split record, DLL requirement, bundle id, or identity remains.
+- Verify identical split cache reuse and invalidation for ancillary ExeFS files, omitted/extra bindings, main binding, selection/DLL lists, bundle id, topology disagreement, DLL file/size/hash, and missing DLL; all-static and split caches must not cross-reuse.
+- Cover main-only, all-DLL, and mixed topology from clang prebuilt and in-tree MSVC paths; all-DLL prebuild must create no static runtime and the launcher must import none, while mixed/all-static still require it.
+- Complete the carried runtime checks: unreadable embedded path in a middle canonical module, complete inventory and pre-relocation input on every core, named `Core::Load` refusals with zero guest execution, lookup unregister, fresh-process rebinding, and two application lifetimes with one pre-relocation log per bound process.
+- Verify split completion-dialog wording, unchanged all-static v4 artifacts and `tests/export_regression`, Windows non-ASCII/space/bracket paths, and the PE truncated-header/file regressions.
+
+#### Part 2 planning notes
+
+The part 2 survey found that the MCP harness can drive real exports and isolated launchers but cannot mutate `SUYU_AOT_SPLIT_MAIN` inside one running frontend; use a small per-export seam or separate frontend processes. A valid multi-module fixture can use sparse canonical ExeFS sets with contiguous page-aligned bases in canonical order, but cross-module targets must be seeded as discovery roots and fixed-seed base formulas must be used. `FindModules` drops a loaded module when its embedded path read fails, so the bound canonical inventory must remain independent of that debug-name scan. The smallest two-lifetime seam is a test-only host around independent `Core::System` loads with lookup unregister/rebind, although normal renderer and service dependencies still need verification. Existing named export failure injection covers staging checkpoints, not emission/compiler/link failures; lower-level failures need synthetic toolchain or process-runner injection. The `export_regression` blocker was a Qt-root layout mismatch: resolve the CPM Qt package root rather than the build tree.
+
+These are survey findings to verify during implementation, not completed acceptance evidence.
+
+#### Open questions
+
+1. Resolved by step 3: measured main-DLL `SizeOfImage` is 1,459.1 MiB without FMI and 1,783.7 MiB with FMI, leaving margins of 588.9 MiB and 264.3 MiB to the 2,048 MiB limit, respectively.
+2. (Resolved in draft 3 `[R12]`: NSP/XCI already forward `ReadNSOModules`.)
+3. Whether the base-binding callback should also replace index routing for all-static exports later (out of scope now; v4 unchanged).
+
+**Why (evidence):** Estimated image budget (see the image-budget progress entry): dev8 static launcher about 1,820 MiB (about 228 MiB margin); `main` is about 1,455 MiB (no FMI) / 1,780 MiB (FMI) of generated code. With `main` split out, the estimate is main DLL about 1,455 / 1,780 MiB and the launcher about 365 / 460 MiB (other modules plus runtime, estimate). Risk: `main` alone keeps only about 268 MiB margin with FMI; further growth of `main` would require splitting `main` itself, which is harder (intra-module direct calls).
+
+**Existing building blocks (survey, 2026-10-05; verify line numbers before use):**
+
+- The generator already emits a per-module shared library (`recompiled_image` for `main`, `recompiled_<module>` otherwise) with `SUYU_HOSTED_RECOMP=1` / `RECOMP_SHARED_MODULE=1` and an exported ABI surface (image ABI, guard v2, optional guard_gen/features/fastmem/fpx, image_lookup, run_slice, index, set_base, entry) in `src/core/recompiler/arm64_to_c.h` (~5570-5909). `RECOMP_STATIC_ONLY` suppresses it for static exports.
+- `src/suyu_cmd/suyu.cpp` (~2021-2186) loads module DLLs from the executable directory in NSO order with `GetProcAddress` handshakes (ABI, ABI6), combines lookup/run_slice, and routes bases by load-order index - but only when the static registry is empty (~2024).
+- Static registration: `game_export.cpp` (~4043-4210) writes `recomp_registration.c` (NSO-order externs/table, guard and ABI6 registries); `src/suyu_cmd/CMakeLists.txt` (~107-218) imports `recomp_runtime_shared` once and each `recomp_static_<module>` with per-module renames, and links `suyu-cmd-static`; `src/suyu_cmd/recomp_modules/CMakeLists.txt` repeats the renames for the clang-cl prebuild.
+- Generated code reaches the host through `RecompHostMem` callbacks and `GuestContext` fields filled by `src/core/arm/recomp/arm_recomp.cpp` (~908-1043), not host symbol imports. Cross-module guest calls go through the dispatcher (generated direct calls only within one module, `arm64_to_c.h` ~378-410) and guest GOT/PLT relocation (`arm_recomp.cpp` ~1357-1480); no native cross-module symbol references were found.
+- Per-image state exists: `g_module_base`, GG1 watch word, FPX shadow static/_Thread_local state, exclusive-monitor fallback state (`arm64_to_c.h` ~6836-6847, ~7630). CRT is /MD in the project and the export build kit.
+- Packaging assumes one file: `game_export.cpp` (~5190-5486) packages `static_launcher.exe` only and README_NATIVE_EXPORT says one executable; the export build kit (`tools/export_build_kit/`) imports static libraries only and `package.py` rejects `recomp_static_*` inputs; manifests carry no module binary topology.
+
+**Design decisions to make (each recorded with rationale before implementation):**
+
+- D1 Runtime placement: the main DLL carries its own `recomp_runtime.c` copy (memory helpers stay DLL-local calls) versus importing helpers from the launcher (DLL-to-exE call per access). Default proposal: DLL-local copy; verify that no runtime global must be process-wide.
+- D2 Per-image globals: list every global/TLS in `recomp_runtime.c`/`.h` and the generated units; classify as per-image (fine duplicated) or shared (must move into `GuestContext`/host callbacks). Must cover GG1 watch word, FPX shadow, exclusive state, guard generation, chain budget.
+- D3 Mixed registry and loading: how `recomp_registration.c` represents a DLL module (placeholder entry filled at load, or a separate DLL list) while keeping NSO order, base routing, and the ABI6 all-module handshake; the launcher must load the DLL even when the static registry is non-empty; error behaviour when the DLL is missing or mismatched (fail fast; no JIT fallback in strict mode).
+- D4 Build: generator/CMake mode to build `main` as a DLL and others as static libs in both the in-tree MSVC path and the clang-cl `recomp_modules` prebuild (clang-cl compiles, link.exe or lld-link links the DLL); module renames; import library handling; /MD; PDB size.
+- D5 Packaging and manifest: the Build export ships `static_launcher.exe` plus the main DLL; update the package layout, README_NATIVE_EXPORT and UI 窶徭ingle-file窶・wording, package policy, manifest field for module binary topology, cache reuse, and the LNK1248 handling (per-image size check).
+- D6 Export build kit: decide whether the kit supports the split now or is explicitly documented as static-only for now.
+- D7 Selection: always split main for PLA static exports, or split only when the estimated image (from `dumpbin /summary` sizes) exceeds a threshold; name the threshold constant.
+
+**Design work steps:**
+
+1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3. (done 2026-10-06)
+2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change. (done 2026-10-06)
+3. Prototype measurement before full implementation: from a Source-format export, build the generated `main` module's existing SHARED target with `RECOMP_STATIC_ONLY` off, without and with FMI; measure the DLL image and dependency evidence, then record it. (done 2026-10-06; see progress entry)
+4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode ((a) done 2026-10-06; (b) done 2026-10-06), (c) exporter packaging/manifest/wording (part 1 done 2026-10-06; part 2 pending), (d) build-kit decision. Code reviewer reviews each step.
+5. Tests: extend `tests/recompiler_smoke` with a mixed static+DLL variant (synthetic modules) covering load order, base routing, cross-module dispatch, guard checks, GG1, and FPX; keep existing goldens unchanged for non-split exports; run the fastmem and FPX harnesses.
+6. PLA verification: export static AOT (fallback disabled) without FMI, then with FMI; record per-image sizes, link time, zero JIT transitions, FPS in the same overworld scene, and sampling; compare with dev8 (25-30 FPS) and JIT (30 FPS).
+
+**Acceptance:** design note reviewed with no unresolved findings; main DLL and launcher each link under 2 GB for PLA with FMI; strict static mode shows zero JIT transitions and no lookup misses in the exercised scene; synthetic mixed-mode tests pass; packaging, manifest, and documentation describe the two-file layout; remaining limits (main margin, build-kit support) are documented.
+
+
+
+### Design note (accepted 2026-10-06, draft 3)
+
+Review history: draft 1: 1 blocker/9 major/1 minor (R1-R11); draft 2: 0/2/1; draft 3: 0/0/0, implementation may start.
+
+#### Verified starting facts
+
+- The shared-module shape already exists: `add_library(recompiled_image SHARED recomp_export.c recomp_runtime.c ...)` with `SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1` (`src/core/recompiler/arm64_to_c.h` ~5718-5730). Without `RECOMP_STATIC_HOST`, the DLL's own `recomp_runtime.c` defines `g_module_base` (~7798-7804) and the load/store/exclusive/SVC helpers.
+- The static shape builds `recomp_runtime.c` once as `recomp_runtime_shared` (`RECOMP_STATIC_HOST=1`) and renames each module's image symbols through `-D` (~5733-5785).
+- Generated code reaches the emulator through `GuestContext::host_mem` (`RecompHostMem`) callbacks for memory, exclusive, and counter operations (mapped fastmem executes locally) and through `GuestContext::pending_svc` plus a return to the host for SVCs; the callbacks are installed per `ArmRecomp::Impl` (`src/core/arm/recomp/arm_recomp.cpp` ~909-926, ~1020-1050); there are no native imports of host C++ symbols and direct chains are intra-module (~380-410). A null exclusive/counter callback makes generated code use private fallbacks (`arm64_to_c.h` ~7633-7671).
+- Launcher (`src/suyu_cmd/suyu.cpp`): the static path calls `suyu_recomp_static_modules_v4` (~1933-2017); the DLL path runs only if `s_recomp_modules.empty()` (~2025), probes fixed file names, silently skips missing files and DLLs without `recomp_image_lookup`, and warns-and-continues on `LoadLibraryW` failure. `SuyuRecompStaticModule` is declared separately in `suyu.cpp` (~196) and emitted as text by `game_export.cpp` (~4108).
+- Base routing: `ArmRecomp::ModuleBaseFor` (~1187-1201) calls the setter with `(index, name, base)` over `FindModules` results (`src/core/arm/debug.cpp` ~254-313), which drop modules whose embedded path is unreadable; the launcher routes by index (`suyu.cpp` ~2181). Embedded names do not match exporter names (`arm_recomp.h` ~100-110).
+- The loader keeps a canonical inventory: `AppLoader_DeconstructedRomDirectory` records `rtld`, `main`, `subsdk0..9`, `sdk` by load address (`src/core/loader/deconstructed_rom_directory.cpp` ~191-265, `ReadNSOModules` ~334); NCA/NAX forward it, and NSP (`nsp.cpp` ~263) and XCI (`xci.cpp` ~211) forward to their nested loaders `[R12]`; a standalone NSO records `file->GetName()` rather than a canonical name (`nso.cpp` ~242-252); classes that do not override it return `ErrorNotImplemented` (`src/core/loader/loader.h` ~339). `FindModules` results also feed the host pre-relocator through `Impl::modules` (`arm_recomp.cpp` ~1191, ~1883). `Core::Load` already reads this inventory before process publication on the explicit-prepare path (`src/core/core.cpp` ~355-365); that path also changes relocation behavior (`arm_recomp.cpp` ~1715-1730) and is not reused here.
+
+#### D1 Runtime placement
+
+Decision: the main DLL carries its own `recomp_runtime.c`, compiled exactly as the existing shared shape. Static modules keep `recomp_runtime_shared`. Rationale: helpers are per-access and intentionally out of line (~7692); the DLL copy needs no new exe-export ABI. Cost is measured in step 3.
+
+Constraint `[R10]`: hosted code must never take the private fallbacks. The host validates bridge completeness itself: when each `ArmRecomp::Impl` builds its `RecompHostMem`, it checks that every exclusive (single and pair), clear-exclusive, and counter callback is non-null and fails initialization with a named diagnostic otherwise. This is a host-side check after per-core bridge construction, not a DLL export, and applies to all bundles.
+
+#### D2 Per-image globals
+
+| State | Placement | Reason |
+|---|---|---|
+| `g_module_base`, `g_recomp_guard_host_v2`, `g_recomp_gg_word`, `g_recomp_gg_host`, `recomp_gg_seen[]`, lookup index `_idx*` | Per image | One image's base, handshake, generation epoch, or address range; the host already keeps per-image pointers. |
+| FPX shadow statics/TLS | Per image | Diagnostics only; mixed layout yields one report per runtime copy. Documented, not aggregated. |
+| `g_excl_addr`, `g_excl_valid`, standalone `base_ns` | Never used in hosted mode | Guaranteed by the D1 bridge check. |
+| Chain budget, combined lookup, readiness flags, GG1 registry, counters | Process-wide host state | Already host-owned; unchanged. |
+
+No global moves into `GuestContext`. Step 3 records the DLL's exports and imports (`dumpbin /exports /imports /dependents`).
+
+#### D3 Topology contract, loading, and base binding
+
+**Topology contract `[R2]`.** A new shared C header (proposed `src/core/arm/recomp/recomp_topology.h`, plain C, included by the launcher and by the generated `recomp_registration.c`) defines a versioned registry: entry point `suyu_recomp_topology_v1()` returning a header `{abi_version, struct_size, entry_count, static_count, dll_count, bundle_abi, bundle_id[32]}` and an entry array `{canonical_name, binding (static|dll), dll_file_utf8, image_abi, expected_features, static function pointers (null for dll)}` in NSO order. The struct layout is defined once in that header; the exporter emits only values. Old all-static exports and the existing `suyu_recomp_static_modules_v4` path are unchanged: the exporter emits v1 only when a split is requested, and the launcher prefers v1 when present, otherwise v4. Each entry's features are checked individually against `expected_features` (not only the bundle OR). Static-registry handshakes (GG1, FPX, FM1, guard v2) gain v1 forms that report results per entry index so a mixed bundle has separate total/static/DLL counts and GG1 descriptors are placed at their full topology index.
+
+**Single source.** The exporter computes one topology value (module list in NSO order, binding, DLL file name from one helper, bundle ABI, expected features, bundle id). The generated CMake binding list, `recomp_registration.c`, package file list, AOT cache manifest, and package manifest are all written from that value, and each carries `topology_version` and `bundle_id`; consumers compare them and fail with the mismatched item named.
+
+**Bundle and module identity `[R3]`.** `bundle_id` is SHA-256 over the source ExeFS digest already used for cache identity (`game_export.cpp` ~3594), the generator revision, and the generation options. In split mode the generator emits an extra export in each shared module, `recomp_image_identity_v1(const char** canonical_name, const uint8_t** bundle_id)`, with values from compile definitions written from the topology. The launcher accepts a DLL only if name and bundle id match its table entry. The package manifest also records each DLL's SHA-256 for integrity checks.
+
+**Transactional loading `[R11]`.** The launcher builds a pending bundle: static entries are taken from v1; each DLL entry is loaded (see D3 paths), its exports resolved (`lookup`, `set_base`, `run_slice`, `abi`, `features`, `fastmem_v1`, `guard_gen_v1` if GG1, `fpx_v1` if FPX1, `guard_v2`, `identity_v1`), and checked. Any failure releases all uncommitted handles and exits with the module name, file, and cause (missing file, Win32 error, missing export, identity, ABI, feature, or handshake refusal). Only after the whole bundle succeeds are `SetRecompLookup`, readiness flags, `SetRecompGuardGenModules`, and the binding callback published. Accepted DLL handles are owned by the bundle object and intentionally retained for the process lifetime (no `FreeLibrary` after commit, because lookup/GG1/base pointers stay installed). Strict static mode never continues with a missing slot and never falls back to JIT.
+
+**Base binding `[R1]`.** Bases are bound by canonical identity, not by debug-name index. A new host callback `SetRecompBindCallback(bool (*)(const RecompModules& inventory))` is invoked from `Core::Load` after `MakeApplicationProcess` and before process publication, using `app_loader->ReadNSOModules` (the inventory already used at `core.cpp` ~359), without enabling the explicit-prepare relocation path. The launcher's bind callback matches the inventory's canonical names (`rtld`, `main`, `subsdkN`, `sdk`) against the topology entries; it rejects count mismatch, duplicates, missing slots, and extra slots, then calls each image's `set_base` and records the canonical name and base. Failure makes `Core::Load` stop with `ErrorLoader` and a diagnostic naming the module, before any block runs; the failure path releases the service process before kernel shutdown, as the existing load error path does (`core.cpp` ~320-325).
+
+Per-core module map `[R1b]`: binding is a process-aware host stage (proposed `BindRecompProcess(KProcess&, const RecompModules& inventory)` in `arm_recomp.cpp`). After the launcher callback validates and binds the inventory, the stage installs the same canonical inventory into every application `ArmRecomp::Impl` as `modules` and sets `modules_read`, without setting `rela_applied` or `explicitly_prepared`, so the existing host pre-relocation (`ApplyAllRelocations`, ~1883) still runs and sees every module, including one whose embedded path `FindModules` cannot read. `ModuleBaseFor` then neither calls `FindModules` nor the index setter. Debug/display names are kept separately (from `FindModules`, for logs and `recomp_gaps.json` only). The bound state belongs to that process; a new process starts unbound and runs the stage again. `PrepareRecompProcess` is not reused, because it disables pre-relocation (~1727).
+
+Inventory sources `[R12]`: ExeFS directory, NCA, NAX, NSP, and XCI loaders already supply the canonical inventory through existing delegation; no new forwarding is added, and tests cover the existing delegation. Any `ReadNSOModules` error fails a split bundle fast with the loader named. A standalone NSO's inventory name is its file name and is not normalized; it fails the canonical-name match with a diagnostic, so split exports are not supported for standalone NSO loading. All-static v4 exports keep today's index routing unchanged.
+
+**Legacy all-DLL probe.** Kept unchanged for exports without a registry; not used by Build exports.
+
+**Windows paths `[R9]`.** Registry strings are UTF-8 and converted with the existing `Common::UTF8ToUTF16W`. The executable directory is read with a growing-buffer `GetModuleFileNameW` loop that checks truncation and errors. Each `dll_file_utf8` must be a plain basename (no separators, no `..`, no drive), unique case-insensitively; the exporter validates this when writing the topology and the launcher re-validates. DLLs are loaded with `LoadLibraryExW(absolute_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)`; step 3 confirms the DLL depends only on the CRT and OS DLLs already required by the launcher. Filesystem errors name the module and path.
+
+#### D4 Build `[R6]`
+
+- Generator: split mode is an opt-in emitter path. With the split off, emitted files are byte-identical to today (smoke goldens unchanged) `[R10]`. With it on, the generated module CMake receives the binding list from the topology; DLL-bound modules build only the `SHARED` target plus the identity definitions, static modules build as today.
+- Exporter: both build loops (`game_export.cpp` ~4561, ~4782) take target names and artifact paths from the topology (`recomp_static_<m>` or `recompiled_image`). The in-tree MSVC path (`src/suyu_cmd/CMakeLists.txt`) and clang-cl prebuild (`src/suyu_cmd/recomp_modules/CMakeLists.txt`) both read the same binding list; the DLL is built as its own target, copied next to the launcher, and not linked into it.
+- Failure stages are logged separately: module compile, DLL link, launcher link, package. LNK1248 (or any link failure) of the DLL in the module-target branch stops the export with the image name and saved output; it does not prune a strict slot and does not retry with MSVC. The dev10 launcher-link stop stays as is.
+- Size reporting: after each successful link, read PE `SizeOfImage` from the image header (not file length) and log it against the hard limit constant `kPeImageLimitBytes` (2 GiB) with the remaining margin; record it in the manifest.
+- Flags: `/MD`; the DLL uses the same generator variables for FM1/GG1/FPX/FMI defines, and features are still verified per entry at load. Separate PDB, not packaged.
+
+#### D5 Packaging, cache, and manifest `[R5]`
+
+- `ValidateLocalExport` / package policy (`game_export.cpp` ~6625, `src/common/package_policy.cpp` ~1167-1240) receive the required module-DLL set derived from the topology; listed DLLs are required and non-empty, unlisted DLLs remain rejected.
+- AOT cache (`aot_manifest.json`, ~3416-3574) stores `topology_version`, `bundle_id`, binding list, and each DLL's path, size, and SHA-256. Reuse requires all of them to match and every required DLL to exist with the recorded digest; otherwise rebuild.
+- Package staging copies and verifies DLLs (digest) before the cache is removed (~5393). Cache failure policy `[R5b]`: unchanged from today for both all-static and split exports. The AOT cache lives inside package staging, and a failed, cancelled, or exception-terminated package discards the whole staging directory, including the cache (`StagingCleanup`, ~6368-6374); the next export rebuilds. This milestone does not add cache retention across failed packages; a recoverable cache outside staging would be a separate change with its own ownership and promotion rules.
+- `export-package.json` gains `module_topology` (`name`, `binding`, `file`, `size_bytes`, `size_of_image`, `sha256`) and `bundle_id`, written from the same topology value.
+- README_NATIVE_EXPORT and UI text describe "launcher plus module DLL(s) in the same folder" for split exports only.
+
+#### D6 Export build kit `[R4]`
+
+The kit stays static-only in this milestone. Rejection happens in the consumer: the kit CMake (`tools/export_build_kit/CMakeLists.txt` ~78-105) rejects a topology with a `dll` entry before creating targets, and exporter preflight rejects a split request on a kit-only installation (`game_export.cpp` ~4319) before compiling modules, with a message that the split requires a source build. The split is never silently undone. `package.py` keeps rejecting game-specific inputs as today. All-static kit exports keep using v4 and are unaffected; the kit revision check is unchanged for them.
+
+#### D7 Selection `[R7]`
+
+Explicit opt-in only in this milestone: the documented generator option `SUYU_AOT_SPLIT_MAIN=1` splits `main` for Windows static AOT exports. On other export types or platforms the option fails the export with a clear message. No automatic size-based selection; it may be proposed later as a separate auto mode with its own decision phase. Reports show each image's `SizeOfImage` against the hard limit and the remaining margin for the main DLL.
+
+#### Load-time data flow
+
+Exporter -> topology value -> (a) generated CMake binding list, (b) `recomp_registration.c` v1, (c) AOT cache manifest, (d) package file list and `export-package.json`. Launcher start -> read v1 -> pending bundle (static entries + DLL loads + identity/ABI/feature/handshake checks) -> commit (publish lookup, readiness, GG1, bind callback) -> `Core::Load` -> loader inventory -> bind callback validates and sets bases -> process published -> guest runs.
+
+#### Failure modes
+
+| Failure | Stage | Behaviour |
+|---|---|---|
+| DLL missing, unloadable, export missing | Launcher, before commit | Exit; names module, file, Win32 error or export. |
+| Identity, ABI, or per-entry feature mismatch | Launcher, before commit | Exit; names module and both values. |
+| FM1/GG1/FPX refusal or guard v2 disagreement | Launcher, before commit | Exit (guard v2 "not negotiated" kept only if every entry agrees). |
+| Inventory unavailable, count/duplicate/missing/extra slot | `Core::Load`, before publication | `ErrorLoader`; names loader or module. |
+| Bridge callback null | `ArmRecomp` init | Fail initialization; names callback. |
+| DLL or launcher image over limit / link failure | Export build | Stop; names image, stage, saved log; no retry, no pruning. |
+| Packaged DLL missing, empty, digest mismatch, or extra DLL | Export package | Export fails. |
+| Split requested with kit-only install | Exporter preflight / kit CMake | Fails with "requires source build". |
+
+#### Test plan `[R10]`
+
+- Refactor the launcher's bundle loading and binding into a testable unit (for example `src/core/arm/recomp/recomp_bundle.{h,cpp}`) used by `suyu.cpp`, so tests run production logic.
+- Mixed synthetic fixture (new, alongside `tests/recompiler_smoke`): three or more modules with one real DLL in a middle slot, loaded through the production unit. Checks: NSO order, inventory-based base binding, cross-module dispatch, guard v2, GG1 descriptors at full indices, FPX agreement, single and pair exclusive reservation across the static/DLL boundary, CLREX, counter continuity.
+- Negative cases, each asserting the named diagnostic and that no block executes: missing DLL, unloadable DLL, missing export, same-ABI/same-feature DLL from another synthetic bundle or module (identity), ABI mismatch, per-entry feature mismatch, individual FM1/GG1/FPX refusal, guard v2 disagreement, empty and duplicate topology, inventory missing a middle module, extra inventory module, valid loader inventory with an unreadable embedded name in a middle module (all cores keep it for relocation and dispatch, no index setter call) `[R1b]`, standalone NSO inventory rejected by name, NSP/XCI delegation returning the canonical inventory `[R12]`, null bridge callback, strict lookup miss without JIT.
+- Paths: Japanese parent directory, spaces, brackets, different current directory, path beyond `MAX_PATH` (works or explicit diagnostic).
+- Exporter: package success, extra DLL rejection, missing/empty DLL, cache reuse in both binding directions, stale cached DLL digest, failure injected after DLL verification and before promotion (staging and cache discarded, no partial package promoted) `[R5b]`, kit-only split rejection, unchanged all-static kit exports (strict and Hybrid), injected DLL-link and launcher-link LNK1248 on both compiler paths.
+- Regression: existing smoke goldens byte-identical with the split off; `tests/recompiler_fastmem` and `tests/recompiler_fpx` (reduced and full); existing ABI5/ABI6 all-static coverage.
+- PLA (step 6): static AOT without FMI, then with FMI; per-image `SizeOfImage`, link time, zero JIT transitions, loader inventory names, FPS in the same overworld scene, sampling.
+
+#### Step 3 prototype measurement (revised) `[R8]`
+
+Do not link static dev8 objects (they carry static renames and no runtime). Instead, from a Source-format export generated outside the repository, configure the generated `main` module CMake with `RECOMP_STATIC_ONLY` off so the existing `recompiled_image` SHARED target builds with the real shared definitions. Measure without FMI and with FMI: `SizeOfImage`, file size, PDB size, exports, imports, dependents, compiler and link flags, link time. Record this as evidence for the main DLL only; the launcher size remains an estimate until a split launcher links.
+
+#### Modifiability and reference correctness
+
+One exporter-owned topology value is the source for module names, bindings, DLL file names, bundle id, ABI, and features; every consumer is written from it and verified at build or load. Moving a module between static and DLL binding is a one-entry change. Generated code is not edited; the split is an opt-in generator/exporter option, and the default output is unchanged.
+
+### Carried acceptance criteria (from the step 4(b) review)
+
+The following criteria are carried from the accepted step 4(b) review and must be completed in steps 4(c) and 4(d); none may be replaced by a PLA observation.
+
+- **4(c):** Produce a real split export through the exporter and execute a linked v1 launcher with fallback disabled; cover an unreadable-embedded-path middle-module variant while checking every core's complete inventory and relocation input; exercise Core load refusals with named diagnostics and zero guest execution; verify lookup-removal unregister and fresh-process rebinding; wire registry, marker, and targets coherently and run the unchanged all-static v4 regression.
+- **4(d):** Exercise a three-or-more-module static/DLL/static fixture through the production dispatcher with GG1, guard, and FPX checks; cover cross-image reservation in both directions, STXR success/failure, CLREX, LDXP/STXP, and counter continuity; require bridge-null refusal per callback and strict lookup-miss refusal; complete remaining loader/handshake refusals and kit/package/cache/path tests, goldens, fastmem, and reduced/full FPX.
+
+## Session handoff (2026-10-06, eighth session, complete)
+
+### State at handoff
+
+- **Current local state:** The host build tree was rebuilt with export variables cleared; no working static Build export exists locally. Clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before host builds, then re-export without FMI to obtain a package; the dev8 module libraries remain available for image inspection outside the repository.
+
+- **Repository:** HEAD is `1d9ba61` (v0.0.1-dev11, committed and pushed by the agent at the user's explicit request while the user was away); the project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename. The local repository folder remains named HisuiWake. Uncommitted: v0.0.1-dev12 step 4(b) code and docs.
+- **Local environment:** The dev8 module libraries built for the image measurement are in a local directory outside the repository; the host build tree was rebuilt with export variables cleared (dev10 `suyu.exe`/`suyu-cmd.exe`). No working static Build export exists locally.
+- **Diagnostics:** the local diag directory outside the repository contains `sample_static.ps1` and `RipSampler2.cs`, with `asm_probe` and `fmi_probe` material. Launch from a non-elevated shell; use `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out <file>`.
+- **Build/test:** in the Build Tools 2026 `vcvars64` environment, run `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls` (about 100.6 M cases; reduced: add `--cases 1000 --adv 2000 --legs 13`), `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`, and `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`. Python must read generated files as UTF-8. `rebuild-suyu.bat` clears export variables and builds with `-j 8`; incremental builds use `cmake --build <build-dir> --target suyu suyu-cmd -j 8`.
+- **Switches:** `SUYU_FPCR_STATS=1` logs guest FPCR and adds a lock per save; never use it for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode. `SUYU_AOT_FM_INLINE=1` enables FMI at export only when FM1 is enabled, but currently breaks the PLA static export with LNK1248 and remains off.
+
+### What this session did
+
+1. Completed Milestone 4a step 1: Orca Code Explorer surveyed globals/TLS, exe<->module symbol dependencies, and the launcher DLL loader/ABI6 handshake.
+2. Completed step 2: wrote the draft-3 design note and received three reviews: draft 1 (blocker 1, major 9, minor 1; R1-R11), draft 2 (blocker 0, major 2, minor 1; residual R1/R5 and new R12), and draft 3 (blocker 0, major 0, minor 0; implementation may start).
+3. Completed step 3: built the generated `main` module's existing SHARED target without and with FMI; measured `SizeOfImage` at 1,459.1 MiB and 1,783.7 MiB, with 588.9 MiB and 264.3 MiB margins.
+4. Completed Milestone 4a step 4(a): implemented and reviewed the authoritative module topology, shared-image identity export, and prebuild DLL binding checks; all-static output remains unchanged.
+5. Completed Milestone 4a step 4(b): implemented and reviewed registry v1, transactional bundle loading, inventory binding, and host bridge checks; accepted as an intermediate with F3 carried.
+
+### Where things stand
+
+| Observation | Result |
+|---|---|
+| JIT baseline | 30 FPS. |
+| Hybrid first / translate-all / budget 256 | 17 / 14 / 15-20 FPS. |
+| Dev6 static AOT | 16-20 FPS, no fallback. |
+| Dev8 static AOT | 25-30 FPS, no fallback. |
+| [Dev8 static sampling](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld) | Hot block 2-3.5% (was 15-19%), scheduler-fiber symbol about 1% (was 10-12.5%), CPU cores waiting 35-49% of samples. |
+| [Same-scene JIT sampling](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
+| [FMI export](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248) | FMI tests passed, but the PLA static launcher image was about 2.19 GB and failed LNK1248 against the 2 GB x64 limit. |
+| Image budget | Dev8 about 1,820 MiB estimated (about 228 MiB margin); FMI +421 MiB does not fit. |
+| Main DLL (step 3) | `SizeOfImage`: 1,459.1 MiB without FMI / 1,783.7 MiB with FMI; margins: 588.9 MiB / 264.3 MiB to 2,048 MiB. |
+| FPCR measurement | FZ set in about 96% of 3,473,408 JIT context saves; do not measure FPS with `SUYU_FPCR_STATS=1`. |
+| Sampling profile | Hot block was 15-19% of busy-core RIP samples; `ScheduleImplFiber` was 10-12.5%. The FZ finding is confirmed, not a hypothesis. |
+
+Key conclusions: static AOT ran without fallback in the exercised scenario; Dynarmic remains linked for Hybrid and GPU macro JIT/shader compilation remain runtime generation. The SHL fallback hypothesis was refuted, and budget 256 addressed long-slice interrupt delay. The FZ-closed FPX1 gate was the main remaining static AOT cost; the smoke golden mismatch came from MSVC without `/utf-8` in the test only, so real exports were unaffected. Build exports delete `aot_cache`; use Source format to inspect generated C. The FPS comparison is not under fully matched conditions.
+
+### Open issues, in priority order
+
+1. Milestone 4a step 4(c): exporter `SUYU_AOT_SPLIT_MAIN` option and bundle id, registry v1/marker emission, in-tree launcher DLL handling, packaging/manifest/cache, and the carried 4(c) acceptance criteria.
+2. Exercise the dev10 failure paths synthetically.
+3. Remaining items from the old list item 5: code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
+
+### Immediate next action
+
+Milestone 4a step 4(c): implement exporter `SUYU_AOT_SPLIT_MAIN` option and bundle id, registry v1/marker emission, in-tree launcher DLL handling, packaging/manifest/cache, and the carried 4(c) acceptance criteria.
+
+### How to work
+
+- Measure FPS in the same overworld scene and record backend, settings, cache state, and chain-budget condition; never use `SUYU_FPCR_STATS` during FPS measurements.
+- Use the test commands above and Source format when generated C must be inspected. Keep build/export paths and diagnostics outside the repository.
+- Do not export PLA with `SUYU_AOT_FM_INLINE=1` until the image budget is solved. Read generated files as UTF-8 in Python on Windows, and copy `suyu_log.txt` before restarting suyu after a failed export.
+- Follow [CLAUDE.md](../../CLAUDE.md), [CODEBASE_INDEX.md](CODEBASE_INDEX.md), and the Orca coordination notes.
+
+Useful entry points: [agent guide](../../CLAUDE.md), [codebase index](CODEBASE_INDEX.md), [project README](../../README.md), [upstream build guide](../Suyu/Build.md), [upstream export guide](../Suyu/user/GameExport.md), [exporter source](../../src/suyu/game_export.cpp), and [dependency manifest](../../cpmfile.json).
+
+After each meaningful change, add a dated entry with:
+
+- Milestone and source revision.
+- Problem and supporting evidence.
+- Files changed and reason for the chosen approach.
+- Exact build/test commands and relevant settings.
+- Observed result, comparison baseline, and untested behavior.
+- Next action or blocking information.
+
+Keep raw logs, machine-specific paths, and game-derived artifacts local. Link only to sanitized, shareable evidence from public documentation.
+
+### 2026-10-06: Milestone 4a step 4(c) part 1: split export wiring in exporter, CMake, cache, and package (v0.0.1-dev13)
+
+- **Milestone and revision:** Milestone 4a step 4(c), part 1; base HEAD `e38f7ad` (v0.0.1-dev12); implementation remained uncommitted.
+- **Problem and evidence:** The main-module DLL split needed exporter ownership of the option, bundle identity, canonical topology, cache/package records, and linked launcher/CMake handling. `SUYU_AOT_SPLIT_MAIN` is resolved once per export; split mode emits registry v1 and its marker, binds every canonical module, collects and verifies DLLs, and records per-image PE `SizeOfImage`; all-static v4 remains unchanged.
+- **Files changed and reasons:** `src/suyu/game_export.cpp` adds split validation, bundle-id/cache/manifest/package wiring, image-size diagnostics, and completion wording; `src/core/recompiler/pe_image_size.h` adds a validated PE32+ reader; `src/core/loader/nso_module_names.h` centralizes the canonical list; `src/suyu_cmd/CMakeLists.txt` and `src/suyu_cmd/recomp_modules/RecompDllTarget.cmake` implement v1 in-tree/prebuild DLL handling; `src/common/package_policy.*` records required module DLLs; `src/core/arm/recomp/arm_recomp.cpp` adds bound-inventory and process-scoped pre-relocation diagnostics; packaging and test files cover the corresponding checks.
+- **Commands/settings:** Smoke (including PE/canonical-list units, 21 bundle cases, and all-DLL prebuild), fastmem, reduced FPX, package-policy, export-build-kit, host `suyu`/`suyu-cmd` build with export variables cleared, and split/all-static in-tree/prebuilt configure/link checks were run under Build Tools 2026 `vcvars64`; exact local logs remain outside the repository.
+- **Result and untested behavior:** Smoke, fastmem, reduced FPX, package policy, kit tests, host build, and configure/link checks passed. Exporter end-to-end execution, linked v1 launcher guest execution, loader behavior against a game, and `export_regression` remain unverified; part 2 acceptance is still open.
+- **Next action:** Plan and implement Milestone 4a step 4(c) part 2 from the acceptance list above.
+
+### 2026-10-06: Milestone 4a step 4(b): registry v1, bundle loading, and inventory binding (v0.0.1-dev12)
+
+- **Milestone and revision:** Milestone 4a step 4(b), base HEAD `1d9ba61` (v0.0.1-dev11); implementation remained uncommitted.
+- **Problem and evidence:** The split design needed one registry layout and transactional bundle loader before exporter wiring. The implementation validates registry headers and entries, loads DLLs with identity/ABI/feature/handshake checks, binds canonical loader inventories before process publication, and refuses incomplete host bridges; the v1 launcher path remains macro-gated and not yet linked or run.
+- **Files changed and reasons:** `src/core/recompiler/recomp_registry_v1.h` defines the shared C registry v1 layout and export names; `src/core/recompiler/recomp_topology.h` writes registry and marker data; `src/core/arm/recomp/recomp_bundle.h/.cpp` provides transactional loading, inventory matching, and base application; `src/core/arm/recomp/arm_recomp.h/.cpp` provides process binding and bridge checks; `src/core/core.cpp` binds before publication; `src/suyu_cmd/suyu.cpp` adds the `SUYU_RECOMP_REGISTRY_V1` launcher path; `tests/recompiler_smoke/bundle_host.cpp` and `bundle_exec.c` cover 21 bundle cases and mixed-image execution.
+- **Commands/settings:** `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`; `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`; reduced FPX with `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls --cases 1000 --adv 2000 --legs 13`; `cmake --build <host build dir> --target suyu suyu-cmd -j 8` after clearing export variables; compile-only `suyu.cpp` with `-DSUYU_RECOMP_REGISTRY_V1`.
+- **Result and untested behavior:** Smoke exited 0 with 8 variants, unchanged goldens, and 21 bundle cases; fastmem had zero mismatches; reduced FPX and host build exited 0; the v1 launcher source compiled. A linked/running v1 launcher, Core::Load/BindRecompProcess behavior, three-module fixture, cross-image reservation/CLREX/pair/counter, bridge-null refusal, non-Windows execution, and long paths remain unverified. Re-review accepted step 4(b) as an intermediate with F3 carried at its original major severity.
+- **Next action:** Milestone 4a step 4(c): exporter `SUYU_AOT_SPLIT_MAIN` option and bundle-id/registry/marker emission, in-tree launcher DLL handling, packaging/manifest/cache, and the carried 4(c) acceptance criteria.
+
+### 2026-10-06: Milestone 4a step 4(a): module topology, identity export, and prebuild DLL binding (v0.0.1-dev11)
+
+- **Milestone and revision:** Milestone 4a step 4(a), base HEAD `d4c8cf9`; implementation remained uncommitted.
+- **Problem and evidence:** The split design required one authoritative module topology and a verifiable identity contract before registry and launcher loading. The implementation validates module names, order, DLL bindings, bundle identity, and generated target/file references; all-static generated CMake remains byte-identical.
+- **Files changed and reasons:** `src/core/recompiler/recomp_topology.h` centralizes topology validation, load ordering, image names, bundle-byte conversion, and `recomp_modules.cmake` output; `src/core/recompiler/recomp_image_identity.h` defines the shared-image identity ABI; `src/core/recompiler/arm64_to_c.h` emits the opt-in identity symbol; `src/suyu/game_export.cpp` uses the topology writer; `src/suyu_cmd/recomp_modules/CMakeLists.txt` validates and builds DLL-bound modules; `src/suyu_cmd/CMakeLists.txt` and `tools/export_build_kit/CMakeLists.txt` reject unsupported split configurations; smoke tests cover topology, identity, and prebuild consumers.
+- **Commands/settings:** `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl` (8 variants); `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`; `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls --cases 1000 --adv 2000 --legs 13`; `cmake --build <host build dir> --target suyu suyu-cmd -j 8`, after clearing export variables. The smoke prebuild reported the Visual Studio 18 2026 generator.
+- **Result and untested behavior:** All listed commands exited 0; smoke goldens were unchanged, topology/prebuild/identity checks passed, and fastmem had zero mismatches. Review findings were resolved, including DLL artifact-name verification, the raw 32-byte digest contract, and the MSVC-safe negative-array size check. In-tree marker and kit rejection, the main special target and DLL-first ordering, non-Windows paths, Ninja smoke prebuild, cl.exe C-mode identity compilation, and a PLA export remain unverified.
+- **Next action:** Milestone 4a step 4(b): implement registry v1 (shared C layout), launcher transactional loading with identity checks, and inventory-based base binding (`BindRecompProcess`).
+
+
+- **Archive rule:** At each session close, move progress entries older than the previous session (and their session-close entry) verbatim to OLD_HISTORY.md, and add any still-relevant fact to Key facts from archived history.
+
+### 2026-10-06: Milestone 4a step 3: main module DLL image measured without and with FMI
+
+- **Milestone and revision:** Milestone 4a step 3, HEAD `d4c8cf9`.
+- **Problem and evidence:** The design needed a measured `main` DLL image before implementation. A local wrapper CMake project outside the repository built only the generated `main` module's existing SHARED target `recompiled_image` with `RECOMP_STATIC_ONLY` off and `RECOMP_BUILD_STATIC_LIB` off, once without FMI and once with FMI.
+- **Inputs:** No-FMI used generated code from the dev8 static AOT Source export; FMI used generated code left in the aot_cache of the failed dev9 FMI export, whose `recomp_runtime.h` contains `recomp_fmi`. Non-ASCII source paths were reached through ASCII junctions.
+- **Files changed:** No repository source changed; this measurement was recorded in `docs/Aevora/WORK_PLAN.md` and `CHANGELOG.md`.
+- **Commands/settings:** Clang-cl 22.1.8 (Build Tools 2026 vcvars64), Ninja, Release, `RECOMP_JOBS=7`, lld-link (`/dll /INCREMENTAL:NO`), 704 build steps (701 generated units plus runtime/export). Compile definitions and options matched `src/suyu_cmd/recomp_modules/CMakeLists.txt`: `BUILD_ID="amd64"`, `_CRT_SECURE_NO_WARNINGS`, `_CRT_NONSTDC_NO_DEPRECATE`, `_SCL_SECURE_NO_WARNINGS`, `NOMINMAX`, `WIN32_LEAN_AND_MEAN`, `UNICODE`, `_UNICODE`, `/utf-8 /GS- /Gy -Wno-everything`; generated CMake applied `SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1`, `/O2 /Ob2 /bigobj /fp:precise -MD /std:c11`. No `/DEBUG` was used, so no PDB was produced.
+- **Result:**
+
+| Item | No FMI (dev8) | FMI |
+|---|---:|---:|
+| SizeOfImage | 1,530,019,840 bytes (1,459.1 MiB) | 1,870,344,192 bytes (1,783.7 MiB) |
+| Margin to 2,048 MiB | 588.9 MiB | 264.3 MiB |
+| Size of code | 1,195.4 MiB | 1,520.0 MiB |
+| File size | 1,516,892,160 bytes | 1,857,218,560 bytes |
+| `.text / .rdata / .pdata / .data / .reloc` (hex) | `4AB6A000 / CF46000 / 2582000 / C81000 / 66F000` | `5EFF9000 / CF46000 / 2582000 / C81000 / 66F000` |
+| Wall time, configure-to-link (one run each) | 40.7 min | 47.8 min |
+| Link time (DLL mtime minus last object mtime, approximate) | about 23 s | about 25 s |
+
+- **Exports and dependents:** Both DLLs export only `recomp_image_abi`, `recomp_image_entry`, `recomp_image_fastmem_v1`, `recomp_image_features`, `recomp_image_fpx_v1`, `recomp_image_guard_gen_v1`, `recomp_image_guard_v2`, `recomp_image_index`, `recomp_image_lookup`, `recomp_image_run_slice`, and `recomp_image_set_base`. Both depend on `KERNEL32.dll`, `VCRUNTIME140.dll`, `api-ms-win-crt-stdio-l1-1-0.dll`, `api-ms-win-crt-runtime-l1-1-0.dll`, `api-ms-win-crt-heap-l1-1-0.dll`, and `api-ms-win-crt-environment-l1-1-0.dll`; observed KERNEL32 imports were `DisableThreadLibraryCalls`, `GetCurrentProcessId`, `GetCurrentThreadId`, `GetSystemTimeAsFileTime`, `InitializeSListHead`, and `QueryPerformanceCounter`, with no host/launcher symbol imports. This satisfies the design's D2/D3 check that the DLL exports only the image ABI and depends only on CRT/OS DLLs.
+- **Comparison and limits:** The image-budget estimate was about 1,455 MiB without FMI / 1,780 MiB with FMI; measured `SizeOfImage` was 1,459.1 / 1,783.7 MiB. DLL only; the split launcher (four static modules plus runtime) was not linked, so its size remains an estimate of about 365 / 460 MiB. No PDB was produced because `/DEBUG` was not used, so PDB size was not measured; the link used lld-link and the exporter's MSVC `link.exe` path was not measured. No runtime load, FPS, or PLA test was run. Timings are single runs on a 12-core / 16 GB machine.
+- **Next action:** Milestone 4a step 4(a): implement the generator/CMake opt-in split mode (`SUYU_AOT_SPLIT_MAIN`) and the topology value, by code-quick-implementer and reviewed by Code reviewer.
+
+### 2026-10-06: Milestone 4a design note reviewed and accepted (steps 1-2)
+
+- **Milestone and revision:** Milestone 4a, HEAD `e66f19c`.
+- **Problem and evidence:** The dev9 FMI static launcher exceeded the 2 GB x64 image limit; step 1 surveyed globals/TLS, exe<->module dependencies, and the launcher ABI6/DLL path, and the design note was reviewed through draft 3 with no unresolved findings.
+- **Files changed:** `docs/Aevora/WORK_PLAN.md` records the accepted D1-D7 design, review history, and handoff; `docs/Aevora/CODEBASE_INDEX.md` records the verified inventory and launcher paths; `CHANGELOG.md` records the documentation closure.
+- **Commands/settings:** No build, test, export, or runtime command was run in this session; design review used read-only source inspection and the local report outside the repository.
+- **Result and untested behavior:** The design specifies a DLL-local runtime copy; versioned topology registry v1 as the single source (v4 unchanged); bundle identity export; transactional loading; inventory-based base binding via `BindRecompProcess` before process publication; opt-in `SUYU_AOT_SPLIT_MAIN`; kit static-only with consumer-side rejection; package/cache derived from topology; and default output byte-identical. Implementation correctness, DLL image size, dependencies, performance, and PLA compatibility remain untested.
+- **Next action:** Milestone 4a step 3 measurement of the main DLL without and with FMI via a Source-format export and the generated SHARED target.
+
+
+
+
+
+### 2026-10-05: Static launcher image budget: dev8 (no FMI) versus FMI section totals
+
+- **Milestone and revision:** Milestone 4. HEAD `a3063a2`; generated code from the dev8 static AOT Source export (no FMI; its `recomp_runtime.h` contains no `recomp_fmi`), and the dev9 FMI module libraries left by the failed FMI export.
+- **Method:** The dev8 Source export's five modules were built with the exporter's own module project (`src/suyu_cmd/recomp_modules`, clang-cl 22.1.8 `/O2`, Ninja, Release, `RECOMP_JOBS=7`) in a local directory outside the repository, through ASCII junctions to the Source export (the project only checks that `recomp_registration.c` exists, so an empty stub was used; no launcher was linked). `dumpbin /summary` was run on each `recomp_static_<module>.lib` for both builds. The build ran in two parts (interrupted at 531/893 and resumed) and overlapped a host rebuild, so compile time was not measured.
+- **Result (MiB, sum of five modules):**
+
+| Section | Dev8 (no FMI) | FMI | Change |
+|---|---:|---:|---:|
+| .text | 1,421.7 | 1,840.6 | +29.5% |
+| .rdata | 264.8 | 264.8 | 0 |
+| .pdata | 47.3 | 47.3 | 0 |
+| .xdata | 33.0 | 34.7 | +5.2% |
+| .bss | 15.8 | 15.8 | 0 |
+| Image-relevant sum | 1,782.5 | 2,203.2 | +23.6% |
+
+Per module (image-relevant sum, dev8 / FMI): main 1,455.3 / 1,780.5; sdk 131.1 / 165.5; subsdk1 121.9 / 163.0; subsdk0 74.0 / 94.0; rtld 0.1 / 0.2. main is about 82% of the generated code.
+
+- **Calibration and estimate:** The FMI link reported image size 0x8C0E0000 (2,240.9 MiB), 37.7 MiB above the FMI object sum; this difference is attributed to the runtime and launcher code (assumption). Applying the same offset, the dev8 static launcher image is estimated at about 1,820 MiB, leaving about 228 MiB (about 11%) under the 2 GiB limit. This is an estimate; the dev8 launcher was not linked in this measurement.
+- **Composition:** `_expected[]` per-block guard arrays, counted from the dev8 generated C (`(3 + instruction count)` 32-bit words per array), total about 112 MiB (main 88.0, sdk 9.2, subsdk1 9.7, subsdk0 5.5 MiB), about 42% of .rdata. The rest of .rdata (dispatch/jump tables and constants) and the .text split between block code, per-instruction entry labels, and inline exact-FP bodies were not attributed.
+- **Interpretation:** FMI adds about 421 MiB, roughly twice the remaining margin, so FMI for all generated code cannot fit one image. Earlier per-unit A/B compiles (2-15% object growth) under-represented the whole-image .text growth (+29.5%). Options remain: restrict FMI to hot code, reduce generated-code contributors (`_expected[]`, entry labels, FP bodies), or move `main` to a separate DLL image.
+- **Next:** Choose the image-budget strategy; any generated-code change must be checked with the same `dumpbin /summary` method before a full PLA export.
+
+### 2026-10-05: Exporter stops on LNK1248 and keeps build-failure logs (v0.0.1-dev10, unverified by export)
+
+- **Problem:** see the FMI LNK1248 entry above: after the clang-cl link failed with LNK1248, the exporter fell into the MSVC per-module path (about 20 h estimate, cannot fit the same image), and the first compiler/linker output was lost to log rotation and work-directory cleanup.
+- **Change (`src/suyu/game_export.cpp`):** new `SaveBuildFailureLog` appends failed compile/link output from the clang-cl and MSVC paths to `export_build_failure.log` in suyu's log directory (UTF-8, write/flush errors checked, truncated before appending once over 8 MiB). In the clang-cl link-failure branch, LNK1248 that the existing Hybrid largest-module retry does not handle now shows a "Build Failed" dialog with the saved log path and fails the export instead of falling back to MSVC.
+- **Review:** Code reviewer (Orca, gpt-6.1-sol, high) found one P2 issue (write/flush errors not checked before reporting the log as saved) and a wording caveat (MSVC is not proven unable to produce smaller code; the change now says it does not remove the limit and is costly); both were fixed. Control flow (failure return, staging cleanup, Hybrid retry, one-module Hybrid) was reviewed with no findings.
+- **Verification:** `rebuild-suyu.bat` (Build Tools 2026 vcvars64, Ninja, `-j 8`) built suyu and suyu-cmd after the change and after the review fix; no warnings from `game_export.cpp`.
+- **Not run:** no export exercised the new paths; injected LNK1248 for static, Hybrid retry, and one-module Hybrid, and log-helper Unicode/append/rotation/open-failure/write-failure cases remain untested.
+
+
+

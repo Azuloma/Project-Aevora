@@ -34,7 +34,7 @@ Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only
 
 `src/core/recompiler/arm64_to_c.h` is a header-only translator of about 7,600 lines. It is the only code generator.
 
-The shared topology and image identity contracts are defined in `src/core/recompiler/recomp_topology.h` (versioned module bindings, load ordering, image names, validation, bundle-byte conversion, and `recomp_modules.cmake` output; `kRecompTopologyVersion:31`, `BuildRecompTopology:160`, `WriteRecompModulesCMake:234`) and `src/core/recompiler/recomp_image_identity.h` (v1 symbol and raw 32-byte bundle digest contract; `RECOMP_IMAGE_IDENTITY_V1_SYMBOL:15`, `RecompImageIdentityV1Fn:24`). Registry v1 is defined once in `src/core/recompiler/recomp_registry_v1.h:64` (`SuyuRecompRegistryV1`, entries, ABI/features, and DLL export-name macros); `WriteRecompRegistryV1C:300` and `WriteRecompTopologyV1Marker:397` in `recomp_topology.h` emit the registry and marker.
+The shared topology and image identity contracts are defined in `src/core/recompiler/recomp_topology.h` (versioned module bindings, load ordering, image names, validation, bundle-byte conversion, and `recomp_modules.cmake` output; `kRecompTopologyVersion:31`, `BuildRecompTopology:160`, `WriteRecompModulesCMake:234`) and `src/core/recompiler/recomp_image_identity.h` (v1 symbol and raw 32-byte bundle digest contract; `RECOMP_IMAGE_IDENTITY_V1_SYMBOL:15`, `RecompImageIdentityV1Fn:24`). Registry v1 is defined once in `src/core/recompiler/recomp_registry_v1.h:64` (`SuyuRecompRegistryV1`, entries, ABI/features, and DLL export-name macros); `WriteRecompRegistryV1C:299` and `WriteRecompTopologyV1Marker:396` in `recomp_topology.h` emit the registry and marker.
 
 `src/core/recompiler/pe_image_size.h:64` parses validated PE32+ headers and reads `SizeOfImage` from files (`:114`), rejecting truncated, zero-sized, or out-of-range headers. `src/core/loader/nso_module_names.h:19` defines the 13-name canonical NSO order shared by the loader, topology, and exporter.
 
@@ -58,7 +58,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 
 ### 2.2 Exporter (Qt)
 
-`src/suyu/game_export.cpp` (about 6,300 lines) and `game_export.h` (about 300 lines).
+`src/suyu/game_export.cpp` (about 7,700 lines) and `game_export.h` (about 300 lines).
 
 | Symbol | Location | Purpose |
 |---|---|---|
@@ -68,12 +68,12 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `WantsCompiledOutput()` | `game_export.cpp:3139` (v) | Build (compile) versus Source-only output. |
 | `RunAotPrecompile()` | `game_export.cpp:3355` (v) | Block discovery and translation orchestration. |
 | `recomp_modules.cmake` / `recomp_registration.c` generation | `game_export.cpp:3950-4030` (v: `:3991`, `:4019`) | Module list in NSO load order and `suyu_recomp_static_modules_v4()` registration table. **The object involved in the earlier `LNK1181` failure is built from this file.** |
-| Split option and bundle identity | `game_export.cpp:3416-3551`, `:3990-3999`, `:6886-6890` (v, 2026-10-06) | Resolves `SUYU_AOT_SPLIT_MAIN` once per export, computes the versioned canonical bundle id, emits registry-v1/topology data, and logs each image's PE `SizeOfImage`; split cache and package records include topology, bindings, DLL hashes, and launcher size. |
+| Split option and bundle identity | `game_export.cpp:3416-3551`, `:4632`, `:6886-6890` (v, 2026-10-06) | Resolves `SUYU_AOT_SPLIT_MAIN` once per export, computes the versioned canonical bundle id, emits registry-v1/topology data, and logs each image's PE `SizeOfImage`; split cache and package records include topology, bindings, DLL hashes, and launcher size. |
 | Prebuild DLL-bound module validation | `src/suyu_cmd/recomp_modules/CMakeLists.txt:26-126` (v, 2026-10-06) | Reads topology DLL bindings, checks version, bundle ID/bytes, module membership, target existence/type, and effective file name, then builds the shared image with identity definitions. |
 | Shared DLL target helper | `src/suyu_cmd/recomp_modules/RecompDllTarget.cmake:4-17` (v, 2026-10-06) | Shared verification/setup helper used by prebuild and in-tree CMake; checks topology-bound target identity and writes DLLs to the launcher-side `recomp_dll/` directory. |
 | Generated-tree CMake configure/build | around `game_export.cpp:4229` (v) | Invokes CMake on the generated tree. |
 | Pruning of registration entries | around `game_export.cpp:4701` (v) | Comment on modules dropped from the registration. |
-| `PackageNativeExport()` | `game_export.cpp:5059` (v) | Stages the final export package. |
+| `PackageNativeExport()` | `game_export.cpp:5960` (v) | Stages the final export package. |
 | Gap-seeded discovery | around `game_export.cpp:220`, `3220-3330` | Reads `<user dir>/recomp/gaps/<title>.json` to seed blocks at Hybrid gap addresses. |
 | Runtime DLL list | around `game_export.cpp:193-200` | FFmpeg, DXC, OpenSSL, and Discord RPC copied into packages. |
 | Unit-limit environment overrides | `ReadPositiveSizeFromEnv()` ~`game_export.cpp:124`; read before `EmitProject()` ~`:3828` (v, 2026-10-05) | `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`. |
@@ -90,7 +90,7 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | File | Purpose |
 |---|---|
 | `arm_recomp.h/.cpp` (~2,400 lines) | `ArmRecomp : ArmInterface`. Block lookup/dispatch loop, context marshalling (`GuestContextView`, `RecompHostMem` with static_assert-locked offsets), registration hooks (`SetRecompLookup:52`, `SetRecompBindCallback:130`, `BindRecompProcess:135`, `SetRecompPrepareCallback`, `SetRecompBaseSetter`, `PrepareRecompProcess`). |
-| `recomp_bundle.h/.cpp` | Production v1 bundle loading and transactional DLL validation (`LoadRecompBundleV1:102`, `BindRecompBundleToInventory:111`, `ApplyRecompBundleBases:115`, `GetRecompExecutableDirectory:96`); used by the v1 launcher and smoke tests. |
+| `recomp_bundle.h/.cpp` | Production v1 bundle loading and transactional DLL validation (`LoadRecompBundleV1:444`, `BindRecompBundleToInventory`, `ApplyRecompBundleBases`, `GetRecompExecutableDirectory`); used by the v1 launcher and smoke tests. |
 | `recomp_image_features.h` | ABI 6 feature bits (FM1 `0x1`, GG1 `0x2`, FPX1 `0x4`). |
 | `recomp_guard_gen.h/.cpp` | GG1 generation-word code guard. |
 | `recomp_gaps.h/.cpp`, `recomp_gap_session.h/.cpp` | Gap/coverage recording. Local `suyu-recomp-gaps` JSON (includes instruction words; keep local) and portable `suyu-shared-coverage` JSON. |
@@ -200,7 +200,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
 | `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, `bundle_host.cpp`/`bundle_exec.c` production bundle-loading and mixed-image execution checks, and the `check_prebuild` split consumer checks; MSVC golden hashes require `/utf-8`, matching the real build. |
 | `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
-| `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests. The test runner and requirements are not yet inspected. |
+| `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests; export-regression fixture execution remains blocked by its Qt-root layout lookup. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
 
 ## 8. Entry points for current WORK_PLAN items

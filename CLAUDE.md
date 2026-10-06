@@ -4,13 +4,17 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-05, dev9 adds an opt-in inline memory fast path (FMI) that is correct in tests but makes the PLA static launcher image exceed the 2 GB x64 image limit, so it is not usable for PLA yet; the next work is the image-size budget. The source build works on Windows x64, JIT PLA runs at 30 FPS, and the v0.0.1-dev8 PLA static AOT export with fallback disabled reaches gameplay with zero JIT transitions at about 25-30 FPS versus 30 FPS JIT. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+As of 2026-10-06, Milestone 4a steps 1-3, 4(a), 4(b), and 4(c) part 1 are implemented, reviewed, and committed through `d764d8e` (v0.0.1-dev13). The split exporter/CMake/cache/package wiring has not yet been verified by a real split export or a linked v1 launcher run; step 4(c) part 2 and the remaining 4(d)-6 work are open. FMI remains correct in targeted tests but exceeds the 2 GB x64 static-launcher limit; the main-DLL split is the planned remedy. The source build works on Windows x64, JIT PLA runs at 30 FPS, and the v0.0.1-dev8 PLA static AOT export with fallback disabled reaches gameplay with zero JIT transitions at about 25-30 FPS versus 30 FPS JIT. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
+## Resuming work
+
+Read the latest Session handoff in `WORK_PLAN.md`, then its Milestone 4a step 4(c) part 2 acceptance list. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, run the required verification with full logs outside the repository, obtain Code reviewer review, fix findings, then update Markdown and report the files plus a suggested commit message. The user commits, tags, and pushes; agents never do so. See [Agent orchestration](#agent-orchestration) for the coordination contract.
+
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
-Read [README.md](README.md) and [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, acceptance criteria, and the latest session handoff with open issues and the next action; older history is archived in [OLD_HISTORY.md](docs/Aevora/OLD_HISTORY.md). Update it after meaningful progress.
+Read [README.md](README.md) and [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, acceptance criteria, and the latest session handoff with open issues and the next action; older history is archived in [OLD_HISTORY.md](docs/Aevora/OLD_HISTORY.md). Update it after meaningful progress, batching related Markdown updates at work milestones and completing an unfinished batch before the final report.
 
 ## Finding files
 
@@ -71,13 +75,13 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 1. Inspect the current branch, diff, applicable instructions, and relevant code. Preserve user changes.
 2. State the concrete problem, evidence, and expected behavior. Distinguish observations from hypotheses.
 3. Make the smallest coherent change that addresses the cause. Inspect existing cleanup scripts before using them; some clear dependency caches.
-4. Run checks appropriate to the changed behavior. For exporter changes, exercise the affected stage and inspect its artifacts, not just the host build.
-5. Record the source revision, commands, configuration, results, and remaining uncertainty in the work plan. Keep sensitive logs and game outputs local.
+4. Run the required verification named in the task and other checks appropriate to the changed behavior. For exporter changes, exercise the affected stage and inspect its artifacts, not just the host build; do not repeat a passed check for an identical diff unless evidence is missing or there is a doubt.
+5. Record the source revision, commands, configuration, results, and remaining uncertainty in the work plan in the next milestone batch. Save full build/test output outside the repository; reports must include pass/fail, exit code, failure context, and relevant warnings or excerpts while keeping sensitive logs and game outputs local.
 6. Report what changed and what was verified. Do not claim success for stages that were skipped or blocked.
 
 Continue work within the user's authorized scope. Ask for missing information only when it blocks the next dependent step; continue independent work where possible. Creating these handoff files does not authorize publishing additional commits or releases.
 
-The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`, or `git push`. For each coherent change, add a `## vX.Y.Z-devN - Unreleased` section (or extend the current one) in [CHANGELOG.md](CHANGELOG.md), then give the user the list of files to commit and a suggested commit message.
+The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`, or `git push`. For each coherent change, add a `## vX.Y.Z-devN - Unreleased` section (or extend the current one) in [CHANGELOG.md](CHANGELOG.md); write it in the next milestone batch and complete that batch before the final report. Then give the user the list of files to commit and a suggested commit message.
 
 Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false` in `.claude/settings.json`). Record lasting rules in this guide and project state in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md), not in agent memory.
 
@@ -92,11 +96,13 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - Run Orca workers one at a time; start the next worker only after the previous one reports completion.
 - Every Codex worker specification tells the worker to read CLAUDE.md first; Code reviewer specifications require citing the CLAUDE.md rule for each finding.
 - Do not poll a running Orca worker. Wait with a single blocking `orca orchestration check --wait`, then process the result; the default wait timeout is about 2 minutes, so pass a long `--timeout-ms` (for example `--timeout-ms 3600000`) on that single blocking wait.
-- Besides the three Orca roles, the only Claude subagent is `code-quick-implementer`, which carries out all code implementation and fixes once the cause and approach are decided; the parent Claude session handles investigation, design, and verification of results and does not edit source itself; no other agents or subagent types are launched.
+- For implementation work, the main agent defines the target files or area, change, required verification, and completion condition before editing. Implement one behavior that can be implemented and verified as one unit, without unrelated improvements; if a design change or scope expansion becomes necessary, preserve changes already made, report the issue, and ask or decide before continuing. Do not start the next work item after completing the requested one unless the user's request already covers it.
+- Request related WORK_PLAN, CHANGELOG, CODEBASE_INDEX, or README updates from the md Implementer in milestone batches rather than after every small step.
+- No Claude subagents are used; the main Claude agent handles investigation, design, code implementation and fixes, and verification of results. Codex workers are only the three Orca roles; no other agents or subagent types are launched.
 - Workers follow this guide, record only verified facts, and never commit, tag, or push.
 - For long worker specifications, write the spec with a file tool and start from Bash with `--spec "$(cat <file>)"`; Windows PowerShell 5.1 can break quoted native arguments, and very long heredocs can be truncated.
 - A Run permits only one active `check --wait` waiter. Wait with `--types worker_done,escalation` so heartbeat/status messages do not end the wait, and pass `--ack` for the previously processed delivery. Read Orca JSON output as UTF-8.
-- After `worker_done`, verify the result yourself, then release the worker with `orca orchestration worker-release --dispatch <dispatch id>` and acknowledge the delivery with `--ack <delivery id>` on the next `check`.
+- After `worker_done`, verify the diff and the evidence yourself, then release the worker with `orca orchestration worker-release --dispatch <dispatch id>` and acknowledge the delivery with `--ack <delivery id>` on the next `check`; do not repeat a verification already passed for the identical diff unless further changes, missing evidence, or doubt requires it.
 - If `worker-start` reports `start_unknown` or `turn_start_unobserved`, read the worker terminal; a Codex update banner can leave the spec pasted but unsubmitted, and `orca terminal send --terminal <terminal handle> --enter` submits it.
 - The user may also hand work to Codex directly; re-check `git status` and the diff before editing.
 

@@ -9,7 +9,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Added
 - Added exporter, cache, manifest, package-policy, and launcher wiring for the opt-in `SUYU_AOT_SPLIT_MAIN` main-module DLL topology, including a versioned canonical bundle id and registry-v1 marker.
 - Added shared PE `SizeOfImage` validation, canonical NSO module names, shared DLL-target verification, per-image manifest metadata, and package staging/verification for split exports.
-- Added bound-inventory and pre-relocation INFO diagnostics, plus topology, PE, policy, prebuild, and export-fixture regression coverage.
+- Added bound-inventory and pre-relocation INFO diagnostics, plus topology, PE, policy, and prebuild regression coverage; export-regression fixture stubs were updated but could not be run because their Qt-root lookup does not match the CPM Qt package layout.
 
 ### Changed
 - The v1 launcher and in-tree/prebuilt CMake paths now build and collect split DLLs without importing them into the launcher; all-static v4 output remains unchanged.
