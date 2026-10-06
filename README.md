@@ -13,7 +13,7 @@
   We plan to add various features in the future, such as quality of life improvements and modding capabilities.
 <p>
 <p align="center">
-  <a href="#Staus">Status</a> |
+  <a href="#Status">Status</a> |
   <a href="#Planned Features">Planned Features</a> |
   <a href="#License">License</a>
 <p>
@@ -24,6 +24,7 @@
 ## Status
 
 Currently, Aevora can recompile PLA with Static AoT, achieving an average of 25-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
+
 The next step is to change the approach so that `main` is built as a custom DLL image loaded by a static launcher, so that it fits within the 2GB limit of MSVC x64. In this case, `rtld`, `sdk`, `subsdk0`, and `subsdk1` will remain statically linked. This change allows for the implementation of an opt-in FMI inline fast path for Static AoT.
 
 ## Development Approach
