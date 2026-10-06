@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-06. HEAD: `aa8c2aa` (README-only commits on top of `d764d8e`, v0.0.1-dev13). Last session handoff: 2026-10-06, ninth session, complete (see [Session handoff](#session-handoff-2026-10-06-ninth-session-complete)). The user commits and pushes; older detailed history is in [OLD_HISTORY.md](OLD_HISTORY.md).
+Handoff prepared: 2026-10-06. HEAD: `02c0298`; the user commits and pushes. Start with [Session handoff (2026-10-06, end of tenth session)](#session-handoff-2026-10-06-end-of-tenth-session), then read the persistent-cache section and part 2 acceptance list; older detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
 
@@ -11,89 +11,39 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 | Item | Evidence/status |
 |---|---|
 | Source repository | Root contains the Suyu-derived source, build files, dependency metadata, and archived upstream documentation. |
-| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `aa8c2aa` (README-only commits on top of `d764d8e`, v0.0.1-dev13); the user commits and pushes. |
-| Milestone 4a | Steps 1-3, 4(a), 4(b), and 4(c) part 1 are implemented, reviewed, and committed through `d764d8e`; 4(c) part 2, 4(d), tests, and PLA verification remain open. |
-| Configured origin | `https://github.com/Azuloma/Aevora.git`; remote publication was not independently verified during this handoff. |
-| README | English draft describes feasibility status, planned features, support scope, versioning, and the hobby/no-donations policy. |
-| License | Root `LICENSE.txt` is copied unchanged from the archived upstream license; README specifies `GPL-3.0-or-later`. Existing notices are retained. |
-| Documentation | Project documents belong in `docs/Aevora/`; upstream documents are archived in `docs/Suyu/`. |
-| Project name | Renamed from HisuiWake to Aevora on 2026-10-05 (README in `a3063a2`, other documents in this change); the local repository folder is still named HisuiWake. |
-| Dependencies | Acquired by CPMUtil from `cpmfile.json` (bundled Qt 6.11.1, SDL3, FFmpeg, OpenSSL on MSVC); `.gitmodules` is not the acquisition path. Verified on 2026-10-04. |
-| Host source build | Verified: MSVC 14.51 (Build Tools 2026) + Ninja Release; `suyu.exe`, `suyu-cmd.exe`, and the export build kit build and start. `docs/Aevora/BUILD.md` is not written yet. |
+| Git baseline | Initial commit `9f932d5`; HEAD `02c0298`; the user commits and pushes. |
+| Milestone 4a | Steps 1-3, 4(a)-(c) part 1, and 4(c) part 2 units 1-5 are implemented and verified through `02c0298`; the persistent cache, items 6-7, 4(d), remaining tests, and PLA verification remain open. |
+| Project/documentation | The project is Aevora (local folder remains HisuiWake); project docs are in `docs/Aevora/`, upstream docs in `docs/Suyu/`, and README/license policy is retained. |
+| Host source build | Verified with Build Tools 2026 MSVC 14.51 + Ninja; `docs/Aevora/BUILD.md` is not written. |
 | PLA export/run | JIT: 30 FPS. Hybrid (dev6-era, translate-all, budget 256): 15-20 FPS. v0.0.1-dev8 static AOT + Build (clang-cl): 25-30 FPS with no fallback in the observed overworld scene; conditions were not fully matched. Dev9 FMI export failed to link: image about 2.19 GB exceeds the 2 GB x64 limit (LNK1248). Steps 1-3, 4(a), 4(b), and 4(c) part 1 are committed through `d764d8e`; split export and linked v1 execution remain unverified. |
 | Proposed path patch | Superseded. The observed non-ASCII failure was the launcher's window-title conversion (fixed in v0.0.1-dev5). Filename sanitization was not implemented; the package name still contains `ﾃｩ`. |
 
-The cleanup already removed upstream automation, temporary material, old screenshots, and an isolated `tools/static_recompiler` demo. Do not perform another broad deletion pass before a working baseline identifies the files actually required.
-
 ## Key facts from archived history
 
-- **Host/tool baseline:** Windows 11 Home 10.0.26300, Intel Core i5-12400F, 15.8 GB RAM, RTX 2060 SUPER; MSVC 14.51 via Build Tools 2026 `vcvars64`, Ninja 1.13.2, CMake 4.4.3, LLVM/clang-cl 22.1.8, Python 3.14.7, Git for Windows 2.56.0 `patch`, Vulkan SDK 1.4.363.0 `glslangValidator`; use a short ASCII `CPM_SOURCE_CACHE`. ([details](OLD_HISTORY.md#2026-10-04-milestone-1-environment-and-first-configure-attempt))
+- **Host/tool baseline:** Windows 11, MSVC 14.51/Build Tools 2026, Ninja 1.13.2, CMake 4.4.3, clang-cl 22.1.8, Python 3.14.7, Vulkan SDK 1.4.363.0; use a short ASCII `CPM_SOURCE_CACHE`. ([details](OLD_HISTORY.md#2026-10-04-milestone-1-environment-and-first-configure-attempt))
 - **Configure/build:** use the recorded CMake configure with explicit Git/glslang paths and `cmake --build <build-dir> --target suyu suyu-cmd -j 8`. ([details](OLD_HISTORY.md#2026-10-04-configure-success-cpmutil-extraction-fix-and-first-build))
 - **Dependencies:** CPMUtil uses `cpmfile.json`; extraction uses `cmake -E tar xf` because `file(ARCHIVE_EXTRACT)` failed on non-ASCII entries. ([details](OLD_HISTORY.md#2026-10-04-configure-success-cpmutil-extraction-fix-and-first-build))
-- **VMA:** implementation moved to executable targets to avoid static-Qt duplicate symbols. ([details](OLD_HISTORY.md#2026-10-04-vma-implementation-moved-to-executables-suyuexe-links))
 - **JIT/GPL:** PLA 1.1.1 ran at 30 FPS; the GPL rendering defect was isolated and GPL disabled by default. ([details](OLD_HISTORY.md#2026-10-04-first-pla-jit-run-on-the-source-build))
 - **Export/build:** the export kit was produced; clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before packaging. ([details](OLD_HISTORY.md#2026-10-04-export-build-kit-produced))
 - **Generated-code scaling:** job-pool sizing and unit splitting use 8 MiB/5,000-block defaults and compiler-aware budgets. ([details](OLD_HISTORY.md#2026-10-04-generated-code-build-parallelism-milestone-2))
-- **Launcher/Hybrid:** the non-ASCII crash was fixed in dev5; SHL was implemented but gated off for Hybrid; Hybrid results were 17, 14, and 15-20 FPS at budget 256. ([details](OLD_HISTORY.md#2026-10-05-shl-already-implemented-but-gated-off-for-hybrid))
-- **Chain budget:** 256 improved long-slice behavior from about 14 FPS at 4096 to 15-20 FPS. ([details](OLD_HISTORY.md#2026-10-05-long-slice-chain-budget-lowered-to-256-v001-dev6-unverified-in-export))
+- **Runtime baseline:** PLA JIT is 30 FPS; Hybrid is 15-20 FPS at budget 256 after SHL and chain-budget investigations. ([JIT](OLD_HISTORY.md#2026-10-04-first-pla-jit-run-on-the-source-build), [Hybrid](OLD_HISTORY.md#2026-10-05-long-slice-chain-budget-lowered-to-256-v001-dev6-unverified-in-export))
 - **AOT conclusion:** Hybrid executed AOT-recompiled native application code in the observed run, while runtime services and GPU macro JIT/shader compilation remain; static AOT with fallback disabled is the stronger check. ([details](OLD_HISTORY.md#2026-10-05-is-the-hybrid-cpu-path-ahead-of-time-static-recompilation))
 - **Dev6 static AOT:** The fallback-disabled export reached 16-20 FPS in the observed scene. ([details](OLD_HISTORY.md#2026-10-05-first-static-aot-export-v001-dev6-runs-with-no-fallback-16-20-fps))
-- **Static hot block:** The dev6 hot block contributed 15-19% of busy-core samples, and guest FPCR.FZ was set in about 96% of JIT context saves. ([details](OLD_HISTORY.md#2026-10-05-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld)) ([details](OLD_HISTORY.md#2026-10-05-guest-fpcr-measured-pla-runs-with-fz-set-fpx1-gate-closed))
 - **Dev8 FZ-aware FPX1 gate:** The harness recorded 0 mismatches over 100.6 M cases. ([details](OLD_HISTORY.md#2026-10-05-fz-aware-fpx1-gate-v001-dev8-unverified-in-pla))
 - **Dev8 static AOT:** The fallback-disabled export reached 25-30 FPS with zero fallback in the observed scene. ([details](OLD_HISTORY.md#2026-10-05-fz-aware-fpx1-gate-verified-in-pla-static-aot-25-30-fps))
-- **Dev8 static sampling:** The dominant hot block fell from 15-19% to 2-3.5% of busy-core samples, and CPU cores waited 35-49% of samples. ([details](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld))
-- **Same-scene JIT comparison:** JIT process CPU was 275.7% versus 320.3% dev8 static; HostTiming, GPU-thread load, and `NtGdiDdDDIQueryAdapterInfo` are not AOT-specific; the remaining gap is guest CPU execution cost (static about 1.5-2x JIT CPU per core, estimate). ([details](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost))
-- **FMI (dev9):** Opt-in `SUYU_AOT_FM_INLINE=1` inlines the FM1 fast path; targeted tests passed (0 mismatches); out-of-line memory helpers were about 11% of busy-core samples. ([details](OLD_HISTORY.md#2026-10-05-source-inspection-of-memory-access-and-the-opt-in-fmi-inline-fast-path-v001-dev9-unmeasured-in-pla))
-- **FMI LNK1248:** The PLA FMI static launcher reached image size `0x8C0E0000` (about 2.19 GB) and failed LNK1248; the MSVC fallback path could not help and diagnostics were lost (addressed in dev10). ([details](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248))
+- **AOT/FMI:** dev6 static AOT was 16-20 FPS; dev8 was 25-30 FPS with zero fallback; FZ was set in about 96% of measured saves; FMI targeted tests passed but the PLA launcher reached 2.19 GB and failed LNK1248. ([dev6](OLD_HISTORY.md#2026-10-05-first-static-aot-export-v001-dev6-runs-with-no-fallback-16-20-fps), [dev8](OLD_HISTORY.md#2026-10-05-fz-aware-fpx1-gate-verified-in-pla-static-aot-25-30-fps), [FMI](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248))
+- **Sampling/FMI limits:** dev8's hot block was 2-3.5% of busy-core samples with 35-49% waiting; same-scene JIT CPU was 275.7% versus 320.3% static, under unmatched conditions. ([sampling](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld), [comparison](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost))
+- **Split image budget:** main `SizeOfImage` is 1,459.1 MiB without FMI and 1,783.7 MiB with FMI. ([measurement](OLD_HISTORY.md#2026-10-06-milestone-4a-step-3-main-module-dll-image-measured-without-and-with-fmi))
 
-## Milestone 1: Establish a reproducible host build
+## Milestones 1-3: concise status
 
-- [x] Record the checkout revision, Windows version, CPU, RAM, GPU/driver, compiler, SDK, CMake, Ninja, and Qt versions.
-- [ ] Verify the source lineage using the README, archived provenance, and upstream revision information. Do not assume the new Git history contains Suyu's original commits.
-- [x] Inspect `CMakeLists.txt`, `CMakeModules/`, `cpmfile.json`, `.gitmodules`, and package configuration to identify the actual dependency acquisition paths and pinned versions.
-- [x] Obtain required dependencies through the build's intended mechanism. Record downloads, patches, versions, and failures; do not substitute arbitrary latest revisions.
-- [x] Configure and build the Suyu-derived application in a local ASCII-only build path. Save the exact commands and options.
-- [x] Build or locate the matching export build kit if required by the selected exporter path. Verify object/library/compiler compatibility.
-- [ ] Confirm the application starts and can load PLA through its ordinary JIT path with the user's local inputs. Record the game update/module build IDs and settings without publishing game material or keys. (Startup, PLA 1.1.1 gameplay, and settings are recorded; module build IDs are not.)
-- [ ] Write the successful setup in `docs/Aevora/BUILD.md` when verified. Repair relevant archived documentation links as needed.
-
-**Acceptance:** a documented source build produces a launchable application; required dependencies and the export kit can be reproduced; PLA's JIT behavior is recorded as the comparison baseline. A configure failure or build-only result does not satisfy the gameplay check.
-
-## Milestone 2: Resolve export build failures
-
-- [x] Inspect `src/suyu/game_export.cpp` and its current generator/build helpers. Reproduce the failure with a fixed source revision, game update, backend, and toolchain.
-- [ ] Export Source separately when useful to inspect generated inputs. Distinguish source generation, compilation, linking, packaging, and execution failures.
-- [ ] Check whether `recomp_registration.c.obj` exists, where it is written, and which command/response file references it.
-- [ ] Trace QString/filesystem conversions, process arguments, working directories, and response-file encoding. Preserve display titles independently of generated filenames.
-- [ ] Compare ASCII-only paths, paths with spaces, an accented game title, and a Japanese parent path. Use synthetic filenames where possible.
-- [ ] Implement the smallest supported fix. Test filename collisions and empty sanitized names if sanitization is used.
-- [ ] Diagnose `C1002` independently. Inspect compiler bitness, translation-unit sizes, memory use, optimization settings, and existing generator partitioning before choosing a fix.
-- [x] If unit splitting is required, make it deterministic and verify symbol linkage, registration completeness, and execution behavior. Do not hand-edit generated PLA files as the lasting solution.
-- [x] Re-export with the modified application and matching build kit; record whether either compiler path still fails or leaves modules to JIT.
-
-**Acceptance:** the affected export can compile, link, and produce a package with documented toolchain settings. The missing-object and compiler-memory issues each have evidence of resolution or an explicit remaining limitation. Packaging success alone does not establish gameplay correctness.
-
-## Milestone 3: Establish Hybrid runtime behavior
-
-- [ ] Run the new Hybrid package with the same PLA update and comparable settings used for the JIT baseline.
-- [x] Confirm it loads the intended generated code and matching runtime. Identify any modules compiled entirely through JIT fallback.
-- [ ] Exercise boot, menus, opening gameplay, movement, combat, area transitions, saving/loading, and a longer play session.
-- [ ] Record crashes, visual/audio errors, save behavior, timing, frame rate, and memory use.
-- [x] Collect local recompilation gap/guard diagnostics. Separate unsupported CPU operations, indirect branches, service/runtime failures, and GPU issues.
-- [ ] Use fallback frequency and exercised code paths to prioritize fixes. Record which gameplay areas remain untested.
-
-**Acceptance:** Hybrid passes a documented representative gameplay checklist, with fallback behavior and known failures reported. It remains a compatibility investigation milestone.
+- **Milestone 1:** Host/tool/dependency inventory, source configure/build, export kit, and JIT baseline are recorded and verified where marked in [OLD_HISTORY.md](OLD_HISTORY.md); source lineage, module IDs, `BUILD.md`, and the complete JIT gameplay check remain open.
+- **Milestone 2:** Exporter/build issues, deterministic unit splitting, and a successful modified export are recorded; separate Source inspection, path matrix, `recomp_registration.c.obj`, C1002, and compiler-route investigations remain open.
+- **Milestone 3:** Generated code loading and gap/guard diagnostics are verified; the representative Hybrid gameplay checklist, matched measurements, and fallback-priority coverage remain open.
 
 ## Milestone 4: Evaluate fully static execution
 
-- [ ] Classify the gaps exposed by Hybrid and implement supported fixes in the generator or runtime, with targeted regression checks.
-- [x] Re-generate and compile a static AOT export against the same game/update and runtime revision. (The v0.0.1-dev6 export completed with five modules and was packaged successfully.)
-- [x] Inspect configuration and diagnostics to verify that guest CPU execution uses no JIT or interpreter fallback. Do not infer this solely from the UI label or executable name. (Strict static mode, zero static/JIT transitions, zero lookup misses, zero unimplemented opcodes, and no guard bumps were recorded in the exercised run.)
-- [ ] Repeat the representative gameplay checklist and add coverage across regions, battles, transitions, and save/load cycles. (The run reached gameplay, but the complete checklist was not confirmed.)
-- [ ] Compare correctness and performance with JIT and Hybrid under matched conditions. (Dev8 observations were about 25-30 FPS static AOT, 15-20 FPS Hybrid at budget 256, and 30 FPS JIT; conditions were not fully matched.)
-- [ ] If static execution remains blocked, document the specific unsupported behavior, evidence, and remaining work. Do not promise that full compatibility is guaranteed.
-
-**Acceptance:** the tested scenarios run correctly with guest CPU fallback disabled, and remaining coverage limits are disclosed. Passing those scenarios is evidence for those scenarios, not proof that every game path works. GPU shaders and runtime services remain separate architectural concerns.
+Static AOT generation and strict no-fallback diagnostics are verified in the exercised scenario; gap fixes, representative gameplay coverage, matched JIT/Hybrid comparison, and unsupported-behavior documentation remain open. Acceptance is scenario-specific and does not establish whole-game compatibility; GPU shaders and runtime services remain separate concerns.
 
 ## Milestone 4a: Main-module DLL split
 
@@ -132,18 +82,24 @@ The full D1-D7 design note, data flow, failure modes, test plan, and step-3 meas
 
 ### Step 4(c) part 2 acceptance
 
-- Drive synthetic split static and Hybrid exports through `tests/export_integration`, run a linked v1 launcher with JIT fallback disabled, and inspect registry, marker, selection, DLL collection, manifests, hashes, and per-image `SizeOfImage`.
-- Cover VFS/deconstructed-source failures: zero-text data, unreadable text, decompression failure, bad/short NSO header, missing `main`, all analyses failing, and analyzable non-canonical NSO refusal; ancillary files remain allowed.
-- Inject emission, compiler, DLL-link, and launcher LNK1248 failures, including clang-to-MSVC retry; failed packages must not remove modules or finalize.
-- Exercise option unset/empty/`0`/`1`/invalid across Dynarmic, Hybrid, strict static, non-Windows, Source, and kit-only paths; verify snapshot and re-entry protection.
-- Cover successful split then option-off retry, and collection failure then JIT/all-static retry, with no stale split state.
-- Verify split-cache reuse/invalidation for ancillary files, bindings, selection, identity, topology, DLL file/size/hash, and missing DLL; all-static and split caches never cross-reuse.
-- Cover main-only, all-DLL, and mixed clang prebuild/in-tree MSVC paths and runtime-import rules.
-- Complete inventory, pre-relocation, named refusal, unregister/rebind, two-lifetime, completion-dialog, all-static, regression, path, and PE-header checks.
+- [x] Synthetic multi-module fixture, split static and Hybrid exports through the real clang-cl exporter, linked v1 launcher execution without fallback, inventory/pre-relocation diagnostics, and the main-only all-DLL topology.
+- [x] Source/analysis refusals reached by the available fixtures, including code-less module refusal; missing `main` and non-canonical NSO are stopped earlier by ExeFS validation.
+- [x] Test-driven failure/retry injection for emit, compile, DLL link, launcher LNK1248, and tamper/missing DLL packaging; rejection reasons are reported without output.
+- [x] All-static v4 export remains unchanged and runs the full synthetic chain.
+- [ ] Persistent AOT cache and its reuse/invalidation matrix; the current `RunAotPrecompile` reuse path is unreachable because each export creates its cache inside fresh staging. Build exports must continue to delete `aot_cache` from packages.
+- [ ] Items 6 and 7, and the not-covered cases: `launcher_link`, static-module compile/link injection, MSVC-route failures, real LNK1248 reproduction, two application lifetimes, and `export_regression` Qt-root lookup.
 
-### Part 2 planning notes (to verify)
+Evidence for the completed items is recorded in [OLD_HISTORY.md](OLD_HISTORY.md#2026-10-06-milestone-4a-step-4c-part-2-units-1-5-per-export-split-seam-multi-module-fixture-split-export-through-the-real-exporter-failure-injection).
 
-Use a per-export seam or separate frontend process because the MCP harness cannot mutate the split option within one frontend. Build sparse canonical ExeFS fixtures with contiguous page-aligned bases and seed cross-module targets as discovery roots. Keep inventory binding independent of `FindModules`, which can drop a module when its debug path read fails. Use an isolated `Core::System` host seam for two lifetimes; add process-runner/toolchain injection for compiler/link failures. Fix `export_regression` Qt lookup against the CPM package root rather than the build-tree layout.
+### Persistent AOT cache (DECIDED; option b)
+
+The user chose option b: reintroduce and verify a persistent AOT cache. Benefits are faster re-exports, reproducibility checks, preservation of good builds after packaging failures, and making the existing reuse code live and tested; costs are about 3 GB per PLA entry, stale-artifact risk, and implementation effort. `RunAotPrecompile` already compares the manifest's full scan, backend, ABI/features, FMI, correctness revision, translate-all, source hash, coverage fingerprint, fallback policy, and split bundle/bindings/topology/DLL records, but reuse is unreachable because each export creates fresh staging; Build packaging also removes `aot_cache`.
+
+**Proposed defaults; confirm before U1:** (1) store under the suyu user-data directory, not output; (2) Build format only; Source exports retain generated C in staging; (3) include the suyu producer revision and build id in invalidation. The proposed entry is `aot_export_cache/<title_id>-<platform>-<backend>-<split-or-all-static>/`, one key per entry, outside the repository and output folder.
+
+**Plan:** Build entries contain `launcher/`, `aot_manifest.json`, and `exefs/recomp_modules.cmake`; publish atomically after link/DLL collection, before packaging, and publish valid artifacts even if later packaging fails. Reuse copies launcher and manifest into staging only on a full match; mismatches name the item and rebuild, while missing/tampered files invalidate. Use a per-entry lock (contention runs without cache and does not publish), replace entries in place without generations/LRU, and log size (PLA about 3 GB). Build packages still contain no `aot_cache`; test seams override producer/generator revisions only in test-driven runs, and one authoritative key/layout is shared by publish, reuse, and tests.
+
+**Implementation units:** U1 store/key, atomic publish, lock, and producer revision; U2 publish and failed-export preservation; U3 rewire reuse and split reader; U4 integration matrix. The matrix covers identical reuse, source/backend/split/coverage/generator/producer invalidation, missing or tampered artifacts, failed export preservation, lock contention, and package exclusion.
 
 ## Milestone 5: Implement improvements one at a time
 
@@ -172,104 +128,52 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 **Acceptance:** a clean checkout reproduces the documented software build, release contents match the license/input policy, and support claims match testing evidence. Reaching `v1.0.0` requires an explicitly agreed stable scope.
 
-## Session handoff (2026-10-06, ninth session, complete)
+## Session handoff (2026-10-06, end of tenth session)
 
 ### State at handoff
 
-- **Current local state:** The host build tree is built from the dev13 sources with export variables cleared; no working static Build export exists locally. Clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before host builds, then re-export without FMI to obtain a package; the dev8 module libraries remain available for image inspection outside the repository.
+- **Current local state:** HEAD is `02c0298` (committed units 1-5). Uncommitted at handoff: Markdown only (`CHANGELOG.md` dev14 section, `CLAUDE.md`, `CODEBASE_INDEX.md`, `WORK_PLAN.md`, `OLD_HISTORY.md`)—the user commits. The host build tree was restored with `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` cleared; no persistent cache exists; local work folders and logs are outside the repository.
 
-- **Repository:** HEAD is `aa8c2aa` (README-only commits on top of `d764d8e`, v0.0.1-dev13); the project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename. The local repository folder remains named HisuiWake. Uncommitted: documentation and role-rule changes remain user-owned.
-- **Local environment:** The dev8 module libraries built for the image measurement are in a local directory outside the repository; the host build tree is built from the dev13 sources with export variables cleared.
-- **Diagnostics:** the local diag directory outside the repository contains `sample_static.ps1` and `RipSampler2.cs`, with `asm_probe` and `fmi_probe` material. Launch from a non-elevated shell; use `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out <file>`.
-- **Build/test:** in the Build Tools 2026 `vcvars64` environment, run `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls` (about 100.6 M cases; reduced: add `--cases 1000 --adv 2000 --legs 13`), `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`, and `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`. Python must read generated files as UTF-8. Run helper `.cmd` files that set up `vcvars64` through PowerShell `cmd /c`, not from Git Bash where `vswhere` is not on PATH. The `tests/package_policy` unittest wrapper fails on cp932 decoding of `cl` output, so build `tests/package_policy/policy_unit.cpp` by hand. `tests/export_regression/run_fixture.py` cannot run until its Qt-root lookup accepts the CPM Qt package layout. `rebuild-suyu.bat` clears export variables and builds with `-j 8`; incremental builds use `cmake --build <build-dir> --target suyu suyu-cmd -j 8`.
-- **Switches:** `SUYU_FPCR_STATS=1` logs guest FPCR and adds a lock per save; never use it for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode. `SUYU_AOT_FM_INLINE=1` enables FMI at export only when FM1 is enabled, but currently breaks the PLA static export with LNK1248 and remains off.
+- **Build/test:** After every export-running integration run, from PowerShell use `cmd /c <local>\rebuild-suyu.bat`; it clears the three export variables and rebuilds `suyu` and `suyu-cmd`. `cmd.exe /c` from Git Bash opens an interactive shell and does nothing. Run `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> <options>` in the background with a long timeout; logs remain outside the repository. Static Build exports of the small fixture take roughly 10-30 minutes on clang-cl. Options: `--only-multimodule`, `--variant <substring>`, `--only-split-failures`, `--skip-multimodule`, `--skip-aot`.
+- **Switches:** `SUYU_FPCR_STATS=1` is diagnostic-only and must not be used for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode. `SUYU_AOT_FM_INLINE=1` remains off for PLA because the prior static export exceeded the 2 GB limit.
 
 ### What this session did
 
-1. Replaced the abolished quick-implementer role with main-agent implementation and verification; retained Orca Code reviewer, Code Explorer, and md Implementer roles.
-2. Completed 4(a): first review found 0 blocker / 2 major / 1 minor, then 0 / 0 / 2; findings were fixed and the unit was accepted.
-3. Completed 4(b): first review found 0 / 3 / 1, then 0 / 0 / 0; F3 was carried as an explicit intermediate criterion.
-4. Completed 4(c) part 1: reviews found 0 / 5 / 3, then 0 / 1 / 2, then 0 / 0 / 0; exporter/CMake/cache/package wiring was accepted and committed through dev13.
-5. Updated current-status and resume rules, corrected dev13/HEAD facts, and condensed this plan while preserving detailed history in OLD_HISTORY.
-6. Applied usage-reduction rules: one behavior per implementation unit, one verification run when evidence is unchanged, and batched Markdown updates at milestones.
+- Completed units 1-5: per-export seam; multi-module fixture; split static/Hybrid real exports; linked launcher and all-static checks; failure/retry injection; tamper/missing-DLL packaging checks.
+- Verification counts: `--only-multimodule` 35 passed/0 failed; split Hybrid 16/0; injection 24/0; all-static 11/0; source refusals 3/3.
+- Per-export seam run passed new split-option checks; two pre-existing failures need the Python `cryptography` package.
+- Fixed the launcher LNK1248 blocking dialog in automated runs.
+- Found cache reuse unreachable because exports create fresh staging; the user decided to reintroduce a persistent AOT cache (option b).
 
-### Where things stand
+### Verified context retained from history
 
-| Observation | Result |
-|---|---|
-| JIT baseline | 30 FPS. |
-| Hybrid first / translate-all / budget 256 | 17 / 14 / 15-20 FPS. |
-| Dev6 static AOT | 16-20 FPS, no fallback. |
-| Dev8 static AOT | 25-30 FPS, no fallback. |
-| [Dev8 static sampling](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld) | Hot block 2-3.5% (was 15-19%), scheduler-fiber symbol about 1% (was 10-12.5%), CPU cores waiting 35-49% of samples. |
-| [Same-scene JIT sampling](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
-| [FMI export](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248) | FMI tests passed, but the PLA static launcher image was about 2.19 GB and failed LNK1248 against the 2 GB x64 limit. |
-| Image budget | Dev8 about 1,820 MiB estimated (about 228 MiB margin); FMI +421 MiB does not fit. |
-| Main DLL (step 3) | `SizeOfImage`: 1,459.1 MiB without FMI / 1,783.7 MiB with FMI; margins: 588.9 MiB / 264.3 MiB to 2,048 MiB. |
-| FPCR measurement | FZ set in about 96% of 3,473,408 JIT context saves; do not measure FPS with `SUYU_FPCR_STATS=1`. |
-| Sampling profile | Hot block was 15-19% of busy-core RIP samples; `ScheduleImplFiber` was 10-12.5%. The FZ finding is confirmed, not a hypothesis. |
-
-Key conclusions: static AOT ran without fallback in the exercised scenario; Dynarmic remains linked for Hybrid and GPU macro JIT/shader compilation remain runtime generation. The SHL fallback hypothesis was refuted, and budget 256 addressed long-slice interrupt delay. The FZ-closed FPX1 gate was the main remaining static AOT cost; the smoke golden mismatch came from MSVC without `/utf-8` in the test only, so real exports were unaffected. Build exports delete `aot_cache`; use Source format to inspect generated C. The FPS comparison is not under fully matched conditions.
+JIT 30 FPS; Hybrid 15-20 FPS; dev6 static 16-20 FPS; dev8 static 25-30 FPS with zero fallback; FMI export 2.19 GB fails LNK1248; main DLL `SizeOfImage` is 1,459.1 MiB without FMI / 1,783.7 MiB with FMI. These measurements are historical evidence, not a matched comparison; details remain in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ### Open issues, in priority order
 
-1. Complete 4(c) part 2 acceptance with synthetic exports, linked v1 launcher execution, failure/retry/cache paths, and runtime seams.
-2. Exercise the dev10 failure paths synthetically.
-3. Remaining items from the old list item 5: code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
-4. Complete 4(d) three-module fixture and decide build-kit support; then run mixed recompiler/export regressions and host verification.
-5. Repeat PLA static AOT without/with FMI after the split and complete the gameplay checklist.
+- Persistent cache and matrix are not verified; `launcher_link` generic launcher-link failure (fallback to MSVC), static-module compile/link injection, MSVC-route failures, real LNK1248 (needs PLA), real PLA split export, and two application lifetimes remain open.
+- `export_regression` Qt-root lookup; step 4(d); old-list items: review `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, pre-existing GG1 `g_recomp_gg_word` link failure, export/GPL/rtld/BUILD.md/version investigations.
+- PLA static AOT repeats without/with FMI and the gameplay checklist remain open.
+- Core-level seam for two application lifetimes: bind `RecompProcess` twice, unregister on `SetRecompLookup(nullptr)`, verify named `Core::Load` refusals with zero guest execution, after first verifying the smallest test-only host around `Core::System` that the dependencies allow.
+- Fix `tests/export_regression` Qt-root lookup so it accepts the CPM Qt package layout and `run_fixture.py` can run again.
 
 ### Immediate next action
 
-Milestone 4a step 4(c) part 2 proposed plan (proposed; adjust after the first unit):
-
-1. Add a per-export split-option seam so one frontend instance can run split and non-split exports in sequence, including invalid values; verify the `tests/export_integration` scenarios.
-2. Add a multi-module synthetic ExeFS fixture generator with a sparse canonical set, page-aligned contiguous bases, a cross-module call target seeded as a discovery root, and an optional unreadable embedded path in a middle module; verify it with a JIT/all-static run of the new fixture.
-3. Drive that fixture through a split static export using the real exporter and run the linked v1 launcher with JIT fallback disabled; inspect the registry, marker, selection, DLL collection, manifests, hashes, per-image `SizeOfImage`, the `recomp: bound inventory` and `recomp: pre-relocation modules` log lines, and the guest marker. Also verify the all-DLL (main-only) topology on the clang prebuilt route.
-4. Add split Hybrid export coverage, source/analysis failure cases (code-less module, missing `main`, and non-canonical NSO), and failure/retry injection for emission, compiler, DLL link, and LNK1248 through a process-runner or toolchain seam.
-5. Add the cache reuse/invalidation matrix and package checks for missing or tampered DLLs, extra DLLs, and unchanged all-static v4 artifacts.
-6. Add a core-level seam for two application lifetimes: bind `RecompProcess` twice, unregister on `SetRecompLookup(nullptr)`, and verify named `Core::Load` refusals with zero guest execution; first verify the feasibility of the smallest test-only host around `Core::System` allowed by the dependencies.
-7. Fix the `export_regression` Qt-root lookup so the fixture runs again.
-
-After this group, obtain Code reviewer review. Then continue with step 4(d) and the remaining criteria in the open issues list. Start with the per-export seam and synthetic multi-module fixture.
+Confirm the three pending cache questions with the user, then implement U1. After the cache: two-application-lifetime seam, `export_regression` Qt-root lookup, step 4(d), then PLA repeats.
 
 ### How to work
 
-- Measure FPS in the same overworld scene and record backend, settings, cache state, and chain-budget condition; never use `SUYU_FPCR_STATS` during FPS measurements.
-- Use the test commands above and Source format when generated C must be inspected. Keep build/export paths and diagnostics outside the repository.
-- Do not export PLA with `SUYU_AOT_FM_INLINE=1` until the image budget is solved. Read generated files as UTF-8 in Python on Windows, and copy `suyu_log.txt` before restarting suyu after a failed export.
-- Follow [CLAUDE.md](../../CLAUDE.md), [CODEBASE_INDEX.md](CODEBASE_INDEX.md), and the Orca coordination notes.
+- Read `CLAUDE.md`, this handoff, the part 2 acceptance list, and the persistent-cache section; run `git status` and `git log` first.
+- Unit loop: decide cause/approach, implement one behavior, verify, obtain Code reviewer review, fix findings, batch Markdown, report files and a suggested commit message; the user commits.
+- Use Build Tools 2026 `vcvars64`; run `cmd /c <local>\rebuild-suyu.bat` from PowerShell (not Git Bash). After every export run, rebuild to clear the three export variables. Keep logs outside the repository and use Source format for generated C inspection.
+- Orca: write worker specs to a file and start with `--spec "$(cat file)"`; recover `turn_start_unobserved` via `orca terminal list --json` and `orca terminal send --terminal <handle> --enter`; wait once with `orca orchestration check --wait --types worker_done,escalation --timeout-ms 3600000` in background; verify diff, `worker-release`, then `--ack`.
+- Never use `SUYU_FPCR_STATS` during FPS runs; do not export PLA with `SUYU_AOT_FM_INLINE=1` until the image budget is solved; read generated files as UTF-8 in Python on Windows.
 
-Useful entry points: [agent guide](../../CLAUDE.md), [codebase index](CODEBASE_INDEX.md), [project README](../../README.md), [upstream build guide](../Suyu/Build.md), [upstream export guide](../Suyu/user/GameExport.md), [exporter source](../../src/suyu/game_export.cpp), and [dependency manifest](../../cpmfile.json).
-
-After each meaningful change, add a dated entry with:
-
-- Milestone and source revision.
-- Problem and supporting evidence.
-- Files changed and reason for the chosen approach.
-- Exact build/test commands and relevant settings.
-- Observed result, comparison baseline, and untested behavior.
-- Next action or blocking information.
-
-Keep raw logs, machine-specific paths, and game-derived artifacts local. Link only to sanitized, shareable evidence from public documentation.
+Keep raw logs, machine-specific paths, and game-derived artifacts local. After meaningful changes, record revision, evidence, files/reason, commands/settings, results/limits, and next action; link only to sanitized public evidence.
 
 ## Progress record
 
-### 2026-10-06: Milestone 4a step 4(c) part 1: split export wiring in exporter, CMake, cache, and package (v0.0.1-dev13)
+- 2026-10-06 part 2 units 1-5: [archived verbatim](OLD_HISTORY.md#2026-10-06-milestone-4a-step-4c-part-2-units-1-5-per-export-split-seam-multi-module-fixture-split-export-through-the-real-exporter-failure-injection).
+- 2026-10-06 part 1: [archived verbatim](OLD_HISTORY.md#2026-10-06-milestone-4a-step-4c-part-1-split-export-wiring-in-exporter-cmake-cache-and-package-v001-dev13).
 
-- **Milestone and revision:** Milestone 4a step 4(c), part 1; base HEAD `e38f7ad` (v0.0.1-dev12); implementation remained uncommitted.
-- **Problem and evidence:** The main-module DLL split needed exporter ownership of the option, bundle identity, canonical topology, cache/package records, and linked launcher/CMake handling. `SUYU_AOT_SPLIT_MAIN` is resolved once per export; split mode emits registry v1 and its marker, binds every canonical module, collects and verifies DLLs, and records per-image PE `SizeOfImage`; all-static v4 remains unchanged.
-- **Files changed and reasons:** `src/suyu/game_export.cpp` adds split validation, bundle-id/cache/manifest/package wiring, image-size diagnostics, and completion wording; `src/core/recompiler/pe_image_size.h` adds a validated PE32+ reader; `src/core/loader/nso_module_names.h` centralizes the canonical list; `src/suyu_cmd/CMakeLists.txt` and `src/suyu_cmd/recomp_modules/RecompDllTarget.cmake` implement v1 in-tree/prebuild DLL handling; `src/common/package_policy.*` records required module DLLs; `src/core/arm/recomp/arm_recomp.cpp` adds bound-inventory and process-scoped pre-relocation diagnostics; packaging and test files cover the corresponding checks.
-- **Commands/settings:** Smoke (including PE/canonical-list units, 21 bundle cases, and all-DLL prebuild), fastmem, reduced FPX, package-policy, export-build-kit, host `suyu`/`suyu-cmd` build with export variables cleared, and split/all-static in-tree/prebuilt configure/link checks were run under Build Tools 2026 `vcvars64`; exact local logs remain outside the repository.
-- **Result and untested behavior:** Smoke, fastmem, reduced FPX, package policy, kit tests, host build, and configure/link checks passed. Exporter end-to-end execution, linked v1 launcher guest execution, loader behavior against a game, and `export_regression` remain unverified; part 2 acceptance is still open.
-- **Next action:** Plan and implement Milestone 4a step 4(c) part 2 from the acceptance list above.
-
-### Older progress entries
-
-- [4(c) part 1 archived in OLD_HISTORY](OLD_HISTORY.md#2026-10-06-milestone-4a-step-4c-part-1-split-export-wiring-in-exporter-cmake-cache-and-package-v001-dev13)
-- [4(b) archived in OLD_HISTORY](OLD_HISTORY.md#2026-10-06-milestone-4a-step-4b-registry-v1-bundle-loading-and-inventory-binding-v001-dev12)
-- [4(a) archived in OLD_HISTORY](OLD_HISTORY.md#2026-10-06-milestone-4a-step-4a-module-topology-identity-export-and-prebuild-dll-binding-v001-dev11)
-- [Step 3 archived in OLD_HISTORY](OLD_HISTORY.md#2026-10-06-milestone-4a-step-3-main-module-dll-image-measured-without-and-with-fmi)
-- [Design review archived in OLD_HISTORY](OLD_HISTORY.md#2026-10-06-milestone-4a-design-note-reviewed-and-accepted-steps-1-2)
-- [Image budget archived in OLD_HISTORY](OLD_HISTORY.md#2026-10-05-static-launcher-image-budget-dev8-no-fmi-versus-fmi-section-totals)
-- [Dev10 LNK1248 archived in OLD_HISTORY](OLD_HISTORY.md#2026-10-05-exporter-stops-on-lnk1248-and-keeps-build-failure-logs-v001-dev10-unverified-by-export)
+Older design, measurement, and exporter entries remain in [OLD_HISTORY.md](OLD_HISTORY.md).

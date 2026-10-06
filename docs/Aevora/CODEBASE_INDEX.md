@@ -74,6 +74,9 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | Generated-tree CMake configure/build | around `game_export.cpp:4229` (v) | Invokes CMake on the generated tree. |
 | Pruning of registration entries | around `game_export.cpp:4701` (v) | Comment on modules dropped from the registration. |
 | `PackageNativeExport()` | `game_export.cpp:5960` (v) | Stages the final export package. |
+| `ParseSplitMainOption()` / `ResolveSplitMainOption()` | `game_export.cpp:3432`, `:3805` (v, 2026-10-06) | Parse the per-export split option and resolve it with a test-driven refusal status. |
+| `IsKnownFailStage()` / `ShouldInjectFailure()` | `game_export.cpp:3786`, `:3794` (v, 2026-10-06) | Validate and apply test-driven clang-route export failure injection. |
+| `ReadCachedSplitExport()` | `game_export.cpp:3613` (v, 2026-10-06) | Reads a completed split cache record; the reuse path is unreachable until persistent-cache work gives exports a cache outside fresh staging. |
 | Gap-seeded discovery | around `game_export.cpp:220`, `3220-3330` | Reads `<user dir>/recomp/gaps/<title>.json` to seed blocks at Hybrid gap addresses. |
 | Runtime DLL list | around `game_export.cpp:193-200` | FFmpeg, DXC, OpenSSL, and Discord RPC copied into packages. |
 | Unit-limit environment overrides | `ReadPositiveSizeFromEnv()` ~`game_export.cpp:124`; read before `EmitProject()` ~`:3828` (v, 2026-10-05) | `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`. |
@@ -200,6 +203,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
 | `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, `bundle_host.cpp`/`bundle_exec.c` production bundle-loading and mixed-image execution checks, and the `check_prebuild` split consumer checks; MSVC golden hashes require `/utf-8`, matching the real build. |
 | `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
+| `tests/export_integration/make_multimodule_fixture.py` | `write_multimodule_fixture()` (v, 2026-10-06) | Generates sparse canonical multi-module ExeFS fixtures with cross-module calls, markers, unreadable paths, and code-less options. |
+| `tests/export_integration/run_export_integration.py` | `multimodule_split_scenarios()`, `split_source_failure_scenarios()`, `split_failure_injection_scenarios()`, `split_option_scenarios()` (v, 2026-10-06) | Exercises real split static/Hybrid exports, source/analysis refusals, injected build/package failures, per-export option handling, and retries. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests; export-regression fixture execution remains blocked by its Qt-root layout lookup. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
 

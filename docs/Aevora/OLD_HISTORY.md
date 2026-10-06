@@ -725,6 +725,33 @@ Keep raw logs, machine-specific paths, and game-derived artifacts local. Link on
 - **Result and untested behavior:** All listed commands exited 0; smoke goldens were unchanged, topology/prebuild/identity checks passed, and fastmem had zero mismatches. Review findings were resolved, including DLL artifact-name verification, the raw 32-byte digest contract, and the MSVC-safe negative-array size check. In-tree marker and kit rejection, the main special target and DLL-first ordering, non-Windows paths, Ninja smoke prebuild, cl.exe C-mode identity compilation, and a PLA export remain unverified.
 - **Next action:** Milestone 4a step 4(b): implement registry v1 (shared C layout), launcher transactional loading with identity checks, and inventory-based base binding (`BindRecompProcess`).
 
+### 2026-10-06: Milestone 4a step 4(c) part 2 units 1-5: per-export split seam, multi-module fixture, split export through the real exporter, failure injection
+
+- **Milestone and revision:** Milestone 4a step 4(c) part 2 units 1-5; source revision `02c0298` (v0.0.1-dev13 sources plus these commits).
+- **Problem and evidence:** The split path needed one-export option control, a sparse cross-module fixture, real exporter coverage, and failure/retry evidence. The existing AOT reuse path is unreachable: `OnExport` creates fresh staging and `RunAotPrecompile` creates its cache there, so no manifest is available for reuse.
+- **Files changed:** `src/suyu/game_export.cpp`, `src/suyu/game_export.h`, `src/suyu/main.cpp`, and `tests/export_integration/*`; the fixture generator emits canonical modules, page-aligned uneven text, cross-module `bl` targets, markers, unreadable-path and code-less variants.
+- **Approach:** Added the per-export `split_main` seam and named rejection status, split static/Hybrid real-export scenarios, clang-cl build-stage injection (`emit`, `compile`, `dll_link`, `launcher_lnk1248`, plus packaging tamper/remove), and retry checks. Missing `main` and non-canonical NSO are stopped earlier by ExeFS validation; `launcher_link`, static-module failures, MSVC failures, and a real 2 GB LNK1248 reproduction remain open.
+- **Verification:** `--only-multimodule` passed the JIT marker run and split static checks (35 passed, 0 failed), Hybrid checks (16 passed), injection checks (24 passed), and all-static checks (11 passed); split-option scenarios passed with invalid/JIT/Source refusal and same-instance retry. The runner was used with `--skip-aot` where applicable; logs and diagnostics stayed outside the repository, and the host tree was restored after each export run. The Python `cryptography` package was absent for two pre-existing runner checks.
+- **Remaining uncertainty:** Persistent cache design, implementation, review, and integration matrix are pending; cache location/key, locking, disk use, eviction, Source packages, and test-driven interaction need decisions. Build packages must continue deleting `aot_cache`.
+
+### Where things stand (2026-10-06 tenth-session measurements)
+
+| Observation | Result |
+|---|---|
+| JIT baseline | 30 FPS. |
+| Hybrid first / translate-all / budget 256 | 17 / 14 / 15-20 FPS. |
+| Dev6 static AOT | 16-20 FPS, no fallback. |
+| Dev8 static AOT | 25-30 FPS, no fallback. |
+| [Dev8 static sampling](OLD_HISTORY.md#2026-10-05-dev8-static-aot-per-thread-cpu-and-rip-sampling-in-the-overworld) | Hot block 2-3.5% (was 15-19%), scheduler-fiber symbol about 1% (was 10-12.5%), CPU cores waiting 35-49% of samples. |
+| [Same-scene JIT sampling](OLD_HISTORY.md#2026-10-05-same-scene-jit-sampling-remaining-gap-is-guest-cpu-cost) | JIT process CPU 275.7% versus 320.3% dev8 static; remaining gap is guest CPU execution cost after excluding wait shares (estimate). |
+| [FMI export](OLD_HISTORY.md#2026-10-05-pla-export-with-fmi-fails-static-launcher-image-exceeds-2-gb-lnk1248) | FMI tests passed, but the PLA static launcher image was about 2.19 GB and failed LNK1248 against the 2 GB x64 limit. |
+| Image budget | Dev8 about 1,820 MiB estimated (about 228 MiB margin); FMI +421 MiB does not fit. |
+| Main DLL (step 3) | `SizeOfImage`: 1,459.1 MiB without FMI / 1,783.7 MiB with FMI; margins: 588.9 MiB / 264.3 MiB to 2,048 MiB. |
+| FPCR measurement | FZ set in about 96% of 3,473,408 JIT context saves; do not measure FPS with `SUYU_FPCR_STATS=1`. |
+| Sampling profile | Hot block was 15-19% of busy-core RIP samples; `ScheduleImplFiber` was 10-12.5%. The FZ finding is confirmed, not a hypothesis. |
+
+Key conclusions: static AOT ran without fallback in the exercised scenario; Dynarmic remains linked for Hybrid and GPU macro JIT/shader compilation remain runtime generation. The SHL fallback hypothesis was refuted, and budget 256 addressed long-slice interrupt delay. The FZ-closed FPX1 gate was the main remaining static AOT cost; the smoke golden mismatch came from MSVC without `/utf-8` in the test only, so real exports were unaffected. Build exports delete `aot_cache`; use Source format to inspect generated C. The FPS comparison is not under fully matched conditions.
+
 
 - **Archive rule:** At each session close, move progress entries older than the previous session (and their session-close entry) verbatim to OLD_HISTORY.md, and add any still-relevant fact to Key facts from archived history.
 
@@ -793,6 +820,4 @@ Per module (image-relevant sum, dev8 / FMI): main 1,455.3 / 1,780.5; sdk 131.1 /
 - **Review:** Code reviewer (Orca, gpt-6.1-sol, high) found one P2 issue (write/flush errors not checked before reporting the log as saved) and a wording caveat (MSVC is not proven unable to produce smaller code; the change now says it does not remove the limit and is costly); both were fixed. Control flow (failure return, staging cleanup, Hybrid retry, one-module Hybrid) was reviewed with no findings.
 - **Verification:** `rebuild-suyu.bat` (Build Tools 2026 vcvars64, Ninja, `-j 8`) built suyu and suyu-cmd after the change and after the review fix; no warnings from `game_export.cpp`.
 - **Not run:** no export exercised the new paths; injected LNK1248 for static, Hybrid retry, and one-module Hybrid, and log-helper Unicode/append/rotation/open-failure/write-failure cases remain untested.
-
-
 

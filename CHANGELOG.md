@@ -2,6 +2,19 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev14 - Unreleased
+
+*Development commit 14 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added a sparse multi-module fixture generator and integration scenarios for split static/Hybrid exports, linked launcher execution, and unchanged all-static output.
+- Added a test-driven per-export split option and build-stage failure injection, including tampered or missing DLL packaging checks and rejection reasons in test-driven status.
+
+### Fixed
+- Launcher LNK1248 failures no longer block automated runs on a modal dialog; test-driven exports report the rejection while interactive users retain the dialog.
+
+The existing cache reuse path is unreachable with fresh per-export staging; a persistent AOT cache is the next planned work.
+
 ## v0.0.1-dev13 - Unreleased
 
 *Development commit 13 toward v0.0.1. Not a release; no build artifacts are published.*
