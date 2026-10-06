@@ -122,6 +122,14 @@ public:
         /// The module whose emit/compile/dll_link/tamper_dll/remove_dll stage fails; empty =
         /// "main".
         QString fail_module;
+        /// The persistent AOT cache root for this export. A test-driven export never uses the
+        /// real user-data cache: empty = the cache is off, so existing tests leave no entry.
+        QString aot_cache_root;
+        /// The producer identity recorded in (and compared with) cache entries, standing in
+        /// for the running build's; both empty = the real one. Lets a test model "another
+        /// suyu build wrote this entry".
+        QString aot_producer_revision;
+        QString aot_producer_build_id;
     };
     /// Accepts "" or a stage name TestExportOptions::fail_stage understands: "emit" (lift to
     /// C), "compile" (module compile), "dll_link" (module DLL link, LNK error text),
@@ -297,6 +305,14 @@ private:
     QString RunAotPrecompile(const QString& exefs_dir, const QString& cache_dir,
                              RecompileBackend backend, const QString& game_name, bool split_main,
                              std::optional<SplitExportRecord>& split_export);
+
+    /// Publishes the finished Build export in @p cache_work (launcher, DLLs, manifest and, for a
+    /// split export, the module selection) to the persistent AOT cache so a later export or a
+    /// failed packaging does not lose it. Never fails the export: the cache is an optimisation,
+    /// so every refusal (busy entry, incomplete or damaged artifacts, no space) is only logged.
+    void PublishAotCacheEntry(const QString& cache_work, RecompileBackend backend,
+                              quint64 program_id, bool split_main,
+                              const std::optional<SplitExportRecord>& split_export);
 
     /// Reads and validates SUYU_AOT_SPLIT_MAIN for an export of @p backend. Returns false after
     /// telling the user why when the value is invalid or the export type cannot be split

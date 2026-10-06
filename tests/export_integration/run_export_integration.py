@@ -110,6 +110,20 @@ class Mcp:
         self.pending.append(self._send(name, arguments or {}))
 
 
+def cache_layout():
+    """The persistent AOT cache's layout constants, read from the exporter's header
+    (src/suyu/aot_export_cache.h), the one place that defines them."""
+    import re
+    header = (ROOT / 'src' / 'suyu' / 'aot_export_cache.h').read_text(encoding='utf-8')
+    layout = dict(re.findall(r'inline constexpr char (k\w+)\[\] = "([^"]*)";', header))
+    wanted = ('kWindowsPlatformName', 'kLauncherDirName', 'kLauncherExecutableName',
+              'kManifestFileName', 'kModuleSelectionFileName', 'kEntryRecordFileName')
+    missing = [name for name in wanted if name not in layout]
+    if missing:
+        raise SystemExit('aot_export_cache.h no longer defines: ' + ', '.join(missing))
+    return layout
+
+
 def snapshot(root):
     files = {}
     for path in sorted(Path(root).rglob('*')):
@@ -345,6 +359,88 @@ class Run:
                 self.check_all_static_package(tag, package)
             code, output, log = self.launch(package, package_name + '.exe', keys=True, timeout=180)
             self.check_split_run(tag, code, log, info, split=split)
+
+    def aot_cache_publish_scenarios(self):
+        """The persistent AOT cache (publish side): a finished split Build export is kept under
+        the cache root before packaging, a packaging failure still leaves the new build there,
+        and a later build replaces the entry in place with its own producer."""
+        fixture = self.work / 'CacheFixture'
+        info = make_multimodule_fixture.write_multimodule_fixture(fixture)
+        out = self.work / 'out-cache'
+        root = self.work / 'aot-cache'
+        # File names and layout come from the exporter's own header, so a rename there fails
+        # this test instead of silently moving the cache.
+        layout = cache_layout()
+        required = ['%s/%s' % (layout['kLauncherDirName'], layout['kLauncherExecutableName']),
+                    layout['kManifestFileName'], layout['kModuleSelectionFileName'],
+                    layout['kEntryRecordFileName']]
+        producer_a = {'aot_producer_revision': 'test-rev-a', 'aot_producer_build_id': 'test-build'}
+        producer_b = {'aot_producer_revision': 'test-rev-b', 'aot_producer_build_id': 'test-build'}
+
+        def entry_dirs():
+            return sorted(p for p in root.iterdir()
+                          if p.is_dir() and not p.name.startswith('.')) if root.exists() else []
+
+        def record_fields(entry):
+            text = (entry / layout['kEntryRecordFileName']).read_text(encoding='utf-8')
+            return dict(line.split('=', 1) for line in text.splitlines()[1:])
+
+        def check_entry(tag, entry, producer_revision):
+            """The entry is complete, named after its key and producer, and its module DLL is
+            the one its own manifest records."""
+            missing = [n for n in required if not (entry / n).is_file()]
+            self.record('cache: %s: entry holds every required artifact' % tag, not missing,
+                        ','.join(missing))
+            if missing:
+                return
+            cached = json.loads((entry / layout['kManifestFileName']).read_text(encoding='utf-8'))
+            name = '%016x_%s_%s_split' % (info['title_id'], layout['kWindowsPlatformName'],
+                                          cached.get('effective_backend'))
+            fields = record_fields(entry)
+            self.record('cache: %s: record names the entry and the producer' % tag,
+                        entry.name == name and fields.get('entry') == name and
+                        fields.get('producer.suyu_revision') == producer_revision and
+                        fields.get('producer.build_id') == 'test-build', json.dumps(fields))
+            images = cached.get('module_images', [])
+            dll = entry / layout['kLauncherDirName'] / images[0]['file'] if len(images) == 1 else None
+            self.record('cache: %s: cached module DLL matches its manifest record' % tag,
+                        dll is not None and dll.is_file() and
+                        hashlib.sha256(dll.read_bytes()).hexdigest() == images[0]['sha256'])
+
+        status = self.export('static', 'build', rom=fixture, output=out, split_main='1',
+                             aot_cache_root=str(root), **producer_a)
+        self.record('cache: split export succeeds', status.get('success'), status.get('status', ''))
+        package = out / fixture.name
+        entries = entry_dirs()
+        self.record('cache: exactly one entry is published', len(entries) == 1,
+                    ','.join(p.name for p in entries))
+        if len(entries) == 1:
+            check_entry('first export', entries[0], 'test-rev-a')
+        self.record('cache: package carries no aot_cache',
+                    package.exists() and not (package / 'aot_cache').exists())
+        leftovers = sorted(p.name for p in root.iterdir() if p.name.startswith('.'))
+        self.record('cache: no staging or trash left in the cache root', not leftovers,
+                    ','.join(leftovers))
+
+        # A packaging failure after the build keeps the new build and replaces the old entry;
+        # the package of the earlier export stays byte for byte as it was.
+        package_before = snapshot(package) if package.exists() else None
+        status = self.export('static', 'build', rom=fixture, output=out, split_main='1',
+                             aot_cache_root=str(root), fail_at='package', conflict='replace',
+                             **producer_b)
+        self.record('cache: packaging failure fails the export',
+                    not status.get('success'), status.get('status', ''))
+        entries_after = entry_dirs()
+        self.record('cache: the failed export left one entry, in place',
+                    [p.name for p in entries_after] == [p.name for p in entries],
+                    ','.join(p.name for p in entries_after))
+        if len(entries_after) == 1:
+            check_entry('after the failed export', entries_after[0], 'test-rev-b')
+        self.record('cache: the failed export left the earlier package untouched',
+                    package_before is not None and snapshot(package) == package_before)
+        leftovers = sorted(p.name for p in root.iterdir() if p.name.startswith('.'))
+        self.record('cache: nothing left in the cache root after the failed export', not leftovers,
+                    ','.join(leftovers))
 
     def check_all_static_package(self, tag, package):
         manifest = json.loads((package / 'export-package.json').read_text())
@@ -749,6 +845,10 @@ class Run:
             except Exception:
                 self.process.kill()
         self.record('registry unchanged by test exports', registry_dump() == registry_before)
+        # A test-driven export names its own cache root; with none the cache stays off, so
+        # nothing may appear in the user-data directory.
+        self.record('no AOT cache written to the user-data directory',
+                    not (self.work / 'appdata' / 'suyu' / 'aot_export_cache').exists())
         # suyu and the launchers only read keys; nothing may be written beside them.
         keys = sorted(p.name for p in (self.work / 'appdata' / 'suyu' / 'keys').iterdir())
         self.record('no key files created', keys == ['prod.keys'], ', '.join(keys))
@@ -830,6 +930,9 @@ class Run:
         if a.only_split_failures:
             self.split_source_failure_scenarios()
             self.split_failure_injection_scenarios()
+            return
+        if a.only_aot_cache:
+            self.aot_cache_publish_scenarios()
             return
         if a.only_multimodule:
             self.split_source_failure_scenarios()
@@ -1000,6 +1103,8 @@ def main():
                         help='only the multi-module split-export scenarios')
     parser.add_argument('--only-split-failures', action='store_true',
                         help='only the split-export refusal and failure-injection scenarios')
+    parser.add_argument('--only-aot-cache', action='store_true',
+                        help='only the persistent AOT cache publish scenarios')
     parser.add_argument('--variant', help='run only multi-module variants whose name contains this')
     parser.add_argument('--skip-multimodule', action='store_true',
                         help='leave out the multi-module split-export scenarios')

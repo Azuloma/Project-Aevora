@@ -6163,6 +6163,14 @@ void GMainWindow::ApplyAppMode(AppMode mode) {
                         // GameExportDialog::TestExportOptions::fail_stage).
                         options.fail_stage = params[QStringLiteral("fail_stage")].toString().trimmed();
                         options.fail_module = params[QStringLiteral("fail_module")].toString().trimmed();
+                        // Test-only persistent AOT cache root and producer identity (see
+                        // GameExportDialog::TestExportOptions::aot_cache_root).
+                        options.aot_cache_root =
+                            params[QStringLiteral("aot_cache_root")].toString().trimmed();
+                        options.aot_producer_revision =
+                            params[QStringLiteral("aot_producer_revision")].toString().trimmed();
+                        options.aot_producer_build_id =
+                            params[QStringLiteral("aot_producer_build_id")].toString().trimmed();
                         if (!GameExportDialog::IsKnownFailStage(options.fail_stage)) {
                             return QJsonObject{{QStringLiteral("success"), false},
                                                {QStringLiteral("error"),

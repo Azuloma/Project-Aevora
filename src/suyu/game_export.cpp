@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 suyu Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "suyu/aot_export_cache.h"
 #include "suyu/game_export.h"
 #include "suyu/steam_integration.h"
 #include "suyu/wikipedia_cover.h"
@@ -3459,6 +3460,13 @@ static bool ApplicationDirHasSourceBuild() {
     return false;
 }
 
+// The backend name recorded in aot_manifest.json and in the persistent cache key. One
+// definition, so the manifest and the cache entry cannot disagree about it.
+static QString AotBackendName(GameExportDialog::RecompileBackend backend) {
+    return backend == GameExportDialog::RecompileBackend::Hybrid ? QStringLiteral("suyu-hybrid")
+                                                                 : QStringLiteral("suyu-static");
+}
+
 // What decides the content of a split export's images, and so its bundle id.
 struct BundleIdInputs {
     QString source_exefs_sha256;
@@ -3783,6 +3791,114 @@ static void ReportExportRejection(QWidget* parent, bool test_driven, const QStri
     }
 }
 
+void GameExportDialog::PublishAotCacheEntry(
+    const QString& cache_work, RecompileBackend backend, quint64 program_id, bool split_main,
+    const std::optional<SplitExportRecord>& split_export) try {
+    namespace Cache = suyu::aot_cache;
+    // A test-driven export names its own root; without one the cache stays off so a test
+    // never touches the user's real cache.
+    std::filesystem::path cache_root;
+    if (test_driven_export) {
+        if (test_options_.aot_cache_root.isEmpty()) {
+            return;
+        }
+        cache_root = ToFsPath(test_options_.aot_cache_root);
+    } else {
+        cache_root = Common::FS::GetSuyuPath(Common::FS::SuyuPath::SuyuDir) /
+                     Cache::kCacheRootDirName;
+    }
+    const Cache::EntryKey key{
+        QStringLiteral("%1").arg(program_id, 16, 16, QLatin1Char('0')).toStdString(),
+        Cache::kWindowsPlatformName, AotBackendName(backend).toStdString(), split_main};
+    const auto skip = [](const QString& reason) {
+        LOG_WARNING(Frontend, "AOT cache: not published: {}", reason.toStdString());
+    };
+
+    std::string error;
+    bool contended = false;
+    const auto lock = Cache::EntryLock::TryAcquire(cache_root, key, &contended, &error);
+    if (!lock) {
+        skip(QString::fromStdString(error));
+        return;
+    }
+    const auto staging = Cache::PrepareStaging(*lock, cache_root, key, &error);
+    if (!staging) {
+        skip(QString::fromStdString(error));
+        return;
+    }
+    const auto fail = [&](const QString& reason) {
+        Cache::DiscardStaging(*lock, cache_root, key);
+        skip(reason);
+    };
+
+    // The artifacts being kept must be the ones the build recorded: a module DLL that no
+    // longer matches its recorded size and SHA-256 would replace a good entry with a bad one.
+    const QString launcher_dir = cache_work + QStringLiteral("/") + QLatin1String(Cache::kLauncherDirName);
+    if (split_export) {
+        for (const auto& image : split_export->images) {
+            const QString path = launcher_dir + QLatin1Char('/') + QString::fromStdString(image.file);
+            QString actual_sha256;
+            qint64 actual_size_bytes = 0;
+            if (!HashFileSha256(path, &actual_sha256, &actual_size_bytes) ||
+                actual_size_bytes != image.size_bytes || actual_sha256 != image.sha256) {
+                skip(QStringLiteral("module image %1 is missing or differs from the build record")
+                         .arg(QDir::toNativeSeparators(path)));
+                Cache::DiscardStaging(*lock, cache_root, key);
+                return;
+            }
+        }
+    }
+
+    // Copy, not move: packaging reads the same files from the staged export next.
+    const auto copy_into_staging = [&](const char* relative, bool directory) {
+        const std::filesystem::path from = ToFsPath(cache_work) / relative;
+        const std::filesystem::path to = *staging / relative;
+        std::error_code ec;
+        std::filesystem::create_directories(to.parent_path(), ec);
+        if (directory) {
+            std::filesystem::copy(from, to, std::filesystem::copy_options::recursive, ec);
+        } else {
+            std::filesystem::copy_file(from, to, std::filesystem::copy_options::none, ec);
+        }
+        if (ec) {
+            fail(QStringLiteral("cannot copy %1 into the cache: %2")
+                     .arg(QDir::toNativeSeparators(FromFsPath(from)),
+                          QString::fromStdString(ec.message())));
+            return false;
+        }
+        return true;
+    };
+    if (!copy_into_staging(Cache::kLauncherDirName, true) ||
+        !copy_into_staging(Cache::kManifestFileName, false) ||
+        (split_main && !copy_into_staging(Cache::kModuleSelectionFileName, false))) {
+        return;
+    }
+
+    const Cache::ProducerIdentity producer = Cache::EffectiveProducer(
+        {Common::g_scm_rev, Common::g_build_id},
+        // Test options outlive a test-driven export in this dialog; only such an export uses them.
+        !test_driven_export || test_options_.aot_producer_revision.isEmpty()
+            ? std::nullopt
+            : std::optional<Cache::ProducerIdentity>{Cache::ProducerIdentity{
+                  test_options_.aot_producer_revision.toStdString(),
+                  test_options_.aot_producer_build_id.toStdString()}});
+    if (!Cache::PublishEntry(*lock, cache_root, key, producer, &error)) {
+        fail(QString::fromStdString(error));
+        return;
+    }
+    std::string path_error;
+    const auto entry_path = Cache::EntryPath(cache_root, key, &path_error);
+    LOG_INFO(Frontend, "AOT cache: published {} ({:.2f} GiB)",
+             Common::FS::PathToUTF8String(*entry_path),
+             static_cast<double>(Cache::EntrySizeBytes(*entry_path)) /
+                 (1024.0 * 1024.0 * 1024.0));
+} catch (const std::exception& exception) {
+    // The standard library throws on a path it cannot convert or an allocation failure; the
+    // cache is an optimisation and must never take down a finished export. A half-built
+    // staging tree is cleared by the next PrepareStaging.
+    LOG_WARNING(Frontend, "AOT cache: not published: {}", exception.what());
+}
+
 bool GameExportDialog::IsKnownFailStage(const QString& stage) {
     return stage.isEmpty() || stage == QLatin1String("emit") ||
            stage == QLatin1String("compile") || stage == QLatin1String("dll_link") ||
@@ -3982,8 +4098,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     const bool is_hybrid = backend == RecompileBackend::Hybrid;
     const bool fallback_enabled = is_hybrid && fallback_to_interpreter_checkbox &&
                                   fallback_to_interpreter_checkbox->isChecked();
-    const QString requested_backend_name =
-        is_hybrid ? QStringLiteral("suyu-hybrid") : QStringLiteral("suyu-static");
+    const QString requested_backend_name = AotBackendName(backend);
     const QString effective_backend_name = requested_backend_name;
 
     // Addresses earlier runs of this title reached with no recompiled block
@@ -7384,6 +7499,10 @@ void GameExportDialog::OnExport() {
                               : tr("AOT pre-compilation failed."));
             return;
         }
+    }
+    // The build is complete and linked here, so keep it before packaging can fail.
+    if (uses_aot && WantsCompiledOutput() && platform == TargetPlatform::Windows) {
+        PublishAotCacheEntry(cache_work, backend, export_program_id, split_main, split_export);
     }
     injected("precompile");
     // Step 4: Package native export artifacts

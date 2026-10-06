@@ -67,6 +67,14 @@ std::string RecordText(const std::string& entry_name, const ProducerIdentity& pr
     return text.str();
 }
 
+// A path for an error message. Not path::string(): on Windows that converts through the ANSI
+// code page and throws for a path it cannot represent, which would turn a refused lock into an
+// exception. UTF-8 never throws.
+std::string DisplayPath(const fs::path& path) {
+    const auto text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
+
 bool HasLineBreak(const std::string& value) {
     return value.find_first_of("\r\n") != std::string::npos;
 }
@@ -211,7 +219,7 @@ std::unique_ptr<EntryLock> EntryLock::TryAcquire(const fs::path& cache_root, con
     std::error_code ec;
     fs::create_directories(cache_root, ec);
     if (ec) {
-        *error = "cannot create the cache root " + cache_root.string() + ": " + ec.message();
+        *error = "cannot create the cache root " + DisplayPath(cache_root) + ": " + ec.message();
         return nullptr;
     }
     const fs::path path = LockPath(cache_root, *name);
@@ -224,9 +232,9 @@ std::unique_ptr<EntryLock> EntryLock::TryAcquire(const fs::path& cache_root, con
         const DWORD last_error = GetLastError();
         if (last_error == ERROR_SHARING_VIOLATION || last_error == ERROR_LOCK_VIOLATION) {
             *contended = true;
-            *error = "another export holds the lock " + path.string();
+            *error = "another export holds the lock " + DisplayPath(path);
         } else {
-            *error = "cannot open the lock " + path.string() + " (Windows error " +
+            *error = "cannot open the lock " + DisplayPath(path) + " (Windows error " +
                      std::to_string(last_error) + ")";
         }
         return nullptr;
@@ -234,15 +242,15 @@ std::unique_ptr<EntryLock> EntryLock::TryAcquire(const fs::path& cache_root, con
 #else
     impl->fd = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if (impl->fd < 0) {
-        *error = "cannot open the lock " + path.string() + " (errno " + std::to_string(errno) + ")";
+        *error = "cannot open the lock " + DisplayPath(path) + " (errno " + std::to_string(errno) + ")";
         return nullptr;
     }
     if (flock(impl->fd, LOCK_EX | LOCK_NB) != 0) {
         if (errno == EWOULDBLOCK) {
             *contended = true;
-            *error = "another export holds the lock " + path.string();
+            *error = "another export holds the lock " + DisplayPath(path);
         } else {
-            *error = "cannot lock " + path.string() + " (errno " + std::to_string(errno) + ")";
+            *error = "cannot lock " + DisplayPath(path) + " (errno " + std::to_string(errno) + ")";
         }
         return nullptr;
     }
@@ -266,7 +274,7 @@ std::optional<fs::path> PrepareStaging(const EntryLock&, const fs::path& cache_r
     if (!fs::exists(entry, restore_ec) && fs::exists(trash, restore_ec)) {
         fs::rename(trash, entry, restore_ec);
         if (restore_ec) {
-            *error = "cannot restore the set-aside entry " + trash.string() + ": " +
+            *error = "cannot restore the set-aside entry " + DisplayPath(trash) + ": " +
                      restore_ec.message();
             return std::nullopt;
         }
@@ -277,7 +285,7 @@ std::optional<fs::path> PrepareStaging(const EntryLock&, const fs::path& cache_r
         std::error_code ec;
         fs::remove_all(leftover, ec);
         if (ec) {
-            *error = "cannot clear " + leftover.string() + ": " + ec.message();
+            *error = "cannot clear " + DisplayPath(leftover) + ": " + ec.message();
             return std::nullopt;
         }
     }
@@ -285,10 +293,18 @@ std::optional<fs::path> PrepareStaging(const EntryLock&, const fs::path& cache_r
     std::error_code ec;
     fs::create_directories(staging, ec);
     if (ec) {
-        *error = "cannot create " + staging.string() + ": " + ec.message();
+        *error = "cannot create " + DisplayPath(staging) + ": " + ec.message();
         return std::nullopt;
     }
     return staging;
+}
+
+void DiscardStaging(const EntryLock&, const fs::path& cache_root, const EntryKey& key) {
+    std::string ignored;
+    if (const auto name = EntryName(key, &ignored)) {
+        std::error_code ec;
+        fs::remove_all(StagingPath(cache_root, *name), ec);
+    }
 }
 
 bool PublishEntry(const EntryLock&, const fs::path& cache_root, const EntryKey& key,
@@ -315,7 +331,7 @@ bool PublishEntry(const EntryLock&, const fs::path& cache_root, const EntryKey& 
         record << RecordText(*name, producer);
         record.flush();
         if (!record) {
-            *error = "cannot write " + (staging / kEntryRecordFileName).string();
+            *error = "cannot write " + DisplayPath((staging / kEntryRecordFileName));
             return false;
         }
     }
@@ -323,20 +339,20 @@ bool PublishEntry(const EntryLock&, const fs::path& cache_root, const EntryKey& 
     std::error_code ec;
     fs::remove_all(trash, ec);
     if (ec) {
-        *error = "cannot clear " + trash.string() + ": " + ec.message();
+        *error = "cannot clear " + DisplayPath(trash) + ": " + ec.message();
         return false;
     }
     const bool had_entry = fs::exists(entry, ec);
     if (had_entry) {
         fs::rename(entry, trash, ec);
         if (ec) {
-            *error = "cannot move the old entry aside (" + entry.string() + "): " + ec.message();
+            *error = "cannot move the old entry aside (" + DisplayPath(entry) + "): " + ec.message();
             return false;
         }
     }
     fs::rename(staging, entry, ec);
     if (ec) {
-        *error = "cannot publish " + entry.string() + ": " + ec.message();
+        *error = "cannot publish " + DisplayPath(entry) + ": " + ec.message();
         if (had_entry) {
             std::error_code restore_ec;
             fs::rename(trash, entry, restore_ec);

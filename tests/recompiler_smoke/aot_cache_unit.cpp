@@ -114,6 +114,23 @@ int Lock(const fs::path& root) {
     return 0;
 }
 
+// A cache root the ANSI code page cannot represent: a refused lock reports it without throwing.
+int NonAsciiRoot(const fs::path& work) {
+    const fs::path root = work / fs::path(u8"cache-\U0001F600-\u65e5\u672c");
+    std::string error;
+    bool contended = false;
+    auto first = C::EntryLock::TryAcquire(root, kSplitKey, &contended, &error);
+    CHECK(first && !contended);
+    try {
+        auto second = C::EntryLock::TryAcquire(root, kSplitKey, &contended, &error);
+        CHECK(!second && contended && Contains(error, "another export"));
+    } catch (const std::exception& exception) {
+        std::fprintf(stderr, "FAIL: threw for a non-ANSI root: %s\n", exception.what());
+        return 1;
+    }
+    return 0;
+}
+
 int PublishAndReplace(const fs::path& root) {
     std::string error;
     bool contended = false;
@@ -244,6 +261,9 @@ int main(int argc, char** argv) {
         return result;
     }
     if (const int result = Lock(work / "lock")) {
+        return result;
+    }
+    if (const int result = NonAsciiRoot(work / "lock")) {
         return result;
     }
     if (const int result = PublishAndReplace(work / "publish")) {

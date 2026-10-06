@@ -22,6 +22,9 @@ namespace suyu::aot_cache {
 // never lives in the repository or an output folder.
 inline constexpr char kCacheRootDirName[] = "aot_export_cache";
 
+// The platform part of the key for a Windows Build export (the only cached target).
+inline constexpr char kWindowsPlatformName[] = "windows";
+
 // Layout of one entry (relative to the entry directory). The cache stores exactly these
 // artifacts; reuse copies the launcher and manifest back into staging.
 inline constexpr char kLauncherDirName[] = "launcher";
@@ -106,6 +109,12 @@ private:
 [[nodiscard]] std::optional<std::filesystem::path> PrepareStaging(
     const EntryLock& lock, const std::filesystem::path& cache_root, const EntryKey& key,
     std::string* error);
+
+// Removes the staging directory after a failed assembly so a partial multi-GB tree does not
+// wait for the next export. Best effort: a tree that cannot be removed is cleared by the next
+// PrepareStaging. Requires the entry lock.
+void DiscardStaging(const EntryLock& lock, const std::filesystem::path& cache_root,
+                    const EntryKey& key);
 
 // Publishes the finished staging directory as the entry: writes the record file, then swaps it
 // in with renames so a reader sees the old complete entry or the new one, never a partial one.
