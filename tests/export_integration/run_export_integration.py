@@ -30,6 +30,7 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import make_fixture  # noqa: E402
+import make_multimodule_fixture  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 # The launcher only checks that prod.keys exists, but suyu-cmd then crashes
@@ -115,6 +116,16 @@ def snapshot(root):
         if path.is_file():
             files[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return files
+
+
+def pe_size_of_image(data):
+    """SizeOfImage of a PE file image (optional header offset 56), or None if it is not a PE."""
+    if data[:2] != b'MZ' or len(data) < 0x40:
+        return None
+    pe = struct.unpack_from('<I', data, 0x3C)[0]
+    if data[pe:pe + 4] != b'PE\0\0':
+        return None
+    return struct.unpack_from('<I', data, pe + 24 + 56)[0]
 
 
 def registry_dump():
@@ -297,6 +308,75 @@ class Run:
                     code == 2 and 'could not be decrypted' in log, 'exit=%s' % code)
         record.write_text(original)
         keys.write_text(PLACEHOLDER_KEYS)
+
+    def multimodule_split_scenarios(self):
+        """A split static export of the synthetic multi-module fixture, through the real
+        exporter, and a run of its launcher: main is a DLL beside the launcher, the other
+        modules are linked into it, and the guest chain crosses every module boundary."""
+        for variant, no_path in (('default', None), ('main without a readable path', 'main')):
+            tag = 'multi-module split (%s)' % variant
+            fixture = self.work / ('MultiFixture' if no_path is None else 'MultiFixtureNoPath')
+            info = make_multimodule_fixture.write_multimodule_fixture(fixture, no_path=no_path)
+            out = self.work / ('out-multi' if no_path is None else 'out-multi-nopath')
+            status = self.export('static', 'build', rom=fixture, output=out, split_main='1')
+            package = out / fixture.name
+            self.record(tag + ': export succeeds', status.get('success'), status.get('status', ''))
+            if not status.get('success'):
+                continue
+            self.check_split_package(tag, package, info)
+            code, output, log = self.launch(package, fixture.name + '.exe', keys=True, timeout=180)
+            self.check_split_run(tag, code, log, info)
+
+    def check_split_package(self, tag, package, info):
+        manifest = json.loads((package / 'export-package.json').read_text())
+        topology = manifest.get('module_topology', [])
+        bindings = {e['name']: e['binding'] for e in topology}
+        expected = {name: 'dll' if name == 'main' else 'static' for name in info['modules']}
+        self.record(tag + ': topology names every module, main as the DLL',
+                    [e['name'] for e in topology] == info['modules'] and bindings == expected,
+                    json.dumps(bindings))
+        bundle_id = manifest.get('bundle_id', '')
+        self.record(tag + ': bundle id', len(bundle_id) == 64 and all(c in '0123456789abcdef' for c in bundle_id),
+                    bundle_id)
+        images = [e for e in topology if e['binding'] == 'dll']
+        on_disk = sorted(p.name for p in package.glob('*.dll')
+                         if p.name in {e.get('file') for e in images})
+        self.record(tag + ': one module DLL beside the launcher', len(images) == 1 and
+                    on_disk == [images[0].get('file')] if images else False, ','.join(on_disk))
+        for image in images:
+            path = package / image['file']
+            data = path.read_bytes()
+            self.record(tag + ': DLL matches the recorded sha256 and size',
+                        hashlib.sha256(data).hexdigest() == image['sha256']
+                        and len(data) == image['size_bytes'])
+            self.record(tag + ': DLL SizeOfImage matches the record',
+                        pe_size_of_image(data) == image['size_of_image'] > 0,
+                        '%s vs %s' % (pe_size_of_image(data), image['size_of_image']))
+        # Runtime DLLs are copies of suyu's own; any other DLL beside the launcher must be a
+        # module image the topology records.
+        runtime = {p.name for p in Path(self.args.suyu_dir).glob('*.dll')}
+        self.record(tag + ': no extra module DLLs',
+                    sorted(p.name for p in package.glob('*.dll') if p.name not in runtime) ==
+                    sorted(e['file'] for e in images))
+
+    def check_split_run(self, tag, code, log, info):
+        self.record(tag + ': launcher runs the guest chain through every module',
+                    all(m in log for m in info['markers']), 'exit=%s' % code)
+        self.record(tag + ': no JIT fallback', 'falling back to JIT' not in log and 'strict mode' not in log)
+        inventory = [line for line in log.splitlines() if 'recomp: bound inventory core 0:' in line]
+        pre = [line for line in log.splitlines() if 'recomp: pre-relocation modules:' in line]
+        pairs = []
+        for line in inventory[:1]:
+            for item in line.split('core 0:', 1)[1].split():
+                name, _, base = item.partition('@')
+                pairs.append((name, int(base, 16)))
+        # The same names in NSO load order, at the distances the loader's contiguous layout
+        # gives (the base itself is randomised).
+        relative = [(n, b - pairs[0][1]) for n, b in pairs] if pairs else []
+        self.record(tag + ': bound inventory is the whole module set at the loader\'s bases',
+                    relative == list(info['module_offsets'].items()), str(relative))
+        self.record(tag + ': pre-relocation modules logged once, same inventory', len(pre) == 1 and
+                    all(n + '@' in pre[0] for n in info['modules']), str(len(pre)))
 
     def split_option_scenarios(self):
         """Per-export SUYU_AOT_SPLIT_MAIN: invalid or unsupported requests are refused with a
@@ -642,6 +722,9 @@ class Run:
         jit_name = 'SynthFixture - Dynarmic JIT'
         jit = self.out / jit_name
 
+        if a.only_multimodule:
+            self.multimodule_split_scenarios()
+            return
         self.ticket_scenarios()
 
         # JIT baseline package.
@@ -791,6 +874,9 @@ class Run:
             self.record('launcher: %s runs after the package is moved' % backend, marker in log,
                         'exit=%s' % code)
 
+        if not a.skip_multimodule:
+            self.multimodule_split_scenarios()
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -798,6 +884,10 @@ def main():
     parser.add_argument('--work', required=True, help='new, short work folder')
     parser.add_argument('--port', type=int, default=9761)
     parser.add_argument('--skip-aot', action='store_true', help='JIT and policy scenarios only')
+    parser.add_argument('--only-multimodule', action='store_true',
+                        help='only the multi-module split-export scenarios')
+    parser.add_argument('--skip-multimodule', action='store_true',
+                        help='leave out the multi-module split-export scenarios')
     if os.name != 'nt':
         print('SKIP: the exporter integration test drives a Windows build')
         return 0
