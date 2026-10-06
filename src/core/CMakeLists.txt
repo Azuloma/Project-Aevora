@@ -9,6 +9,8 @@ add_library(core STATIC
     arm/arm_interface.h
     arm/recomp/arm_recomp.cpp
     arm/recomp/arm_recomp.h
+    arm/recomp/recomp_bundle.cpp
+    arm/recomp/recomp_bundle.h
     arm/recomp/recomp_gap_session.cpp
     arm/recomp/recomp_gap_session.h
     arm/recomp/recomp_gaps.cpp

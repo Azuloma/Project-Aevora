@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-06. HEAD: `d4c8cf9` (docs commit after `e66f19c`). Last session handoff: 2026-10-06, eighth session (see [Session handoff](#session-handoff-2026-10-06-eighth-session-complete)).
+Handoff prepared: 2026-10-06. HEAD: `1d9ba61` (v0.0.1-dev11). Last session handoff: 2026-10-06, eighth session (see [Session handoff](#session-handoff-2026-10-06-eighth-session-complete)).
 Older history (2026-10-04 handoff through the fourth session close on 2026-10-05, plus earlier export evidence) is archived in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
@@ -14,7 +14,7 @@ Start with a reproducible Windows x64 build and a correctly running game. Procee
 | Item | Evidence/status |
 |---|---|
 | Source repository | Root contains the Suyu-derived source, build files, dependency metadata, and archived upstream documentation. |
-| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `d4c8cf9`; the user commits and pushes. |
+| Git baseline | Initial commit `9f932d5`. As of 2026-10-06, HEAD is `1d9ba61` (v0.0.1-dev11); the user commits and pushes. |
 | Configured origin | `https://github.com/Azuloma/Aevora.git`; remote publication was not independently verified during this handoff. |
 | README | English draft describes feasibility status, planned features, support scope, versioning, and the hobby/no-donations policy. |
 | License | Root `LICENSE.txt` is copied unchanged from the archived upstream license; README specifies `GPL-3.0-or-later`. Existing notices are retained. |
@@ -128,7 +128,7 @@ The cleanup already removed upstream automation, temporary material, old screens
 1. Code Explorer (Orca): enumerate globals/TLS and every exe<->module symbol dependency for D1/D2; confirm the launcher DLL loader path and ABI6 handshake details for D3. (done 2026-10-06)
 2. Parent session: write the design note (sections D1-D7, data flow at load time, failure modes, test plan) as a new subsection of this milestone; Code reviewer reviews the design against CLAUDE.md before any code change. (done 2026-10-06)
 3. Prototype measurement before full implementation: from a Source-format export, build the generated `main` module's existing SHARED target with `RECOMP_STATIC_ONLY` off, without and with FMI; measure the DLL image and dependency evidence, then record it. (done 2026-10-06; see progress entry)
-4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode ((a) done 2026-10-06), (b) registry + launcher loading, (c) exporter packaging/manifest/wording, (d) build-kit decision. Code reviewer reviews each step.
+4. Implementation (code-quick-implementer), in reviewable steps: (a) generator/CMake mixed mode ((a) done 2026-10-06; (b) done 2026-10-06), (c) exporter packaging/manifest/wording, (d) build-kit decision. Code reviewer reviews each step.
 5. Tests: extend `tests/recompiler_smoke` with a mixed static+DLL variant (synthetic modules) covering load order, base routing, cross-module dispatch, guard checks, GG1, and FPX; keep existing goldens unchanged for non-split exports; run the fastmem and FPX harnesses.
 6. PLA verification: export static AOT (fallback disabled) without FMI, then with FMI; record per-image sizes, link time, zero JIT transitions, FPS in the same overworld scene, and sampling; compare with dev8 (25-30 FPS) and JIT (30 FPS).
 
@@ -243,6 +243,13 @@ Do not link static dev8 objects (they carry static renames and no runtime). Inst
 
 One exporter-owned topology value is the source for module names, bindings, DLL file names, bundle id, ABI, and features; every consumer is written from it and verified at build or load. Moving a module between static and DLL binding is a one-entry change. Generated code is not edited; the split is an opt-in generator/exporter option, and the default output is unchanged.
 
+### Carried acceptance criteria (from the step 4(b) review)
+
+The following criteria are carried from the accepted step 4(b) review and must be completed in steps 4(c) and 4(d); none may be replaced by a PLA observation.
+
+- **4(c):** Produce a real split export through the exporter and execute a linked v1 launcher with fallback disabled; cover an unreadable-embedded-path middle-module variant while checking every core's complete inventory and relocation input; exercise Core load refusals with named diagnostics and zero guest execution; verify lookup-removal unregister and fresh-process rebinding; wire registry, marker, and targets coherently and run the unchanged all-static v4 regression.
+- **4(d):** Exercise a three-or-more-module static/DLL/static fixture through the production dispatcher with GG1, guard, and FPX checks; cover cross-image reservation in both directions, STXR success/failure, CLREX, LDXP/STXP, and counter continuity; require bridge-null refusal per callback and strict lookup-miss refusal; complete remaining loader/handshake refusals and kit/package/cache/path tests, goldens, fastmem, and reduced/full FPX.
+
 #### Open questions
 
 1. Resolved by step 3: measured main-DLL `SizeOfImage` is 1,459.1 MiB without FMI and 1,783.7 MiB with FMI, leaving margins of 588.9 MiB and 264.3 MiB to the 2,048 MiB limit, respectively.
@@ -283,7 +290,7 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 - **Current local state:** The host build tree was rebuilt with export variables cleared; no working static Build export exists locally. Clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before host builds, then re-export without FMI to obtain a package; the dev8 module libraries remain available for image inspection outside the repository.
 
-- **Repository:** HEAD is `d4c8cf9`; previous session's docs are committed. The project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename. The local repository folder remains named HisuiWake. Uncommitted: the step 3 measurement record plus the v0.0.1-dev11 Milestone 4a step 4(a) code.
+- **Repository:** HEAD is `1d9ba61` (v0.0.1-dev11, committed and pushed by the agent at the user's explicit request while the user was away); the project was renamed from HisuiWake to Aevora on 2026-10-05, and the other documents now follow the rename. The local repository folder remains named HisuiWake. Uncommitted: v0.0.1-dev12 step 4(b) code and docs.
 - **Local environment:** The dev8 module libraries built for the image measurement are in a local directory outside the repository; the host build tree was rebuilt with export variables cleared (dev10 `suyu.exe`/`suyu-cmd.exe`). No working static Build export exists locally.
 - **Diagnostics:** the local diag directory outside the repository contains `sample_static.ps1` and `RipSampler2.cs`, with `asm_probe` and `fmi_probe` material. Launch from a non-elevated shell; use `powershell -File sample_static.ps1 -ProcId <launcher PID> -Out <file>`.
 - **Build/test:** in the Build Tools 2026 `vcvars64` environment, run `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls` (about 100.6 M cases; reduced: add `--cases 1000 --adv 2000 --legs 13`), `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`, and `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`. Python must read generated files as UTF-8. `rebuild-suyu.bat` clears export variables and builds with `-j 8`; incremental builds use `cmake --build <build-dir> --target suyu suyu-cmd -j 8`.
@@ -295,6 +302,7 @@ For each feature, identify the responsible layer, add a clear setting where appr
 2. Completed step 2: wrote the draft-3 design note and received three reviews: draft 1 (blocker 1, major 9, minor 1; R1-R11), draft 2 (blocker 0, major 2, minor 1; residual R1/R5 and new R12), and draft 3 (blocker 0, major 0, minor 0; implementation may start).
 3. Completed step 3: built the generated `main` module's existing SHARED target without and with FMI; measured `SizeOfImage` at 1,459.1 MiB and 1,783.7 MiB, with 588.9 MiB and 264.3 MiB margins.
 4. Completed Milestone 4a step 4(a): implemented and reviewed the authoritative module topology, shared-image identity export, and prebuild DLL binding checks; all-static output remains unchanged.
+5. Completed Milestone 4a step 4(b): implemented and reviewed registry v1, transactional bundle loading, inventory binding, and host bridge checks; accepted as an intermediate with F3 carried.
 
 ### Where things stand
 
@@ -316,13 +324,13 @@ Key conclusions: static AOT ran without fallback in the exercised scenario; Dyna
 
 ### Open issues, in priority order
 
-1. Milestone 4a step 4(b): registry v1 (shared C layout), launcher transactional loading with identity checks, and inventory-based base binding (`BindRecompProcess`).
+1. Milestone 4a step 4(c): exporter `SUYU_AOT_SPLIT_MAIN` option and bundle id, registry v1/marker emission, in-tree launcher DLL handling, packaging/manifest/cache, and the carried 4(c) acceptance criteria.
 2. Exercise the dev10 failure paths synthetically.
 3. Remaining items from the old list item 5: code review of `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and existing export/GPL/rtld/BUILD.md/version investigations.
 
 ### Immediate next action
 
-Milestone 4a step 4(b): implement registry v1 (shared C layout), launcher transactional loading with identity checks, and inventory-based base binding (`BindRecompProcess`), by code-quick-implementer and reviewed by Code reviewer.
+Milestone 4a step 4(c): implement exporter `SUYU_AOT_SPLIT_MAIN` option and bundle id, registry v1/marker emission, in-tree launcher DLL handling, packaging/manifest/cache, and the carried 4(c) acceptance criteria.
 
 ### How to work
 
@@ -358,6 +366,15 @@ After each meaningful change, add a dated entry with:
 - Next action or blocking information.
 
 Keep raw logs, machine-specific paths, and game-derived artifacts local. Link only to sanitized, shareable evidence from public documentation.
+
+### 2026-10-06: Milestone 4a step 4(b): registry v1, bundle loading, and inventory binding (v0.0.1-dev12)
+
+- **Milestone and revision:** Milestone 4a step 4(b), base HEAD `1d9ba61` (v0.0.1-dev11); implementation remained uncommitted.
+- **Problem and evidence:** The split design needed one registry layout and transactional bundle loader before exporter wiring. The implementation validates registry headers and entries, loads DLLs with identity/ABI/feature/handshake checks, binds canonical loader inventories before process publication, and refuses incomplete host bridges; the v1 launcher path remains macro-gated and not yet linked or run.
+- **Files changed and reasons:** `src/core/recompiler/recomp_registry_v1.h` defines the shared C registry v1 layout and export names; `src/core/recompiler/recomp_topology.h` writes registry and marker data; `src/core/arm/recomp/recomp_bundle.h/.cpp` provides transactional loading, inventory matching, and base application; `src/core/arm/recomp/arm_recomp.h/.cpp` provides process binding and bridge checks; `src/core/core.cpp` binds before publication; `src/suyu_cmd/suyu.cpp` adds the `SUYU_RECOMP_REGISTRY_V1` launcher path; `tests/recompiler_smoke/bundle_host.cpp` and `bundle_exec.c` cover 21 bundle cases and mixed-image execution.
+- **Commands/settings:** `python -B tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl`; `python tests/recompiler_fastmem/run.py --generator Ninja --cc clang-cl --cxx clang-cl`; reduced FPX with `python tests/recompiler_fpx/run.py --generator Ninja --cc clang-cl --cxx clang-cl --jobs 8 --hits --controls --cases 1000 --adv 2000 --legs 13`; `cmake --build <host build dir> --target suyu suyu-cmd -j 8` after clearing export variables; compile-only `suyu.cpp` with `-DSUYU_RECOMP_REGISTRY_V1`.
+- **Result and untested behavior:** Smoke exited 0 with 8 variants, unchanged goldens, and 21 bundle cases; fastmem had zero mismatches; reduced FPX and host build exited 0; the v1 launcher source compiled. A linked/running v1 launcher, Core::Load/BindRecompProcess behavior, three-module fixture, cross-image reservation/CLREX/pair/counter, bridge-null refusal, non-Windows execution, and long paths remain unverified. Re-review accepted step 4(b) as an intermediate with F3 carried at its original major severity.
+- **Next action:** Milestone 4a step 4(c): exporter `SUYU_AOT_SPLIT_MAIN` option and bundle-id/registry/marker emission, in-tree launcher DLL handling, packaging/manifest/cache, and the carried 4(c) acceptance criteria.
 
 ### 2026-10-06: Milestone 4a step 4(a): module topology, identity export, and prebuild DLL binding (v0.0.1-dev11)
 

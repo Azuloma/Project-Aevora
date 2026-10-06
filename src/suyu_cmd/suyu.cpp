@@ -46,6 +46,7 @@
 #include "common/settings.h"
 #include "common/string_util.h"
 #include "core/arm/recomp/arm_recomp.h"
+#include "core/arm/recomp/recomp_bundle.h"
 #include "core/arm/recomp/recomp_gap_session.h"
 #include "core/arm/recomp/recomp_image_features.h"
 #include "core/core.h"
@@ -1927,10 +1928,46 @@ int main(int argc, char** argv) {
     // ABI 6 GG1: filled by the handshakes below, handed over after SetRecompLookup.
     std::vector<Core::RecompGuardGen::Module> recomp_guard_gen_modules;
 
+#ifdef SUYU_RECOMP_REGISTRY_V1
+    // Split export (registry v1, core/recompiler/recomp_registry_v1.h): modules
+    // linked into this executable plus shared images beside it, loaded as one
+    // bundle by recomp_bundle.cpp. Strict: any failure stops here, never falling
+    // back to the JIT or to a partial module set.
+    static std::optional<Core::RecompBundle> s_recomp_bundle;
+    {
+        std::filesystem::path exe_dir;
+        std::string bundle_error;
+        if (!Core::GetRecompExecutableDirectory(&exe_dir, &bundle_error)) {
+            LOG_CRITICAL(Frontend, "Cannot locate the recompiled module images: {}", bundle_error);
+            return EXIT_FAILURE;
+        }
+        const Core::RecompHostHandshake handshake{
+            {fastmem_layout.page_bits, fastmem_layout.stride_log2, fastmem_layout.pointer_mask,
+             fastmem_layout.off_table, fastmem_layout.off_limit},
+            {fpx_layout.off_fpcr, fpx_layout.off_fpsr, fpx_layout.inhibit_bit},
+            Core::RecompGuardGen::kHostVersion};
+        s_recomp_bundle =
+            Core::LoadRecompBundleV1(*suyu_recomp_registry_v1(), exe_dir, handshake, &bundle_error);
+        if (!s_recomp_bundle) {
+            LOG_CRITICAL(Frontend, "Recompiled module bundle failed to load: {}", bundle_error);
+            return EXIT_FAILURE;
+        }
+        recomp_bundle_abi = s_recomp_bundle->bundle_abi;
+        recomp_guard_ready = s_recomp_bundle->guard_ready;
+        recomp_fpx = s_recomp_bundle->fpx;
+        recomp_guard_gen_modules = s_recomp_bundle->guard_gen_modules;
+        for (const auto& module : s_recomp_bundle->modules) {
+            s_recomp_modules.push_back({module.lookup, module.set_base, module.run_slice,
+                                        module.image_abi, module.guard_v2, module.name});
+            LOG_INFO(Frontend, "Recompiled module [{}] {} ({}{}) — ArmRecomp active",
+                     s_recomp_modules.size() - 1, module.name,
+                     module.is_dll ? "DLL " : "static", module.dll_file);
+        }
+    }
+#elif defined(SUYU_CMD_STATIC_RECOMP)
     // Preferred path: modules compiled straight into this executable. Nothing
     // to find on disk, nothing to load, and no version skew between the exe and
     // its modules.
-#ifdef SUYU_CMD_STATIC_RECOMP
     {
         unsigned count = 0;
         const SuyuRecompStaticModule* mods = suyu_recomp_static_modules_v4(&count);
@@ -2176,6 +2213,28 @@ int main(int argc, char** argv) {
         Core::SetRecompFpxReady(recomp_fpx != 0);
         LOG_INFO(Frontend, "Recompiled FPX1 native FP: {} (handshake {:#x})",
                  recomp_fpx ? "negotiated" : "not used", recomp_fpx);
+#ifdef SUYU_RECOMP_REGISTRY_V1
+        // Bind bases by canonical module name from the loader's inventory,
+        // before the process is published (Core::Load -> BindRecompProcess).
+        Core::SetRecompBindCallback([](const Core::RecompModules& inventory) {
+            std::string bind_error;
+            const auto bases =
+                Core::BindRecompBundleToInventory(*s_recomp_bundle, inventory, &bind_error);
+            if (!bases) {
+                LOG_CRITICAL(Frontend, "Recompiled module binding failed: {}", bind_error);
+                return false;
+            }
+            Core::ApplyRecompBundleBases(*s_recomp_bundle, *bases);
+            for (const auto& [index, base] : *bases) {
+                const auto& module = s_recomp_bundle->modules[index];
+                // Misses in this module are gaps a re-export can close.
+                Core::RecompGaps::NoteImage(base, module.name);
+                LOG_INFO(Frontend, "Recompiled module topology [{}] {} {} base {:#x}", index,
+                         module.name, module.is_dll ? "DLL" : "static", base);
+            }
+            return true;
+        });
+#else
         // Route base to the module at the same index in load order.
         // rtld=index0, main=index1, subsdk0=index2, ..., sdk=last.
         Core::SetRecompBaseSetter([](size_t index, const char*, u64 base) {
@@ -2185,6 +2244,7 @@ int main(int argc, char** argv) {
                 Core::RecompGaps::NoteImage(base, s_recomp_modules[index].name);
             }
         });
+#endif
         // A window running native recompiled code is a standalone game export,
         // not the suyu dev frontend — the window chrome (title/icon) should
         // read as the game, not the emulator.

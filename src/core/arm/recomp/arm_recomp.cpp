@@ -434,6 +434,7 @@ std::atomic<RecompLookupFn> g_recomp_lookup{nullptr};
 std::atomic<RecompBaseFn> g_recomp_base_setter{nullptr};
 std::mutex g_process_init_lock;
 std::atomic<RecompPrepareFn> g_recomp_prepare{nullptr};
+std::atomic<RecompBindFn> g_recomp_bind{nullptr};
 
 /// Execution coverage for the AOT path (mk8-recomp #13).
 ///
@@ -745,6 +746,11 @@ void SetRecompLookup(RecompLookupFn lookup) {
     RecompGuardGen::Forget();
     g_fpx_ready.store(false, std::memory_order_release);
     g_recomp_lookup.store(lookup, std::memory_order_release);
+    if (!lookup) {
+        // Back to the normal backend: a bind registration belongs to the
+        // recompiled session that is being left, and must not reach a JIT process.
+        g_recomp_bind.store(nullptr, std::memory_order_release);
+    }
 }
 
 void SetRecompLongSlices(bool enabled) {
@@ -901,9 +907,44 @@ bool HasRecompPrepareCallback() {
     return g_recomp_prepare.load(std::memory_order_acquire) != nullptr;
 }
 
+void SetRecompBindCallback(RecompBindFn callback) {
+    g_recomp_bind.store(callback, std::memory_order_release);
+}
+
+bool HasRecompBindCallback() {
+    return g_recomp_bind.load(std::memory_order_acquire) != nullptr;
+}
+
 RecompLookupFn GetRecompLookup() {
     return g_recomp_lookup.load(std::memory_order_acquire);
 }
+
+namespace {
+/// Hosted (shared-image) generated code must never take its private exclusive
+/// or counter fallbacks, because those keep per-image state that two images
+/// would not share. So every callback it can reach must exist. Returns false and
+/// names the first missing callback.
+bool CheckBridgeComplete(const RecompHostMem& bridge, const char** missing_callback) {
+    const struct {
+        const char* name;
+        bool present;
+    } required[] = {
+        {"excl_load", bridge.excl_load != nullptr},
+        {"excl_store", bridge.excl_store != nullptr},
+        {"clear_excl", bridge.clear_excl != nullptr},
+        {"read_cntpct", bridge.read_cntpct != nullptr},
+        {"excl_load_pair", bridge.excl_load_pair != nullptr},
+        {"excl_store_pair", bridge.excl_store_pair != nullptr},
+    };
+    for (const auto& callback : required) {
+        if (!callback.present) {
+            *missing_callback = callback.name;
+            return false;
+        }
+    }
+    return true;
+}
+} // namespace
 
 struct ArmRecomp::Impl {
     Impl(System& system_, RecompLookupFn lookup_) : system{system_}, lookup{lookup_} {
@@ -924,6 +965,14 @@ struct ArmRecomp::Impl {
         bridge.page_entries = nullptr;
         bridge.guard_generation = nullptr;
         ctx.host_mem = &bridge;
+        // Checked here, enforced in RunThread: a null callback would silently
+        // switch generated code to per-image fallbacks.
+        const char* missing_callback = "";
+        bridge_complete = CheckBridgeComplete(bridge, &missing_callback);
+        if (!bridge_complete) {
+            LOG_CRITICAL(Core_ARM, "recomp: host bridge callback '{}' is not installed; this core "
+                                   "will not run guest code", missing_callback);
+        }
     }
 
     // The monitor is per-core, and core_index is what distinguishes one guest
@@ -1191,7 +1240,9 @@ struct ArmRecomp::Impl {
                 modules = FindModules(process);
                 g_counters.RecordModules(modules);
                 // Now that the loader has placed everything, tell each image
-                // where its own module went.
+                // where its own module went. A bound process (BindRecompProcess)
+                // never gets here: modules_read is already set and the launcher's
+                // bind callback has set the bases by canonical name.
                 if (const auto setter = g_recomp_base_setter.load(std::memory_order_acquire)) {
                     // modules is keyed by base, so iteration is load order.
                     size_t index = 0;
@@ -1631,6 +1682,8 @@ struct ArmRecomp::Impl {
     bool modules_read{false};
     bool rela_applied{false};
     bool explicitly_prepared{false};
+    /// Every exclusive/counter bridge callback is installed (CheckBridgeComplete).
+    bool bridge_complete{false};
     static constexpr size_t kTrail = 32;
     u64 trail[kTrail]{};
     size_t trail_pos{0};
@@ -1728,6 +1781,46 @@ bool PrepareRecompProcess(Kernel::KProcess& process, const RecompModules& module
         state.explicitly_prepared = true;
     }
     g_counters.RecordModules(modules);
+    return true;
+}
+
+bool BindRecompProcess(Kernel::KProcess& process, const RecompModules& inventory) {
+    const auto bind = g_recomp_bind.load(std::memory_order_acquire);
+    if (!bind) return true;
+    // The same preconditions as PrepareRecompProcess, checked before any downcast:
+    // KProcess::InitializeInterfaces chooses ArmRecomp for every application core
+    // only while a lookup is installed (RTTI is disabled in core builds).
+    if (!GetRecompLookup()) {
+        LOG_CRITICAL(Core_ARM, "recomp: binding requires an installed recompiled lookup");
+        return false;
+    }
+    if (!process.IsApplication() || !process.Is64Bit()) {
+        LOG_CRITICAL(Core_ARM, "recomp: binding requires an AArch64 application process");
+        return false;
+    }
+    if (inventory.empty()) {
+        LOG_CRITICAL(Core_ARM, "recomp: binding requires a non-empty module inventory");
+        return false;
+    }
+    // Collect every core's interface first, so nothing is bound for a process
+    // that cannot take the inventory.
+    ArmRecomp* cpus[Hardware::NUM_CPU_CORES]{};
+    for (size_t i = 0; i < Hardware::NUM_CPU_CORES; ++i) {
+        cpus[i] = static_cast<ArmRecomp*>(process.GetArmInterface(i));
+        if (!cpus[i]) {
+            LOG_CRITICAL(Core_ARM, "recomp: core {} has no ArmRecomp interface to bind", i);
+            return false;
+        }
+    }
+    if (!bind(inventory)) return false;
+    for (auto* cpu : cpus) {
+        // rela_applied and explicitly_prepared stay false: the host pre-relocation
+        // still runs, and it must see the full canonical inventory (including a
+        // module whose embedded path FindModules cannot read).
+        cpu->impl->modules = inventory;
+        cpu->impl->modules_read = true;
+    }
+    g_counters.RecordModules(inventory);
     return true;
 }
 
@@ -1833,6 +1926,11 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
     }
     if (!impl->lookup) {
         LOG_ERROR(Core_ARM, "No recompiled code registered; cannot run thread");
+        return HaltReason::BreakLoop;
+    }
+    if (!impl->bridge_complete) {
+        LOG_CRITICAL(Core_ARM, "recomp: incomplete host bridge on core {}; refusing to run",
+                     impl->core_index);
         return HaltReason::BreakLoop;
     }
 

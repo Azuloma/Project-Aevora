@@ -129,6 +129,24 @@ else()
       target_link_libraries(identity_host PRIVATE ${CMAKE_DL_LIBS})
     endif()
     add_dependencies(identity_host ${identity_shared_target})
+    # The mixed-bundle host: the production bundle loader against a registry v1
+    # that run.py writes with the production writer (smoke: static, second: DLL).
+    if(REGISTRY_C)
+      file(TO_CMAKE_PATH "${REGISTRY_C}" registry_c)
+      # bundle_exec.c runs generated blocks of the static and the shared image
+      # against one host bridge, with the generated context layout.
+      add_executable(bundle_host bundle_host.cpp bundle_exec.c "${registry_c}"
+          "${SUYU_SOURCE}/src/core/arm/recomp/recomp_bundle.cpp")
+      target_compile_features(bundle_host PRIVATE cxx_std_20 c_std_11)
+      target_include_directories(bundle_host PRIVATE "${SUYU_SOURCE}/src" "${GENERATED_DIR}")
+      set_source_files_properties(bundle_exec.c PROPERTIES COMPILE_DEFINITIONS
+          "SUYU_HOSTED_RECOMP=1;RECOMP_SHARED_MODULE=1")
+      target_link_libraries(bundle_host PRIVATE recomp_static_smoke)
+      if(NOT MSVC)
+        target_link_libraries(bundle_host PRIVATE m ${CMAKE_DL_LIBS})
+      endif()
+      add_dependencies(bundle_host ${identity_shared_target})
+    endif()
   endif()
   if(NOT MSVC)
     target_link_libraries(smoke_run PRIVATE m)

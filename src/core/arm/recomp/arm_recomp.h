@@ -119,6 +119,21 @@ bool HasRecompPrepareCallback();
 // Must complete before the application process is published to the applet manager.
 bool PrepareRecompProcess(Kernel::KProcess& process, const RecompModules& modules);
 
+/// Inventory-based base binding for a split (static + DLL) bundle. The callback
+/// validates the loader's canonical inventory (rtld, main, subsdkN, sdk by load
+/// address) against the bundle, sets every image's base by name, and returns
+/// false to refuse the process. Mutually exclusive with the prepare callback.
+/// Lifetime: the registration belongs to the recompiled session, so
+/// SetRecompLookup(nullptr) (back to the normal backend) clears it. Register it
+/// after SetRecompLookup(non-null), as the launcher does.
+using RecompBindFn = bool (*)(const RecompModules& inventory);
+void SetRecompBindCallback(RecompBindFn callback);
+bool HasRecompBindCallback();
+/// Must complete before the application process is published to the applet
+/// manager. Installs `inventory` as every core's module map without disabling
+/// the host pre-relocation, so ModuleBaseFor no longer queries debug names.
+bool BindRecompProcess(Kernel::KProcess& process, const RecompModules& inventory);
+
 /// Returns the registered lookup, or nullptr when no recompiled image is
 /// loaded and the JIT should be used.
 RecompLookupFn GetRecompLookup();
@@ -213,6 +228,7 @@ public:
     void RewindBreakpointInstruction() override;
 
 friend bool PrepareRecompProcess(Kernel::KProcess&, const RecompModules&);
+friend bool BindRecompProcess(Kernel::KProcess&, const RecompModules&);
 
 private:
     /// Builds the JIT fallback if needed and marks this thread as running on

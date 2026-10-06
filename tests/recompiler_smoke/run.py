@@ -209,6 +209,98 @@ def run_identity_host(root, run):
     check_identity_in_unicode_dir(root / "unicode-run", host, images[0], IDENTITY_BUNDLE_HEX)
 
 
+# The registry/bundle checks: smoke_topology_unit --write-registry-v1 writes the registry the
+# mixed-bundle host (bundle_host) loads. Module "smoke" is static, "second" is the DLL.
+# case -> items the refusal message must name. Cases that need the DLL loaded are
+# Windows-only; the rest refuse before any image is loaded and run everywhere.
+BUNDLE_REFUSALS = (
+    ("header-mismatch", ("entry_size",), False),
+    ("header-counts", ("entry_count",), False),
+    ("dll-file-escapes", ("second", "plain file name"), False),
+    ("static-null-pointer", ("smoke", "lookup"), False),
+    ("abi-mismatch", ("second", "ABI"), False),
+    ("abi-mismatch-image", ("smoke", "image ABI"), False),
+    ("feature-mismatch", ("second", "features"), False),
+    ("feature-mismatch-image", ("smoke", "features"), False),
+    ("inventory-empty", ("empty",), False),
+    ("inventory-missing-middle", ("main", "missing"), False),
+    ("inventory-extra", ("subsdk0", "does not contain"), False),
+    ("inventory-duplicate-name", ("main", "more than once"), False),
+    ("dll-missing", ("second", "recompiled_second.dll"), True),
+    ("identity-bundle-mismatch", ("second", "bundle"), True),
+    ("identity-name-mismatch", ("other", "second"), True),
+    ("guard-disagreement", ("second", "guard"), True),
+)
+
+
+def bundle_registry_arguments(identity_tree):
+    """ABI, feature bits and handshake switches, read from the generated runtime header."""
+    header = (identity_tree / "second" / "recomp_runtime.h").read_text(encoding="utf-8")
+    abi_line = next(line for line in header.splitlines()
+                    if line.startswith("#define RECOMP_IMAGE_ABI "))
+    fastmem = "RECOMP_FEATURE_FASTMEM_PT1" in header
+    guard_gen = "RECOMP_FEATURE_GUARD_GEN1" in header
+    fpx = "RECOMP_FEATURE_FPX1" in header
+    # recomp_image_features.h: bit 0 FM1, bit 1 GG1, bit 2 FPX1.
+    features = (1 if fastmem else 0) | (2 if guard_gen else 0) | (4 if fpx else 0)
+    return [abi_line.split()[2], features, int(fastmem), int(guard_gen), int(fpx)]
+
+
+def write_bundle_registry(root, topology_unit, identity_tree):
+    """recomp_registration.c (registry v1) from the production writer."""
+    registry = root / "bundle-registration.c"
+    call([topology_unit, "--write-registry-v1", registry, IDENTITY_BUNDLE_HEX,
+          *bundle_registry_arguments(identity_tree), "smoke", "second", "--dll", "second"],
+         timeout=15)
+    return registry
+
+
+def bundle_case(host, case, directory, expected_exit, items):
+    result = subprocess.run([str(host), case, str(directory)], check=False, timeout=60,
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+    output = result.stdout + result.stderr
+    missing = [item for item in items if item not in output]
+    if result.returncode != expected_exit or missing:
+        raise RuntimeError(f"bundle case {case}: exit {result.returncode}, expected "
+                           f"{expected_exit}; missing {missing} in:\n{output[-1500:]}")
+
+
+def run_bundle_host(root, run, image):
+    host = executable(run, "bundle_host")
+    on_windows = os.name == "nt"
+    image_dir = image.parent
+    empty_dir = root / "bundle-empty-dir"
+    empty_dir.mkdir(parents=True, exist_ok=True)
+    cases = 0
+    for case in ("inventory-ok",):
+        bundle_case(host, case, empty_dir, 0, ())
+        cases += 1
+    # One static module with a stub guard: the loader needs no image for it.
+    bundle_case(host, "guard-uniform-not-negotiated", empty_dir, 0, ("not negotiated",))
+    cases += 1
+    if on_windows:
+        bundle_case(host, "ok", image_dir, 0, ("bundle ok",))
+        # Generated blocks of the static and the DLL image through one host bridge.
+        bundle_case(host, "exec", image_dir, 0, ("exec ok",))
+        cases += 1
+        copy_dir = root / "unicode-bundle" / UNICODE_IMAGE_DIR_NAME
+        copy_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(image, copy_dir / image.name)
+        bundle_case(host, "dll-in-unicode-dir", copy_dir, 0, ("bundle ok",))
+        cases += 2
+    else:
+        print("Bundle DLL checks skipped: shared images are a Windows-only feature.")
+        bundle_case(host, "ok", image_dir, 1, ("not supported on this platform", "second"))
+        cases += 1
+    for case, items, needs_dll in BUNDLE_REFUSALS:
+        if needs_dll and not on_windows:
+            continue
+        # dll-missing points at an empty directory; every other case sees the image.
+        bundle_case(host, case, empty_dir if case == "dll-missing" else image_dir, 1, items)
+        cases += 1
+    print(f"Bundle checks passed: {cases} cases (registry v1 loader, bindings, refusals).")
+
+
 def prebuild_cmake(cmake, source, build_dir, exefs, modules, compiler_options):
     """Configure src/suyu_cmd/recomp_modules; returns (exit code, output)."""
     result = subprocess.run(
@@ -406,10 +498,12 @@ def main():
             guard_gen = "SUYU_RECOMP_AB_GUARD_GEN" in switches
             identity_options = []
             if name == "identity":
+                topology_unit = executable(export_build, "smoke_topology_unit")
+                registry_c = write_bundle_registry(root, topology_unit, generated[name])
                 identity_options = [
                     f"-DIDENTITY_BUNDLE_HEX={IDENTITY_BUNDLE_HEX}",
-                    f"-DIDENTITY_BUNDLE_BYTES="
-                    f"{bundle_byte_list(executable(export_build, 'smoke_topology_unit'), IDENTITY_BUNDLE_HEX)}"]
+                    f"-DIDENTITY_BUNDLE_BYTES={bundle_byte_list(topology_unit, IDENTITY_BUNDLE_HEX)}",
+                    f"-DREGISTRY_C={registry_c.as_posix()}"]
             run = build(f"run-{name}", f"-DGENERATED_DIR={generated[name].as_posix()}",
                         *identity_options)
             runner = executable(run, "smoke_run")
@@ -430,6 +524,7 @@ def main():
                 call([executable(run, "smoke_features")], timeout=15)
             if name == "identity":
                 run_identity_host(root, run)
+                run_bundle_host(root, run, find_one(run / "shared", IDENTITY_IMAGE_NAMES))
                 check_prebuild(root, args.cmake, source, generated[name],
                                executable(export_build, "smoke_topology_unit"), run,
                                compiler_options)

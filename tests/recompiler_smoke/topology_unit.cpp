@@ -6,6 +6,7 @@
 // every validation failure.
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <vector>
@@ -166,7 +167,131 @@ int BasenameRule() {
     return 0;
 }
 
+size_t Count(const std::string& text, const std::string& part) {
+    size_t count = 0;
+    for (size_t at = text.find(part); at != std::string::npos; at = text.find(part, at + 1)) {
+        ++count;
+    }
+    return count;
+}
+
+R::RecompTopology SplitTopology() {
+    std::string error;
+    auto topology = R::BuildRecompTopology({{"sdk", "main", "subsdk0"}, {"main"}, kBundleHex}, &error);
+    return topology.value();
+}
+
+int RegistryV1Text() {
+    const R::RecompTopology topology = SplitTopology();
+    const R::RecompRegistryOptions all_features{6, 7, true, true, true};
+    const std::string text = R::WriteRecompRegistryV1C(topology, all_features);
+    CHECK(!text.empty());
+    CHECK(Contains(text, "#include \"core/recompiler/recomp_registry_v1.h\"\n"));
+    // Static modules (subsdk0, sdk) get externs and pointers; the DLL (main) none.
+    for (const char* function : {"lookup", "set_base", "run_slice", "abi", "guard_v2", "features",
+                                 "fastmem_v1", "guard_gen_v1", "fpx_v1"}) {
+        for (const char* module : {"subsdk0", "sdk"}) {
+            CHECK(Contains(text, std::string("recomp_image_") + function + "_" + module + "("));
+        }
+        CHECK(!Contains(text, std::string("recomp_image_") + function + "_main"));
+    }
+    // Entries in NSO load order: main (DLL), subsdk0, sdk.
+    const size_t at_main = text.find(".canonical_name = \"main\"");
+    const size_t at_subsdk0 = text.find(".canonical_name = \"subsdk0\"");
+    const size_t at_sdk = text.find(".canonical_name = \"sdk\"");
+    CHECK(at_main != std::string::npos && at_main < at_subsdk0 && at_subsdk0 < at_sdk);
+    CHECK(Contains(text, ".binding = SUYU_RECOMP_BINDING_DLL"));
+    CHECK(Count(text, ".binding = SUYU_RECOMP_BINDING_STATIC") == 2);
+    CHECK(Contains(text, ".dll_file_utf8 = \"recompiled_image.dll\""));
+    CHECK(Count(text, ".dll_file_utf8 = (const char*)0") == 2);
+    CHECK(Count(text, ".image_abi = 6u") == 3);
+    CHECK(Count(text, ".expected_features = 7u") == 3);
+    // Counts, bundle ABI and bundle id bytes.
+    CHECK(Contains(text, "    2u,\n    1u,\n    6u,\n    {" + R::BundleIdHexToByteList(kBundleHex) +
+                             "},\n"));
+    CHECK(Contains(text, "const SuyuRecompRegistryV1* suyu_recomp_registry_v1(void);\n"
+                         "const SuyuRecompRegistryV1* suyu_recomp_registry_v1(void) {"));
+
+    // Pointers appear only for the features the options enable.
+    const std::string fm1_only = R::WriteRecompRegistryV1C(topology, {6, 1, true, false, false});
+    CHECK(Contains(fm1_only, "recomp_image_fastmem_v1_sdk"));
+    CHECK(!Contains(fm1_only, "guard_gen_v1") && !Contains(fm1_only, "fpx_v1"));
+    const std::string abi5 = R::WriteRecompRegistryV1C(topology, {5, 0, false, false, false});
+    CHECK(!abi5.empty());
+    CHECK(Contains(abi5, "recomp_image_guard_v2_sdk"));
+    CHECK(!Contains(abi5, "recomp_image_features") && !Contains(abi5, "fastmem") &&
+          !Contains(abi5, "guard_gen") && !Contains(abi5, "fpx"));
+    CHECK(Contains(abi5, ".image_abi = 5u") && Contains(abi5, ".expected_features = 0u"));
+
+    // Not a v1 registry: all-static topology, and options that contradict each other.
+    std::string error;
+    const auto all_static = R::BuildRecompTopology({{"main", "sdk"}, {}, ""}, &error);
+    CHECK(R::WriteRecompRegistryV1C(*all_static, all_features).empty());
+    CHECK(R::WriteRecompRegistryV1C(topology, {7, 1, true, false, false}).empty());
+    CHECK(R::WriteRecompRegistryV1C(topology, {6, 4, false, false, true}).empty());
+    CHECK(R::WriteRecompRegistryV1C(topology, {5, 1, true, false, false}).empty());
+    CHECK(R::WriteRecompRegistryV1C(topology, {5, 1, false, false, false}).empty());
+    R::RecompTopology no_bundle = topology;
+    no_bundle.bundle_id_hex.clear();
+    CHECK(R::WriteRecompRegistryV1C(no_bundle, all_features).empty());
+    return 0;
+}
+
+int TopologyMarker() {
+    const std::string marker = R::WriteRecompTopologyV1Marker();
+    CHECK(Contains(marker, "#define SUYU_RECOMP_TOPOLOGY_V1 1\n"));
+    return 0;
+}
+
 } // namespace
+
+// Writes recomp_registration.c (registry v1) with the production writer:
+//   smoke_topology_unit --write-registry-v1 <out.c> <bundle hex> <abi> <features> <fastmem 0|1>
+//       <guard_gen 0|1> <fpx 0|1> <module>... [--dll <module>]...
+int WriteRegistryV1Mode(int argc, char** argv) {
+    constexpr int kFixedArgs = 10; // program, mode, out, bundle, abi, features, fm, gg, fpx, 1 module
+    if (argc < kFixedArgs) {
+        std::fprintf(stderr, "usage: --write-registry-v1 <out.c> <bundle hex> <abi> <features> "
+                             "<fastmem 0|1> <gg 0|1> <fpx 0|1> <module>... [--dll <module>]...\n");
+        return 2;
+    }
+    R::RecompTopologyRequest request;
+    request.bundle_id_hex = argv[3];
+    R::RecompRegistryOptions options;
+    options.image_abi = static_cast<unsigned>(std::strtoul(argv[4], nullptr, 10));
+    options.expected_features = static_cast<unsigned>(std::strtoul(argv[5], nullptr, 10));
+    options.fastmem = std::string(argv[6]) == "1";
+    options.guard_gen = std::string(argv[7]) == "1";
+    options.fpx = std::string(argv[8]) == "1";
+    bool dll_next = false;
+    for (int i = 9; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--dll") {
+            dll_next = true;
+        } else {
+            (dll_next ? request.dll_modules : request.modules).push_back(arg);
+            dll_next = false;
+        }
+    }
+    std::string error;
+    const auto topology = R::BuildRecompTopology(request, &error);
+    if (!topology) {
+        std::fprintf(stderr, "invalid topology: %s\n", error.c_str());
+        return 2;
+    }
+    const std::string text = R::WriteRecompRegistryV1C(*topology, options);
+    if (text.empty()) {
+        std::fprintf(stderr, "the topology and options do not describe a v1 registry\n");
+        return 2;
+    }
+    std::FILE* file = std::fopen(argv[2], "wb");
+    if (!file || std::fwrite(text.data(), 1, text.size(), file) != text.size()) {
+        std::fprintf(stderr, "cannot write %s\n", argv[2]);
+        if (file) std::fclose(file);
+        return 2;
+    }
+    return std::fclose(file) == 0 ? 0 : 2;
+}
 
 // Writes recomp_modules.cmake with the production writer, so tests of the CMake
 // consumers do not carry a copy of the format:
@@ -216,6 +341,9 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "--write-modules-cmake") {
         return WriteModulesCMakeMode(argc, argv);
     }
+    if (argc > 1 && std::string(argv[1]) == "--write-registry-v1") {
+        return WriteRegistryV1Mode(argc, argv);
+    }
     if (int rc = Naming()) return rc;
     if (int rc = LoadOrder()) return rc;
     if (int rc = AllStaticText()) return rc;
@@ -223,6 +351,8 @@ int main(int argc, char** argv) {
     if (int rc = Validation()) return rc;
     if (int rc = BundleBytes()) return rc;
     if (int rc = BasenameRule()) return rc;
+    if (int rc = RegistryV1Text()) return rc;
+    if (int rc = TopologyMarker()) return rc;
     std::puts("topology unit checks passed");
     return 0;
 }

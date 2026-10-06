@@ -260,4 +260,144 @@ inline std::string WriteRecompModulesCMake(const RecompTopology& topology) {
     return text;
 }
 
+// What the generated registry must state about the images, as decided by the
+// generator options the whole bundle was emitted with.
+struct RecompRegistryOptions {
+    unsigned image_abi = 0;         // expected recomp_image_abi() of every module (5 or 6)
+    unsigned expected_features = 0; // expected recomp_image_features() of every module
+    bool fastmem = false;           // FM1 handshake exports (ABI 6)
+    bool guard_gen = false;         // GG1 handshake export
+    bool fpx = false;               // FPX1 handshake export
+};
+
+namespace detail {
+
+// A C string literal for a registry value. Module names and DLL file names are
+// validated to be plain, so this only has to keep a stray quote from breaking out.
+inline std::string CStringLiteral(std::string_view text) {
+    std::string literal = "\"";
+    for (const char c : text) {
+        if (c == '"' || c == '\\') {
+            literal += '\\';
+        }
+        literal += c;
+    }
+    return literal + "\"";
+}
+
+} // namespace detail
+
+// Text of recomp_registration.c for a topology that binds at least one module as
+// a DLL (registry v1, core/recompiler/recomp_registry_v1.h). All-static exports
+// keep the v4 registry the exporter already writes, so this returns an empty
+// string for them, and also for a topology with an invalid bundle id or options
+// that are inconsistent (GG1/FPX1 without FM1, or ABI other than 5/6, or FM1
+// features on ABI 5): the caller must treat empty as an error, never write it.
+//
+// Static entries name the same renamed symbols as the v4 writer
+// (recomp_image_<function>_<module>); DLL entries carry no function pointers.
+// Every definition is preceded by a prototype (GCC -Werror=missing-declarations).
+inline std::string WriteRecompRegistryV1C(const RecompTopology& topology,
+                                          const RecompRegistryOptions& options) {
+    constexpr unsigned kAbiWithoutFeatures = 5;
+    constexpr unsigned kAbiWithFeatures = 6;
+    if (!topology.HasDllEntries() || topology.entries.empty()) {
+        return {};
+    }
+    const std::string bundle_bytes = BundleIdHexToByteList(topology.bundle_id_hex);
+    if (bundle_bytes.empty()) {
+        return {};
+    }
+    const bool abi_ok = options.image_abi == kAbiWithoutFeatures || options.image_abi == kAbiWithFeatures;
+    const bool features_ok = options.image_abi == kAbiWithFeatures
+                                 ? options.fastmem
+                                 : !options.fastmem && !options.guard_gen && !options.fpx &&
+                                       options.expected_features == 0;
+    if (!abi_ok || !features_ok || (!options.fastmem && (options.guard_gen || options.fpx))) {
+        return {};
+    }
+
+    unsigned static_count = 0;
+    unsigned dll_count = 0;
+    std::string externs;
+    std::string entries;
+    for (const auto& e : topology.entries) {
+        const bool is_dll = e.binding == RecompModuleBinding::Dll;
+        (is_dll ? dll_count : static_count) += 1;
+        entries += "    {\n";
+        entries += "        .canonical_name = " + detail::CStringLiteral(e.name) + ",\n";
+        entries += std::string("        .binding = ") +
+                   (is_dll ? "SUYU_RECOMP_BINDING_DLL" : "SUYU_RECOMP_BINDING_STATIC") + ",\n";
+        entries += "        .dll_file_utf8 = " +
+                   (is_dll ? detail::CStringLiteral(e.dll_file) : std::string("(const char*)0")) + ",\n";
+        entries += "        .image_abi = " + std::to_string(options.image_abi) + "u,\n";
+        entries += "        .expected_features = " + std::to_string(options.expected_features) +
+                   "u,\n";
+        if (!is_dll) {
+            const std::string& m = e.name;
+            externs += "extern SuyuRecompBlockFn recomp_image_lookup_" + m + "(uint64_t);\n";
+            externs += "extern void recomp_image_set_base_" + m + "(uint64_t);\n";
+            externs += "extern void recomp_image_run_slice_" + m + "(void*);\n";
+            externs += "extern unsigned recomp_image_abi_" + m + "(void);\n";
+            externs += "extern unsigned recomp_image_guard_v2_" + m + "(unsigned);\n";
+            entries += "        .lookup = recomp_image_lookup_" + m + ",\n";
+            entries += "        .set_base = recomp_image_set_base_" + m + ",\n";
+            entries += "        .run_slice = recomp_image_run_slice_" + m + ",\n";
+            entries += "        .image_abi_fn = recomp_image_abi_" + m + ",\n";
+            entries += "        .guard_v2 = recomp_image_guard_v2_" + m + ",\n";
+            if (options.fastmem) {
+                externs += "extern unsigned recomp_image_features_" + m + "(void);\n";
+                externs += "extern unsigned recomp_image_fastmem_v1_" + m +
+                           "(uint32_t, uint32_t, uint64_t, uint32_t, uint32_t);\n";
+                entries += "        .features = recomp_image_features_" + m + ",\n";
+                entries += "        .fastmem_v1 = recomp_image_fastmem_v1_" + m + ",\n";
+            }
+            if (options.guard_gen) {
+                externs += "extern uint32_t* recomp_image_guard_gen_v1_" + m +
+                           "(uint32_t, uint64_t*, uint64_t*, const uint64_t**);\n";
+                entries += "        .guard_gen_v1 = recomp_image_guard_gen_v1_" + m + ",\n";
+            }
+            if (options.fpx) {
+                externs += "extern unsigned recomp_image_fpx_v1_" + m +
+                           "(uint32_t, uint32_t, uint64_t);\n";
+                entries += "        .fpx_v1 = recomp_image_fpx_v1_" + m + ",\n";
+            }
+        }
+        entries += "    },\n";
+    }
+
+    std::string text =
+        "/* auto-generated by suyu game export - DO NOT EDIT */\n"
+        "/* Registry v1 of a split export: this game's modules in NSO load order, each\n"
+        "   linked statically or bound to a shared image beside the launcher. The layout\n"
+        "   is defined by core/recompiler/recomp_registry_v1.h. */\n"
+        "#include \"core/recompiler/recomp_registry_v1.h\"\n\n";
+    text += externs;
+    text += "\nstatic const SuyuRecompRegistryEntryV1 s_entries[] = {\n" + entries + "};\n\n";
+    text += "static const SuyuRecompRegistryV1 s_registry = {\n";
+    text += "    SUYU_RECOMP_REGISTRY_V1_VERSION,\n";
+    text += "    (uint32_t)sizeof(SuyuRecompRegistryV1),\n";
+    text += "    (uint32_t)sizeof(SuyuRecompRegistryEntryV1),\n";
+    text += "    (uint32_t)(sizeof(s_entries) / sizeof(s_entries[0])),\n";
+    text += "    " + std::to_string(static_count) + "u,\n";
+    text += "    " + std::to_string(dll_count) + "u,\n";
+    text += "    " + std::to_string(options.image_abi) + "u,\n";
+    text += "    {" + bundle_bytes + "},\n";
+    text += "    s_entries,\n";
+    text += "};\n\n";
+    text += "const SuyuRecompRegistryV1* suyu_recomp_registry_v1(void);\n";
+    text += "const SuyuRecompRegistryV1* suyu_recomp_registry_v1(void) {\n";
+    text += "    return &s_registry;\n";
+    text += "}\n";
+    return text;
+}
+
+// Content of recomp_topology_v1.h, the marker that tells the in-tree CMake the
+// export's registry is topology v1 (written next to the v1 recomp_registration.c).
+inline std::string WriteRecompTopologyV1Marker() {
+    return "/* This export's recomp_registration.c is a topology v1 registry\n"
+           "   (suyu_recomp_registry_v1 in core/recompiler/recomp_registry_v1.h). */\n"
+           "#define SUYU_RECOMP_TOPOLOGY_V1 1\n";
+}
+
 } // namespace suyu::recomp

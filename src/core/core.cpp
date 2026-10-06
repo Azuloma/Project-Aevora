@@ -354,6 +354,42 @@ struct System::Impl {
 
         // Loader inventory is complete here; publication below may immediately
         // make guest threads runnable on the window-system thread.
+        if (HasRecompPrepareCallback() && HasRecompBindCallback()) {
+            LOG_CRITICAL(Core, "Static-image preparation and inventory binding are mutually "
+                               "exclusive; refusing to load");
+            process.reset();
+            ShutdownMainProcess();
+            return SystemResultStatus::ErrorLoader;
+        }
+        // Split (static + DLL) bundles bind module bases by canonical name from the
+        // same loader inventory, without the explicit-prepare relocation changes.
+        if (HasRecompBindCallback()) {
+            if (!GetRecompLookup()) {
+                LOG_CRITICAL(Core, "Recompiled module binding is registered but no recompiled "
+                                   "lookup is installed; refusing to load");
+                process.reset();
+                ShutdownMainProcess();
+                return SystemResultStatus::ErrorLoader;
+            }
+            RecompModules inventory;
+            const auto inventory_result = app_loader->ReadNSOModules(inventory);
+            if (inventory_result != Loader::ResultStatus::Success) {
+                LOG_CRITICAL(Core,
+                             "Recompiled module binding failed: ReadNSOModules of the {} loader "
+                             "did not provide the module inventory (Error {})",
+                             Loader::GetFileTypeString(app_loader->GetFileType()),
+                             inventory_result);
+                process.reset();
+                ShutdownMainProcess();
+                return SystemResultStatus::ErrorLoader;
+            }
+            if (!BindRecompProcess(*process->GetHandle(), inventory)) {
+                LOG_CRITICAL(Core, "Recompiled module binding failed before process publication");
+                process.reset();
+                ShutdownMainProcess();
+                return SystemResultStatus::ErrorLoader;
+            }
+        }
         if (HasRecompPrepareCallback()) {
             RecompModules modules;
             if (app_loader->ReadNSOModules(modules) != Loader::ResultStatus::Success ||

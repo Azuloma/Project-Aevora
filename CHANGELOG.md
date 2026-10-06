@@ -2,6 +2,20 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev12 - Unreleased
+
+*Development commit 12 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added the single-definition registry v1 layout and topology writers for mixed static/DLL recompiled bundles.
+- Added production bundle loading with transactional DLL handling and identity, ABI, feature, and handshake validation.
+- Added inventory-based binding before process publication, including canonical module matching and base application.
+- Added host bridge completeness checks for exclusive, pair, clear-exclusive, and counter callbacks.
+- Added the v1 launcher path behind `SUYU_RECOMP_REGISTRY_V1`.
+- Added production bundle-loading, inventory-binding, and mixed-image execution smoke tests.
+
+Split exports remain disabled until Milestone 4a step 4(c) connects the exporter, packaging, and linked launcher.
+
 ## v0.0.1-dev11 - Unreleased
 
 *Development commit 11 toward v0.0.1. Not a release; no build artifacts are published.*
