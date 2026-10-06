@@ -108,7 +108,7 @@ def _svc_mask_cap(svcs) -> list:
     return [0xF | (mask << 5) | (idx << 29) for idx, mask in sorted(groups.items())]
 
 
-def make_npdm() -> bytes:
+def make_npdm(title_id: int = TITLE_ID) -> bytes:
     caps = [
         0x030043F7,                          # CorePriority: cores 0-3, prio 16-63 (suyu default)
         *_svc_mask_cap([0x07, 0x0B, 0x27]),  # ExitProcess, SleepThread, OutputDebugString
@@ -126,7 +126,7 @@ def make_npdm() -> bytes:
     fah_o = 0x40
     sac_o = fah_o + len(fah)
     kac_o = sac_o + len(sac)
-    aci_hdr = (b"ACI0" + b"\x00" * 0xC + struct.pack("<Q", TITLE_ID) + b"\x00" * 8 +
+    aci_hdr = (b"ACI0" + b"\x00" * 0xC + struct.pack("<Q", title_id) + b"\x00" * 8 +
                struct.pack("<6I", fah_o, len(fah), sac_o, len(sac), kac_o, len(kac)) +
                b"\x00" * 8)
     assert len(aci_hdr) == 0x40, len(aci_hdr)
@@ -139,7 +139,7 @@ def make_npdm() -> bytes:
     kac_o2 = sac_o2 + len(sac)
     acid_hdr = (b"\x00" * 0x200 + b"ACID" + struct.pack("<I", 0) + b"\x00" * 4 +
                 struct.pack("<I", 0) +  # flags: Application pool, non-production
-                struct.pack("<QQ", TITLE_ID, TITLE_ID) +
+                struct.pack("<QQ", title_id, title_id) +
                 struct.pack("<6I", fac_o, len(fac), sac_o2, len(sac), kac_o2, len(kac)) +
                 b"\x00" * 8)
     assert len(acid_hdr) == 0x240, len(acid_hdr)
