@@ -313,11 +313,18 @@ class Run:
         """A split static export of the synthetic multi-module fixture, through the real
         exporter, and a run of its launcher: main is a DLL beside the launcher, the other
         modules are linked into it, and the guest chain crosses every module boundary."""
-        for variant, no_path in (('default', None), ('main without a readable path', 'main')):
+        variants = (
+            ('default', 'MultiFixture', None, None),
+            ('main without a readable path', 'MultiFixtureNoPath', None, 'main'),
+            # Every module is DLL-bound: the clang prebuild makes no static runtime library
+            # and the launcher's configure must not need one.
+            ('main only, all-DLL', 'MainOnlyFixture', ['main'], None),
+        )
+        for variant, name, modules, no_path in variants:
             tag = 'multi-module split (%s)' % variant
-            fixture = self.work / ('MultiFixture' if no_path is None else 'MultiFixtureNoPath')
-            info = make_multimodule_fixture.write_multimodule_fixture(fixture, no_path=no_path)
-            out = self.work / ('out-multi' if no_path is None else 'out-multi-nopath')
+            fixture = self.work / name
+            info = make_multimodule_fixture.write_multimodule_fixture(fixture, modules, no_path)
+            out = self.work / ('out-' + name)
             status = self.export('static', 'build', rom=fixture, output=out, split_main='1')
             package = out / fixture.name
             self.record(tag + ': export succeeds', status.get('success'), status.get('status', ''))

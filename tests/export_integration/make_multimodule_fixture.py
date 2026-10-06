@@ -17,6 +17,9 @@ entry (text+0): a call target that only a cross-module reference reaches.
     rtld.entry -> prints, calls main -> prints, calls subsdk1 -> prints, calls sdk -> prints,
     returns up the chain; rtld sleeps 100 ms (so the debug-string flusher runs) and exits.
 
+With a single module (`--modules main`) the chain is that module alone: it prints both markers,
+sleeps and exits. A split export of it has every module bound as a DLL.
+
 Each module prints its own marker with svcOutputDebugString, so a run shows which modules
 executed. Optionally one module carries no readable embedded module path (rodata does not
 start with {u32 0, s32 length, path}), the case Core::FindModules cannot name.
@@ -219,8 +222,8 @@ def write_multimodule_fixture(directory, modules=None, no_path=None) -> dict:
             raise ValueError("not a canonical module name: " + name)
     if modules != sorted(modules, key=CANONICAL_ORDER.index) or len(set(modules)) != len(modules):
         raise ValueError("modules must be unique and in canonical order: %s" % modules)
-    if len(modules) < 2:
-        raise ValueError("a multi-module fixture needs at least two modules")
+    if not modules:
+        raise ValueError("a fixture needs at least one module")
     if no_path is not None and no_path not in modules:
         raise ValueError("no_path module is not in the fixture: " + no_path)
     offsets = module_offsets(modules)
