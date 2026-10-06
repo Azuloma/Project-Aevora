@@ -278,6 +278,8 @@ add_executable(suyu
     nintendo_account.h
     game_export.cpp
     game_export.h
+    aot_export_cache.cpp
+    aot_export_cache.h
     wikipedia_cover.cpp
     wikipedia_cover.h
     setup_dialog.cpp

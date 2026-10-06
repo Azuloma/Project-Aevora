@@ -34,6 +34,10 @@ elseif(NOT GENERATED_DIR)
   add_executable(smoke_topology_unit topology_unit.cpp)
   target_compile_features(smoke_topology_unit PRIVATE cxx_std_20)
   target_include_directories(smoke_topology_unit PRIVATE "${SUYU_SOURCE}/src")
+  add_executable(smoke_aot_cache_unit aot_cache_unit.cpp
+      "${SUYU_SOURCE}/src/suyu/aot_export_cache.cpp")
+  target_compile_features(smoke_aot_cache_unit PRIVATE cxx_std_20)
+  target_include_directories(smoke_aot_cache_unit PRIVATE "${SUYU_SOURCE}/src")
 else()
   file(GLOB generated_sources "${GENERATED_DIR}/src/*.c")
   add_executable(smoke_run run.c ${generated_sources}

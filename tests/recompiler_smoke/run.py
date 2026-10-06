@@ -505,6 +505,7 @@ def main():
         exporter = executable(export_build, "smoke_export")
         call([executable(export_build, "smoke_gaps_unit")])
         call([executable(export_build, "smoke_topology_unit")])
+        call([executable(export_build, "smoke_aot_cache_unit"), root / "aot-cache-unit"])
         check_coverage_loop(root, exporter, build)
         generated = {}
         for name, switches in VARIANTS:
