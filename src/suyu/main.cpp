@@ -6154,6 +6154,11 @@ void GMainWindow::ApplyAppMode(AppMode mode) {
                         options.package = package == QStringLiteral("portable")    ? 1
                                           : package == QStringLiteral("reference") ? 0
                                                                                    : -1;
+                        // Per-export SUYU_AOT_SPLIT_MAIN ("0"/"1"; any string is passed on and
+                        // validated by the exporter); absent leaves the environment in charge.
+                        if (params.contains(QStringLiteral("split_main"))) {
+                            options.split_main = params[QStringLiteral("split_main")].toVariant().toString();
+                        }
                         dialog->SetTestExportOptions(options);
                         QTimer::singleShot(0, dialog, [dialog, rom_path, output_dir, format_index,
                                                        backend_index, full_scan, app_version,

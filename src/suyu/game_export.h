@@ -112,6 +112,9 @@ public:
         QString fail_at;
         /// Package type: -1 leaves the dialog's choice, 0 = uses the game file, 1 = portable.
         int package = -1;
+        /// SUYU_AOT_SPLIT_MAIN for this export only, validated like the variable (empty/"0" =
+        /// off, "1" = split main). Unset leaves the process environment in charge.
+        std::optional<QString> split_main;
     };
     void SetTestExportOptions(const TestExportOptions& options);
     /// True when the last test export stopped because its destination already existed.

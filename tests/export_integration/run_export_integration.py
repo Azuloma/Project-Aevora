@@ -298,6 +298,26 @@ class Run:
         record.write_text(original)
         keys.write_text(PLACEHOLDER_KEYS)
 
+    def split_option_scenarios(self):
+        """Per-export SUYU_AOT_SPLIT_MAIN: invalid or unsupported requests are refused with a
+        named reason before anything is produced, and the same frontend instance then runs a
+        non-split export normally (the option is a per-export value, not sticky state)."""
+        split_out = self.work / 'out-split'
+        refused = (
+            ('invalid value', 'dynarmic', 'build', '2', "'2'"),
+            ('JIT baseline', 'dynarmic', 'build', '1', 'JIT'),
+            ('Source format', 'hybrid', 'source', '1', 'Build export format'),
+        )
+        for name, backend, fmt, value, reason in refused:
+            status = self.export(backend, fmt, output=split_out, split_main=value)
+            text = status.get('status', '')
+            leftovers = list(split_out.iterdir()) if split_out.exists() else []
+            self.record('split option refused (%s)' % name, not status.get('success') and not leftovers
+                        and 'SUYU_AOT_SPLIT_MAIN' in text and reason in text, text)
+        status = self.export('dynarmic', 'build', output=split_out, split_main='0')
+        self.record('split option off: export after refusals succeeds', status.get('success'),
+                    status.get('status', ''))
+
     def portable_scenarios(self):
         """Portable package: the synthetic NSP copied in, sealed to console A's sd_seed."""
         nsp = self.work / 'games' / 'SynthNsp.nsp'
@@ -736,6 +756,8 @@ class Run:
             self.record('dirty input refused (%s)' % backend, not status.get('success') and not leftovers
                         and 'notes.txt' in status.get('status', '') and 'prod.keys' in status.get('status', ''),
                         status.get('status', ''))
+
+        self.split_option_scenarios()
 
         self.portable_scenarios()
 

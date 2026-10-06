@@ -3427,10 +3427,9 @@ static constexpr char kSplitMainEnvironmentVariable[] = "SUYU_AOT_SPLIT_MAIN";
 // does not fit the launcher's 2 GiB image on PLA.
 static constexpr char kSplitDllModuleName[] = "main";
 
-// Reads SUYU_AOT_SPLIT_MAIN once: unset, empty or 0 = off, 1 = bind main as a DLL. Any
-// other value is an error naming the variable and the value.
-static bool ReadSplitMainOption(bool* split_main, QString* error) {
-    const QString value = qEnvironmentVariable(kSplitMainEnvironmentVariable);
+// Parses a SUYU_AOT_SPLIT_MAIN value: empty or 0 = off, 1 = bind main as a DLL. Any other
+// value is an error naming the variable and the value.
+static bool ParseSplitMainOption(const QString& value, bool* split_main, QString* error) {
     if (value.isEmpty() || value == QStringLiteral("0")) {
         *split_main = false;
         return true;
@@ -3785,10 +3784,23 @@ static void ReportExportRejection(QWidget* parent, bool test_driven, const QStri
 }
 
 bool GameExportDialog::ResolveSplitMainOption(RecompileBackend backend, bool* split_main) {
-    QString option_error;
-    if (!ReadSplitMainOption(split_main, &option_error)) {
-        ReportExportRejection(this, test_driven_export, option_error);
+    // A test-driven export may carry its own value so one frontend instance can run split and
+    // non-split exports in sequence; the same parser and refusals apply to both sources.
+    const QString value = test_driven_export && test_options_.split_main.has_value()
+                              ? *test_options_.split_main
+                              : qEnvironmentVariable(kSplitMainEnvironmentVariable);
+    // An automated run has no dialog to read, so the reason also goes to the status line that
+    // get_aot_export_status returns.
+    const auto reject = [this](const QString& message) {
+        ReportExportRejection(this, test_driven_export, message);
+        if (test_driven_export && status_label) {
+            status_label->setText(message);
+        }
         return false;
+    };
+    QString option_error;
+    if (!ParseSplitMainOption(value, split_main, &option_error)) {
+        return reject(option_error);
     }
     if (!*split_main) {
         return true;
@@ -3812,8 +3824,7 @@ bool GameExportDialog::ResolveSplitMainOption(RecompileBackend backend, bool* sp
                       .arg(variable);
     }
     if (!refusal.isEmpty()) {
-        ReportExportRejection(this, test_driven_export, refusal);
-        return false;
+        return reject(refusal);
     }
     return true;
 }
