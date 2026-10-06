@@ -4,7 +4,7 @@
   <img src="Assets/icon-rounded.png" />
 <p>
 <p align="center">
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-1e90ff?logo=apple" alt="Platform">
+  <img src="https://img.shields.io/badge/Platform-Windows%20x64-1e90ff" alt="Platform">
   <img src="https://img.shields.io/badge/Recomp%20type-Static%20AoT-ff6347" alt="Recomp type">
   <img src="https://img.shields.io/badge/License-GPL%203.0%20(v3)-808080" alt="License">
 <p>
@@ -13,10 +13,18 @@
   We plan to add various features in the future, such as quality of life improvements and modding capabilities.
 <p>
 <p align="center">
-  <a href="#Development Approach">Development Approach</a> |
+  <a href="#Staus">Status</a> |
   <a href="#Planned Features">Planned Features</a> |
   <a href="#License">License</a>
 <p>
+
+> [!IMPORTANT]
+> In the expected setup, the user will need to provide the base game's NSP file and corresponding update files separately. The user will also need to provide the key and any necessary firmware, which are not included with Aevora.
+
+## Status
+
+Currently, Aevora can recompile PLA with Static AoT, achieving an average of 25-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
+The next step is to change the approach so that `main` is built as a custom DLL image loaded by a static launcher, so that it fits within the 2GB limit of MSVC x64. In this case, `rtld`, `sdk`, `subsdk0`, and `subsdk1` will remain statically linked. This change allows for the implementation of an opt-in FMI inline fast path for Static AoT.
 
 ## Development Approach
 
@@ -40,8 +48,6 @@ These planned features are not guaranteed to be implemented, and may change depe
 - Enhanced ambient occlusion
 - Increased shadow resolution and distance
 - Increased LoD and draw distance
-
-In the expected setup, the user will need to provide the base game's NSP file and corresponding update files separately. The user will also need to provide the key and any necessary firmware, which are not included with Aevora.
 
 ## Recompiler Scope
 
