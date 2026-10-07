@@ -442,6 +442,41 @@ class Run:
         self.record('cache: nothing left in the cache root after the failed export', not leftovers,
                     ','.join(leftovers))
 
+        # A failure after the package passed its content check (the module DLLs verified
+        # against the build record) and before it is promoted: the staged package is
+        # discarded, the earlier package stays as it was, and the cache entry the export took
+        # its build from stays exactly as it was.
+        entry_before_validate = snapshot(entries_after[0]) if len(entries_after) == 1 else None
+        package_before_validate = snapshot(package) if package.exists() else None
+        status = self.export('static', 'build', rom=fixture, output=out, split_main='1',
+                             aot_cache_root=str(root), fail_at='validate', conflict='replace',
+                             **producer_b)
+        self.record('cache: a failure before promotion fails the export',
+                    not status.get('success') and status.get('status', '').startswith('Export failed'),
+                    status.get('status', ''))
+        # The cache's own account (suyu's log tail is not evidence): the build was taken from
+        # the entry, so the export got as far as packaging and nothing was published. The
+        # status carries no mark of which step raised, so that the failure is the injected one
+        # rests on the entry having been reused and the package check having no reason to fail.
+        self.record('cache: the failure before promotion came after a reuse of the entry',
+                    status.get('aot_cache_reused') is True and
+                    status.get('aot_cache_outcome') == 'reused' and
+                    status.get('aot_cache_publish') == 'not attempted',
+                    '%s / %s / %s' % (status.get('aot_cache_reused'),
+                                      status.get('aot_cache_outcome'),
+                                      status.get('aot_cache_publish')))
+        self.record('cache: no staged package left after the failure before promotion',
+                    not self.staging_leftovers(out), ','.join(self.staging_leftovers(out)))
+        self.record('cache: the failure before promotion left the earlier package untouched',
+                    package_before_validate is not None and
+                    snapshot(package) == package_before_validate)
+        self.record('cache: the failure before promotion left the entry untouched',
+                    entry_before_validate is not None and
+                    len(entry_dirs()) == 1 and snapshot(entry_dirs()[0]) == entry_before_validate)
+        leftovers = sorted(p.name for p in root.iterdir() if p.name.startswith('.'))
+        self.record('cache: nothing left in the cache root after the failure before promotion',
+                    not leftovers, ','.join(leftovers))
+
         def export_and_run(tag, expect_reused, producer, expect_outcome=None,
                            expect_publish=None):
             """An export that must (not) take its build from the cache, with a package that
@@ -682,6 +717,10 @@ class Run:
             ('module binding',
              lambda: edit_manifest(r'"subsdk1": "static"', '"subsdk1": "dll"'),
              split_mismatch + 'module_bindings.subsdk1'),
+            # The other direction: a module the entry built as a DLL is now bound static.
+            ('module binding, DLL to static',
+             lambda: edit_manifest(r'"main": "dll"', '"main": "static"'),
+             split_mismatch + 'module_bindings.main'),
             ('bundle id',
              lambda: edit_manifest(r'"bundle_id": "[0-9a-f]+"', '"bundle_id": "' + '1' * 64 + '"'),
              split_mismatch + 'bundle_id'),

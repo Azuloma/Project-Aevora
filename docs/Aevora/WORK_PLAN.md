@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-07. HEAD: `71b5fd6` (`v0.0.1-dev15`); the user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-07-end-of-twelfth-session); archived detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
+Handoff prepared: 2026-10-07. HEAD: `7db8f01` (`v0.0.1-dev16`); the user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-07-end-of-twelfth-session); archived detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
 
@@ -10,9 +10,9 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 
 | Item | Evidence/status |
 |---|---|
-| Git baseline | HEAD `71b5fd6`; U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed; U4 made no code change. |
-| Milestone 4a | Steps 1-3 and 4(a)-(c) part 1 are implemented; 4(d) U1-U4 are done on the synthetic fixture, with U3b on hold. The two-application-lifetime seam, remaining cases, and PLA verification are open. |
-| Persistent cache | U1-U4 verified on the synthetic fixture only: final `--only-aot-cache` 262 passed / 0 failed; Build/Windows only. |
+| Git baseline | HEAD `7db8f01`; U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed; the current test additions remain uncommitted. |
+| Milestone 4a | Steps 1-3, 4(a)-(c) part 1, 4(d) U1-U4, and Step 5's covered synthetic-fixture cases are done. Remaining Step 5 cases, the two-application-lifetime seam, and PLA verification are open. |
+| Persistent cache | U1-U4 and Step 5 cache cases verified on the synthetic fixture only: `--only-aot-cache` 272 passed / 0 failed; Build/Windows only. |
 | Host and PLA | Windows x64 source build verified. Historical JIT/static measurements are retained below and are not a matched comparison. |
 
 ## Key facts
@@ -41,7 +41,8 @@ Static AOT generation and strict no-fallback diagnostics are verified in the exe
 | 4(c) part 1 exporter/CMake/cache/package | Done; `d764d8e` / dev13. |
 | 4(c) part 2 execution evidence | Units 1-5 done, including U1-U4 cache; listed cases remain. |
 | 4(d) build-kit/runtime fixture | U1, U2, U3a, and U4 done on the synthetic fixture; U3b is on hold. Real `ArmRecomp` checks remain open under issue 1. |
-| 5 tests; 6 PLA verification | Open. |
+| 5 tests | Covered: cache reuse in both binding directions, failure after DLL verification and before promotion, and kit-only split rejection. Remaining: (a) MSVC-route LNK1248 / `launcher_link` injection pairs; (b) NSO/NSP/XCI real-loader paths and real `ArmRecomp` null-callback/strict-miss refusals; (c) a stub image missing only the identity export; (d) static-module compile/link injection and generic `launcher_link` fallback to MSVC. |
+| 6 PLA verification | Not started. |
 
 ### Accepted decisions D1-D7
 
@@ -49,7 +50,7 @@ D1 DLL-local runtime copy; D2 image/TLS state per image and shared state in host
 
 ### Carried acceptance criteria
 
-4(c) requires real split export and linked v1 launcher with fallback disabled, unreadable middle-module path, complete inventories/relocation input, named `Core::Load` refusals with zero guest execution, unregister/rebind, and unchanged all-static v4. 4(d) U1-U4 verify the synthetic three-module static/DLL/static fixture, loader refusals, bridge-list and lookup-miss model, and regression suites; U3b exporter-side items and the real `ArmRecomp` null-callback/strict-miss seam remain open.
+4(c) requires real split export and linked v1 launcher with fallback disabled, unreadable middle-module path, complete inventories/relocation input, named `Core::Load` refusals with zero guest execution, unregister/rebind, and unchanged all-static v4. 4(d) U1-U4 verify the synthetic three-module static/DLL/static fixture, loader refusals, bridge-list and lookup-miss model, and regression suites. Step 5 covers cache reuse in both binding directions, failure after DLL verification and before promotion, and kit-only split rejection; the remaining test cases and real `ArmRecomp` seam remain open.
 
 ### Part 2 acceptance list
 
@@ -57,7 +58,7 @@ D1 DLL-local runtime copy; D2 image/TLS state per image and shared state in host
 - [x] Source/analysis refusals, including code-less module refusal; earlier ExeFS validation stops missing `main` and non-canonical NSO.
 - [x] Injected emit/compile/DLL-link/launcher-LNK1248/tamper/missing-DLL failures and retry reporting.
 - [x] All-static v4 regression and persistent AOT cache reuse/invalidation matrix; Build packages exclude `aot_cache`.
-- [ ] Items 6/7 and remaining cases: `launcher_link` generic failure (fallback to MSVC), static-module compile/link injection, MSVC-route failures, real LNK1248, two application lifetimes, `export_regression` Qt-root lookup.
+- [ ] Remaining cases: MSVC-route LNK1248 / `launcher_link` injection pairs; NSO/NSP/XCI real-loader paths; real `ArmRecomp` null-callback and strict-miss refusals; a stub image missing only the identity export; static-module compile/link injection; and generic `launcher_link` fallback to MSVC.
 
 ### Persistent AOT cache (implemented, U1-U4)
 
@@ -67,7 +68,7 @@ D1 DLL-local runtime copy; D2 image/TLS state per image and shared state in host
 - Mismatches are named; a busy lock means no reuse and no publish; entries replace atomically.
 - Build/Windows only; packages contain no `aot_cache`.
 - Test seams and status fields cover cache root/producer identity, reuse, mismatch, busy, publish, and not-applicable outcomes.
-- Synthetic fixture final run: `--only-aot-cache` 262 passed / 0 failed; full design/evidence is in [OLD_HISTORY.md](OLD_HISTORY.md#2026-10-07-persistent-aot-cache-u1-u4-design-decisions-implemented-behavior-matrix-evidence).
+- Synthetic fixture final run: `--only-aot-cache` 272 passed / 0 failed; full design/evidence is in [OLD_HISTORY.md](OLD_HISTORY.md#2026-10-07-persistent-aot-cache-u1-u4-design-decisions-implemented-behavior-matrix-evidence).
 
 ## Milestone 5: Implement improvements one at a time
 
@@ -81,21 +82,20 @@ Verify a clean-checkout build, inspect release contents for private/game inputs,
 
 ### State
 
-HEAD is `71b5fd6` (`v0.0.1-dev15`); U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed, while U4 made no code change. The final regression evidence is synthetic-fixture only; logs and work folders stay outside the repository.
+HEAD is `7db8f01` (`v0.0.1-dev16`); U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed, while the current test additions remain uncommitted. The final regression evidence is synthetic-fixture only; logs and work folders stay outside the repository.
 
 ### What was done this session
 
-Completed 4(d) U1-U4: the xmod three-module static/DLL/static fixture, the required bridge callback list and bundle-boundary lookup-miss model, loader-side refusals and path cases, and full/targeted regression runs. Full smoke exited 0 with unchanged ABI5/FM1/FPX golden hashes; fastmem had 0 mismatches across 5 fmdiff and 4 GG1 legs; reduced FPX had 1,786,000 cases with 0 mismatches, and full FPX had 100,587,904 plus 30,320,000 cases with 0 mismatches. U3b remains on hold; the bridge is a test model and FPX evidence shows value/flag agreement only, not native-path selection. Review findings for U1-U3a were fixed; no re-review of U1 fixes was run.
+Completed 4(d) U1-U4: the xmod three-module static/DLL/static fixture, the required bridge callback list and bundle-boundary lookup-miss model, loader-side refusals and path cases, and full/targeted regression runs. Full smoke exited 0 with unchanged ABI5/FM1/FPX golden hashes; fastmem had 0 mismatches across 5 fmdiff and 4 GG1 legs; reduced FPX had 1,786,000 cases with 0 mismatches, and full FPX had 100,587,904 plus 30,320,000 cases with 0 mismatches. Step 5 added and verified cache reuse in both binding directions, failure after DLL verification and before promotion, and kit-only split rejection; the integration run passed 272 tests with 0 failures and the build-kit package suite passed 14 tests. The host tree was rebuilt successfully, linking both `suyu.exe` and `suyu-cmd.exe`. The bridge is a test model and FPX evidence shows value/flag agreement only, not native-path selection. Review findings for U1-U3a were fixed; no re-review of U1 fixes was run.
 
 ### Open issues, in priority order
 
 1. Two-application-lifetime seam, including the real `ArmRecomp` null-callback refusal and strict lookup-miss refusal; the synthetic bridge/list and lookup model does not cover these.
 2. Fix `tests/export_regression` Qt-root lookup for the CPM Qt layout so `run_fixture.py` runs again.
-3. U3b exporter-side items on hold: cache reuse in both binding directions; failure after DLL verification and before promotion; kit-only split rejection; clang-cl/MSVC LNK1248 injection pairs; NSO/NSP/XCI real-loader paths; and the second-missing-export case.
-4. Complete remaining 4(c)/4a cases: `launcher_link` generic failure, static-module compile/link injection, MSVC-route failures, real LNK1248, and remaining part 2 items.
-5. On PLA, repeat static AOT without/with FMI, run the gameplay checklist, and measure cache entry size (~3 GB expected), multi-GB launcher hash time, publish/copy time, and Hybrid publish/reuse.
-6. Add extra cache cases: ACL-unreadable manifest, post-match copy failure, rename/restore publish failure, two-process lock contention, and dirty-tree-only producer difference.
-7. Older investigations: `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, pre-existing GG1 `g_recomp_gg_word` link failure, and export/GPL/rtld/BUILD.md/version investigations.
+3. Complete remaining Step 5 cases: MSVC-route LNK1248 / `launcher_link` injection pairs; NSO/NSP/XCI real-loader paths; real `ArmRecomp` null-callback and strict-miss refusals; a stub image missing only the identity export; static-module compile/link injection; and generic `launcher_link` fallback to MSVC.
+4. On PLA, repeat static AOT without/with FMI, run the gameplay checklist, and measure cache entry size (~3 GB expected), multi-GB launcher hash time, publish/copy time, and Hybrid publish/reuse; Step 6 is not started.
+5. Add extra cache cases: ACL-unreadable manifest, post-match copy failure, rename/restore publish failure, two-process lock contention, and dirty-tree-only producer difference.
+6. Older investigations: `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, pre-existing GG1 `g_recomp_gg_word` link failure, and export/GPL/rtld/BUILD.md/version investigations.
 
 ### Immediate next action
 

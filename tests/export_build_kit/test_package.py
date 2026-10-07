@@ -133,6 +133,19 @@ class PackageTests(unittest.TestCase):
                     finally:
                         header.write_bytes(original)
 
+            # A split export binds a module as a DLL; the kit links static modules only, so it
+            # must refuse before any target exists instead of losing that module silently.
+            modules_file = export / 'recomp_modules.cmake'
+            original_modules = modules_file.read_text()
+            modules_file.write_text(original_modules + '\nset(SUYU_RECOMP_DLL_MODULES main)\n')
+            try:
+                assert_configure_rejected(
+                    'split-export',
+                    'Split (DLL-bound) exports are not supported by the export build kit; '
+                    'use a source build (DLL-bound modules: main)')
+            finally:
+                modules_file.write_text(original_modules)
+
             unlisted = output / 'inputs/unlisted.obj'
             unlisted.write_bytes(b'not listed in the manifest')
             try:
