@@ -2,6 +2,19 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev16 - Unreleased
+
+*Development entry 16 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added the synthetic `xmod` three-module static/DLL/static fixture covering cross-image state, guards, FPX, and bridge behavior.
+- Added the shared required host-bridge callback list and its generated-runtime drift check.
+- Added 14 loader and bundle-boundary smoke cases covering feature/handshake refusals, missing pointers/exports, paths, and lookup misses.
+
+### Changed
+- `ArmRecomp::CheckBridgeComplete` now uses the shared required callback list.
+- U4 regression runs completed successfully: the full smoke suite exited 0 with unchanged ABI5/FM1/FPX golden hashes and all listed variants passing; fastmem reported 0 mismatches across 5 fmdiff and 4 GG1 legs; reduced FPX reported 1,786,000 cases with 0 mismatches, and full FPX reported 100,587,904 plus 30,320,000 cases with 0 mismatches.
+
 ## v0.0.1-dev15 - Unreleased
 
 *Development commit 15 toward v0.0.1. Not a release; no build artifacts are published.*

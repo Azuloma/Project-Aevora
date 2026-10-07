@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-07. HEAD: `1844217` (`v0.0.1-dev15`); the user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-07-end-of-eleventh-session); archived detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
+Handoff prepared: 2026-10-07. HEAD: `71b5fd6` (`v0.0.1-dev15`); the user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-07-end-of-twelfth-session); archived detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
 
@@ -10,8 +10,8 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 
 | Item | Evidence/status |
 |---|---|
-| Git baseline | HEAD `1844217`; working tree was clean before this Markdown task. |
-| Milestone 4a | Steps 1-3 and 4(a)-(c) part 1 are implemented; part 2 units 1-5, including persistent cache U1-U4, are implemented and committed. Two-lifetime seam, 4(d), remaining cases, and PLA verification are open. |
+| Git baseline | HEAD `71b5fd6`; U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed; U4 made no code change. |
+| Milestone 4a | Steps 1-3 and 4(a)-(c) part 1 are implemented; 4(d) U1-U4 are done on the synthetic fixture, with U3b on hold. The two-application-lifetime seam, remaining cases, and PLA verification are open. |
 | Persistent cache | U1-U4 verified on the synthetic fixture only: final `--only-aot-cache` 262 passed / 0 failed; Build/Windows only. |
 | Host and PLA | Windows x64 source build verified. Historical JIT/static measurements are retained below and are not a matched comparison. |
 
@@ -40,7 +40,7 @@ Static AOT generation and strict no-fallback diagnostics are verified in the exe
 | 4(a) topology/identity/prebuild; 4(b) registry/loader/inventory | Done. |
 | 4(c) part 1 exporter/CMake/cache/package | Done; `d764d8e` / dev13. |
 | 4(c) part 2 execution evidence | Units 1-5 done, including U1-U4 cache; listed cases remain. |
-| 4(d) build-kit/runtime fixture | Open; three-or-more-module fixture and carried criteria. |
+| 4(d) build-kit/runtime fixture | U1, U2, U3a, and U4 done on the synthetic fixture; U3b is on hold. Real `ArmRecomp` checks remain open under issue 1. |
 | 5 tests; 6 PLA verification | Open. |
 
 ### Accepted decisions D1-D7
@@ -49,7 +49,7 @@ D1 DLL-local runtime copy; D2 image/TLS state per image and shared state in host
 
 ### Carried acceptance criteria
 
-4(c) requires real split export and linked v1 launcher with fallback disabled, unreadable middle-module path, complete inventories/relocation input, named `Core::Load` refusals with zero guest execution, unregister/rebind, and unchanged all-static v4. 4(d) requires a three-or-more-module static/DLL/static fixture covering GG1, guard, FPX, cross-image reservation, STXR, CLREX, LDXP/STXP, counters, bridge-null and strict lookup refusals, plus loader/handshake, kit/package/cache/path, golden, fastmem, and FPX checks.
+4(c) requires real split export and linked v1 launcher with fallback disabled, unreadable middle-module path, complete inventories/relocation input, named `Core::Load` refusals with zero guest execution, unregister/rebind, and unchanged all-static v4. 4(d) U1-U4 verify the synthetic three-module static/DLL/static fixture, loader refusals, bridge-list and lookup-miss model, and regression suites; U3b exporter-side items and the real `ArmRecomp` null-callback/strict-miss seam remain open.
 
 ### Part 2 acceptance list
 
@@ -77,29 +77,29 @@ For each feature, identify the responsible layer, preserve a baseline/default mo
 
 Verify a clean-checkout build, inspect release contents for private/game inputs, preserve GPL notices/source instructions, define `devN`, and align README/compatibility/changelog with evidence. Do not label an unverified build stable.
 
-## Session handoff (2026-10-07, end of eleventh session)
+## Session handoff (2026-10-07, end of twelfth session)
 
 ### State
 
-HEAD is `1844217` (`v0.0.1-dev15`); the tree was clean before this Markdown task and the host build tree was restored. Persistent AOT cache U1-U4 is implemented and committed; synthetic-fixture verification passed 262/0. Logs and short-path work folders stay outside the repository.
+HEAD is `71b5fd6` (`v0.0.1-dev15`); U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed, while U4 made no code change. The final regression evidence is synthetic-fixture only; logs and work folders stay outside the repository.
 
 ### What was done this session
 
-Implemented and verified cache U1-U4, completed the integration matrix and status fields, and completed the Orca review rounds. The cache defaults are user-data store, Build format only, and producer revision plus build id; status fields are authoritative because suyu's log tail is lost at exit. Historical counts and detail moved to [OLD_HISTORY.md](OLD_HISTORY.md#eleventh-session-handoff-verbatim).
+Completed 4(d) U1-U4: the xmod three-module static/DLL/static fixture, the required bridge callback list and bundle-boundary lookup-miss model, loader-side refusals and path cases, and full/targeted regression runs. Full smoke exited 0 with unchanged ABI5/FM1/FPX golden hashes; fastmem had 0 mismatches across 5 fmdiff and 4 GG1 legs; reduced FPX had 1,786,000 cases with 0 mismatches, and full FPX had 100,587,904 plus 30,320,000 cases with 0 mismatches. U3b remains on hold; the bridge is a test model and FPX evidence shows value/flag agreement only, not native-path selection. Review findings for U1-U3a were fixed; no re-review of U1 fixes was run.
 
 ### Open issues, in priority order
 
-1. Two-application-lifetime seam: bind `RecompProcess` twice, unregister on `SetRecompLookup(nullptr)`, and verify the smallest test-only `Core::System` host dependencies allow; then named `Core::Load` refusals with zero guest execution.
+1. Two-application-lifetime seam, including the real `ArmRecomp` null-callback refusal and strict lookup-miss refusal; the synthetic bridge/list and lookup model does not cover these.
 2. Fix `tests/export_regression` Qt-root lookup for the CPM Qt layout so `run_fixture.py` runs again.
-3. Complete step 4(d)'s three-or-more-module fixture and carried criteria.
-4. Complete remaining 4(c)/4a cases: `launcher_link` generic failure (fallback to MSVC), static-module compile/link injection, MSVC-route failures, real LNK1248 (needs PLA), real PLA split export, and part 2 items 6/7.
-5. On PLA, repeat static AOT without/with FMI, gameplay checklist, and measure cache entry size (~3 GB expected), multi-GB launcher hash time, publish/copy time, and Hybrid publish/reuse.
-6. Cover ACL-unreadable manifest, post-match copy failure, rename/restore publish failure, two-process lock contention unit test, and dirty-tree-only producer difference.
-7. Older investigations: `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, pre-existing GG1 `g_recomp_gg_word` link failure, and export/GPL/rtld/BUILD.md/version investigations; two pre-existing per-export-seam failures need Python `cryptography`.
+3. U3b exporter-side items on hold: cache reuse in both binding directions; failure after DLL verification and before promotion; kit-only split rejection; clang-cl/MSVC LNK1248 injection pairs; NSO/NSP/XCI real-loader paths; and the second-missing-export case.
+4. Complete remaining 4(c)/4a cases: `launcher_link` generic failure, static-module compile/link injection, MSVC-route failures, real LNK1248, and remaining part 2 items.
+5. On PLA, repeat static AOT without/with FMI, run the gameplay checklist, and measure cache entry size (~3 GB expected), multi-GB launcher hash time, publish/copy time, and Hybrid publish/reuse.
+6. Add extra cache cases: ACL-unreadable manifest, post-match copy failure, rename/restore publish failure, two-process lock contention, and dirty-tree-only producer difference.
+7. Older investigations: `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, pre-existing GG1 `g_recomp_gg_word` link failure, and export/GPL/rtld/BUILD.md/version investigations.
 
 ### Immediate next action
 
-Read `CLAUDE.md`, this file, and `git status`/`git log`; then start item 1: design the lifetime/unregister contract, verify the smallest host seam, obtain Code reviewer review, and update Markdown only after the unit loop is complete.
+Start item 1: design the lifetime/unregister contract, verify the smallest host seam, obtain Code reviewer review, and update Markdown only after the unit loop is complete.
 
 ### How to work
 
@@ -107,6 +107,7 @@ Read `CLAUDE.md`, this file, and `git status`/`git log`; then start item 1: desi
 - The exporter log tail is not evidence; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused`. Use a short ASCII `D:\hwk\<name>` work folder.
 - After `worker-start`, ensure `turnStart` is `observed`; otherwise send `orca terminal send --terminal <handle> --enter`. Run the full integration suite once per finished review-fix set; a test-only expectation fix needs syntax plus the affected case.
 - Useful commands: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` and `--only-aot-cache-matrix`. Switches: `SUYU_FPCR_STATS`, `SUYU_RECOMP_CHAIN_BUDGET`, `SUYU_AOT_TRANSLATE_ALL`, `SUYU_AOT_FM_INLINE`.
+- Smoke fixture command: `python tests/recompiler_smoke/run.py --cc clang-cl --cxx clang-cl [--only-xmod]`; a `vcvars64` environment is required.
 
 ## Progress record
 

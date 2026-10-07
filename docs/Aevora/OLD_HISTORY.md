@@ -859,3 +859,36 @@ The integration matrix covers identical reuse, source/backend/split/coverage/gen
 ### Verified context retained from history
 
 JIT 30 FPS; Hybrid 15-20 FPS; dev6 static 16-20 FPS; dev8 static 25-30 FPS with zero fallback; FMI export 2.19 GB fails LNK1248; main DLL `SizeOfImage` is 1,459.1 MiB without FMI / 1,783.7 MiB with FMI. These measurements are historical evidence, not a matched comparison; details remain in [OLD_HISTORY.md](OLD_HISTORY.md).
+
+## 2026-10-07: Eleventh-session handoff replaced by the 4(d) batch
+
+### Session handoff (2026-10-07, end of eleventh session; verbatim)
+
+#### State
+
+HEAD is `1844217` (`v0.0.1-dev15`); the tree was clean before this Markdown task and the host build tree was restored. Persistent AOT cache U1-U4 is implemented and committed; synthetic-fixture verification passed 262/0. Logs and short-path work folders stay outside the repository.
+
+#### What was done this session
+
+Implemented and verified cache U1-U4, completed the integration matrix and status fields, and completed the Orca review rounds. The cache defaults are user-data store, Build format only, and producer revision plus build id; status fields are authoritative because suyu's log tail is lost at exit. Historical counts and detail moved to [OLD_HISTORY.md](OLD_HISTORY.md#eleventh-session-handoff-verbatim).
+
+#### Open issues, in priority order
+
+1. Two-application-lifetime seam: bind `RecompProcess` twice, unregister on `SetRecompLookup(nullptr)`, and verify the smallest test-only `Core::System` host dependencies allow; then named `Core::Load` refusals with zero guest execution.
+2. Fix `tests/export_regression` Qt-root lookup for the CPM Qt layout so `run_fixture.py` runs again.
+3. Complete step 4(d)'s three-or-more-module fixture and carried criteria.
+4. Complete remaining 4(c)/4a cases: `launcher_link` generic failure (fallback to MSVC), static-module compile/link injection, MSVC-route failures, real LNK1248 (needs PLA), real PLA split export, and part 2 items 6/7.
+5. On PLA, repeat static AOT without/with FMI, gameplay checklist, and measure cache entry size (~3 GB expected), multi-GB launcher hash time, publish/copy time, and Hybrid publish/reuse.
+6. Cover ACL-unreadable manifest, post-match copy failure, rename/restore publish failure, two-process lock contention unit test, and dirty-tree-only producer difference.
+7. Older investigations: `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, pre-existing GG1 `g_recomp_gg_word` link failure, and export/GPL/rtld/BUILD.md/version investigations; two pre-existing per-export-seam failures need Python `cryptography`.
+
+#### Immediate next action
+
+Read `CLAUDE.md`, this file, and `git status`/`git log`; then start item 1: design the lifetime/unregister contract, verify the smallest host seam, obtain Code reviewer review, and update Markdown only after the unit loop is complete.
+
+#### How to work
+
+- Never run two `rebuild-suyu.bat`/ninja invocations on one build tree. Run `cmd /c <local>\rebuild-suyu.bat` from PowerShell, clear the three export variables after exports, and keep logs outside the repository.
+- The exporter log tail is not evidence; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused`. Use a short ASCII `D:\hwk\<name>` work folder.
+- After `worker-start`, ensure `turnStart` is `observed`; otherwise send `orca terminal send --terminal <handle> --enter`. Run the full integration suite once per finished review-fix set; a test-only expectation fix needs syntax plus the affected case.
+- Useful commands: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` and `--only-aot-cache-matrix`. Switches: `SUYU_FPCR_STATS`, `SUYU_RECOMP_CHAIN_BUDGET`, `SUYU_AOT_TRANSLATE_ALL`, `SUYU_AOT_FM_INLINE`.
