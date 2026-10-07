@@ -21,6 +21,7 @@
 #include "common/fs/path_util.h"
 #include "core/arm/recomp/arm_recomp.h"
 #include "core/arm/recomp/guest_fp_env.h"
+#include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
 #include "core/arm/recomp/recomp_diagnostic_sampler.h"
 #include "core/core.h"
@@ -924,23 +925,13 @@ namespace {
 /// or counter fallbacks, because those keep per-image state that two images
 /// would not share. So every callback it can reach must exist. Returns false and
 /// names the first missing callback.
+RECOMP_DEFINE_FIRST_MISSING_BRIDGE_CALLBACK(FirstMissingBridgeCallback, RecompHostMem)
+
 bool CheckBridgeComplete(const RecompHostMem& bridge, const char** missing_callback) {
-    const struct {
-        const char* name;
-        bool present;
-    } required[] = {
-        {"excl_load", bridge.excl_load != nullptr},
-        {"excl_store", bridge.excl_store != nullptr},
-        {"clear_excl", bridge.clear_excl != nullptr},
-        {"read_cntpct", bridge.read_cntpct != nullptr},
-        {"excl_load_pair", bridge.excl_load_pair != nullptr},
-        {"excl_store_pair", bridge.excl_store_pair != nullptr},
-    };
-    for (const auto& callback : required) {
-        if (!callback.present) {
-            *missing_callback = callback.name;
-            return false;
-        }
+    const char* missing = FirstMissingBridgeCallback(&bridge);
+    if (missing) {
+        *missing_callback = missing;
+        return false;
     }
     return true;
 }

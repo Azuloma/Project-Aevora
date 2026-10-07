@@ -15,6 +15,7 @@
 
 #include "recomp_runtime.h"
 #include "xmod_code.h"
+#include "core/arm/recomp/recomp_bridge_required.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -43,6 +44,11 @@
     } while (0)
 
 typedef void (*RunSlice)(void*);
+typedef RunSlice (*LookupBlock)(uint64_t);
+
+/* The host's own list of callbacks it refuses to run without, applied to the generated
+   RecompHostMem. */
+RECOMP_DEFINE_FIRST_MISSING_BRIDGE_CALLBACK(first_missing_bridge_callback, RecompHostMem)
 
 static unsigned char guest_data[GUEST_DATA_SIZE];
 static RunSlice image_run[IMAGE_COUNT];
@@ -412,8 +418,119 @@ static int guard_probe_control(void) {
     return 1;
 }
 
+/* ---- the host bridge the host refuses to run without ---- */
+
+#define CHECK_NULLED_CALLBACK(callback)                                                        \
+    {                                                                                          \
+        RecompHostMem damaged = bridge;                                                        \
+        const char* missing;                                                                   \
+        damaged.callback = NULL;                                                               \
+        missing = first_missing_bridge_callback(&damaged);                                     \
+        CHECK(missing != NULL && strcmp(missing, #callback) == 0);                             \
+    }
+
+/* Every callback on the required list, taken away alone, is named; the complete bridge
+   passes. */
+static int bridge_required_callbacks(void) {
+    CHECK(first_missing_bridge_callback(&bridge) == NULL);
+    RECOMP_REQUIRED_BRIDGE_CALLBACKS(CHECK_NULLED_CALLBACK)
+    return 1;
+}
+
+/* Why the list exists: with the exclusive callbacks missing, the generated runtime of
+   each image keeps a private monitor, so a reservation taken in one image is unknown to
+   the next and the store fails although nothing else touched the address. */
+static int private_monitor_hazard(void) {
+    static RecompHostMem damaged;
+    uint64_t before;
+    reset_scenario();
+    damaged = bridge;
+    damaged.excl_load = NULL;
+    damaged.excl_store = NULL;
+    context.host_mem = &damaged;
+    before = model_read(ADDR_X, 8);
+    context.x[5] = ADDR_X;
+    CHECK(step(0, XMOD_LDXR));
+    context.x[13] = ~before;
+    CHECK(step(1, XMOD_STXR));
+    CHECK(context.x[14] == 1);
+    CHECK(model_read(ADDR_X, 8) == before);
+    CHECK(counts[0].excl_loads == 0 && counts[1].excl_stores == 0);
+    return 1;
+}
+
+/* ---- a branch that leaves the image: lookup miss and hand-over ---- */
+
+/* The dispatch loop of the launcher, as a model: the first module whose lookup knows the
+   pc runs its slice; a pc no module knows is a miss, and a strict host stops there with
+   no fallback. Returns the miss pc. */
+#define NO_MISS UINT64_C(0)
+static uint64_t dispatch_hops(LookupBlock lookup[IMAGE_COUNT], unsigned start_image,
+                              unsigned visits[IMAGE_COUNT], unsigned* hand_overs) {
+    unsigned guard;
+    context.pc = image_base[start_image] + XMOD_HOP;
+    *hand_overs = 0;
+    for (guard = 0; guard < 4 * IMAGE_COUNT; ++guard) {
+        unsigned image;
+        for (image = 0; image < IMAGE_COUNT; ++image) {
+            if (lookup[image](context.pc)) break;
+        }
+        if (image == IMAGE_COUNT) return context.pc;
+        ++visits[image];
+        ++*hand_overs;
+        current_image = image;
+        context.mem_base_vaddr = image_base[image] + CODE_MODULE_OFFSET;
+        context.halted = 0;
+        image_run[image](&context);
+        if (context.halted != 0) return NO_MISS;
+    }
+    return NO_MISS;
+}
+
+/* A chain of hops from `start_image` walks every image from there to the last, in load
+   order, then misses at the pc one spacing past the last image: no image runs it, and
+   nothing after the miss changes the guest state. */
+static int hop_chain(LookupBlock lookup[IMAGE_COUNT], unsigned start_image) {
+    unsigned visits[IMAGE_COUNT] = {0, 0, 0};
+    unsigned hand_overs, image;
+    uint64_t miss_pc, registers_at_miss;
+    reset_scenario();
+    miss_pc = dispatch_hops(lookup, start_image, visits, &hand_overs);
+    if (miss_pc != image_base[IMAGE_COUNT - 1] + XMOD_BASE_SPACING + XMOD_HOP) {
+        fprintf(stderr, "xmod_exec: chain from image %u ended at pc %llx (halted %d, x1 %llu, %u hand-overs)\n",
+                start_image, (unsigned long long)context.pc, context.halted,
+                (unsigned long long)context.x[1], hand_overs);
+    }
+    CHECK(miss_pc == image_base[IMAGE_COUNT - 1] + XMOD_BASE_SPACING + XMOD_HOP);
+    CHECK(hand_overs == IMAGE_COUNT - start_image);
+    CHECK(context.x[1] == IMAGE_COUNT - start_image);
+    for (image = 0; image < IMAGE_COUNT; ++image) {
+        CHECK(visits[image] == (image >= start_image ? 1u : 0u));
+    }
+    /* The miss is final: asking again finds nothing and runs nothing. */
+    registers_at_miss = context.x[1];
+    for (image = 0; image < IMAGE_COUNT; ++image) CHECK(lookup[image](miss_pc) == NULL);
+    CHECK(context.x[1] == registers_at_miss && context.pc == miss_pc);
+    return 1;
+}
+
+/* A pc inside no module (below the first, between none, beyond the last) misses in
+   every image's own lookup. */
+static int lookup_misses(LookupBlock lookup[IMAGE_COUNT]) {
+    const uint64_t outside[] = {0, image_base[0] - 4, image_base[0] + XMOD_HOP - 0x1000,
+                                image_base[IMAGE_COUNT - 1] + XMOD_BASE_SPACING + XMOD_HOP};
+    unsigned i, image;
+    for (i = 0; i < sizeof(outside) / sizeof(outside[0]); ++i) {
+        for (image = 0; image < IMAGE_COUNT; ++image) {
+            CHECK(lookup[image](outside[i]) == NULL);
+        }
+    }
+    return 1;
+}
+
 /* Returns 1 when every cross-image scenario passed. */
-int xmod_exec_scenarios(RunSlice run[IMAGE_COUNT], const uint64_t base[IMAGE_COUNT]) {
+int xmod_exec_scenarios(RunSlice run[IMAGE_COUNT], LookupBlock lookup[IMAGE_COUNT],
+                        const uint64_t base[IMAGE_COUNT]) {
     static const struct { unsigned taker, storer; } handoffs[] = {
         {0, 1}, {1, 0}, {1, 2}, {2, 1}, {0, 2}, {2, 0}, {0, 0}, {1, 1}, {2, 2}};
     static const struct { unsigned taker, clearer, storer; } clears[] = {
@@ -435,6 +552,10 @@ int xmod_exec_scenarios(RunSlice run[IMAGE_COUNT], const uint64_t base[IMAGE_COU
     CHECK(counter_continuity());
     CHECK(fpx_agreement());
     CHECK(guard_probe_control());
+    CHECK(bridge_required_callbacks());
+    CHECK(private_monitor_hazard());
+    CHECK(lookup_misses(lookup));
+    for (i = 0; i < IMAGE_COUNT; ++i) CHECK(hop_chain(lookup, i));
     return 1;
 }
 

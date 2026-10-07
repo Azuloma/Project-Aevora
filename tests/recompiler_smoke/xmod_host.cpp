@@ -30,9 +30,11 @@
 
 #include "core/arm/recomp/recomp_bundle.h"
 #include "core/arm/recomp/recomp_image_features.h"
+#include "xmod_code.h"
 
 // xmod_exec.c: the cross-image blocks, against the run_slice pointers of the bundle.
-extern "C" int xmod_exec_scenarios(void (*run[3])(void*), const uint64_t base[3]);
+extern "C" int xmod_exec_scenarios(void (*run[3])(void*), void (*(*lookup[3])(uint64_t))(void*),
+                                   const uint64_t base[3]);
 extern "C" int xmod_exec_guard_probe(void (*run[3])(void*), const uint64_t base[3],
                                      unsigned image);
 
@@ -43,9 +45,11 @@ constexpr int kExitHostCheckFailed = 2;
 constexpr size_t kModuleCount = 3;
 constexpr size_t kDllModuleIndex = 1;
 
-// Module bases: ascending in topology order here, and a block offset known to exist
-// in each module-relative image (the code starts at module offset 0x1000).
-constexpr u64 kBases[kModuleCount] = {0x1000000, 0x2000000, 0x3000000};
+// Module bases: ascending in topology order, XMOD_BASE_SPACING apart (xmod_code.h, which
+// the hop block's branch is encoded from), and a block offset known to exist in each
+// module-relative image (the code starts at module offset 0x1000).
+constexpr u64 kBases[kModuleCount] = {XMOD_FIRST_BASE, XMOD_FIRST_BASE + XMOD_BASE_SPACING,
+                                      XMOD_FIRST_BASE + 2 * XMOD_BASE_SPACING};
 constexpr u64 kBlockOffset = 0x1000;
 const char* const kNames[kModuleCount] = {"smoke", "second", "third"};
 
@@ -131,10 +135,12 @@ int CaseExec(const std::filesystem::path& dir) {
         return rc;
     }
     void (*run[kModuleCount])(void*);
+    Core::RecompBundleBlockFn (*lookup[kModuleCount])(u64);
     for (size_t i = 0; i < kModuleCount; ++i) {
         run[i] = bundle->modules[i].run_slice;
+        lookup[i] = bundle->modules[i].lookup;
     }
-    HOST_CHECK(xmod_exec_scenarios(run, kBases) == 1);
+    HOST_CHECK(xmod_exec_scenarios(run, lookup, kBases) == 1);
     std::printf("exec ok: static, DLL and static images shared one host bridge\n");
     return 0;
 }

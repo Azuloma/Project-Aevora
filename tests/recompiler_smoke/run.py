@@ -324,7 +324,27 @@ def check_xmod_guard(host, image, image_dir):
                            f"{XMOD_GUARD_ABORT_EXIT} with '{message}' in:\n{result.stderr[-800:]}")
 
 
-def run_xmod(root, exporter, build, topology_unit, switches):
+def check_bridge_required_list(source, tree):
+    """The host's required-callback list is exactly the callbacks the generated runtime falls
+    back from: a callback the runtime guards with `host_mem && ...->name` but the list lacks
+    would run on a private per-image state without the host noticing."""
+    header = (tree / "recomp_runtime.h").read_text(encoding="utf-8")
+    runtime = (tree / "recomp_runtime.c").read_text(encoding="utf-8")
+    list_text = (source / "src/core/arm/recomp/recomp_bridge_required.h").read_text(encoding="utf-8")
+    listed = set(re.findall(r"X\(\s*(\w+)\s*\)", list_text.split("#define RECOMP_CHECK", 1)[0]))
+    struct = re.search(r"typedef\s+struct\s+RecompHostMem\s*\{(.*?)\}\s*RecompHostMem\s*;",
+                       header, re.DOTALL)
+    if not struct:
+        raise RuntimeError("the generated recomp_runtime.h has no RecompHostMem definition")
+    function_pointers = set(re.findall(r"\(\s*\*\s*(\w+)\s*\)\s*\(", struct.group(1)))
+    guarded = set(re.findall(r"host_mem\s*&&\s*c->host_mem->(\w+)", runtime)) & function_pointers
+    # An empty set would mean the patterns stopped matching, not that nothing is required.
+    if not listed or not guarded or listed != guarded:
+        raise RuntimeError(f"required bridge callbacks {sorted(listed)} differ from the callbacks "
+                           f"the generated runtime guards {sorted(guarded)}")
+
+
+def run_xmod(root, exporter, build, topology_unit, switches, source):
     tree = root / "generated-xmod"
     tree.mkdir()
     env = dict(os.environ)
@@ -332,6 +352,7 @@ def run_xmod(root, exporter, build, topology_unit, switches):
         env.pop(key, None)
     env.update(switches)
     call([exporter, "--xmod", tree], env=env)
+    check_bridge_required_list(source, tree)
     registry = root / "xmod-registration.c"
     call([topology_unit, "--write-registry-v1", registry, IDENTITY_BUNDLE_HEX,
           *bundle_registry_arguments(tree), *XMOD_MODULES, "--dll", XMOD_DLL_MODULE], timeout=15)
@@ -564,7 +585,7 @@ def main():
         if args.only_xmod:
             identity_switches = dict(VARIANTS)["identity"]
             run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
-                     identity_switches)
+                     identity_switches, source)
             return
         call([executable(export_build, "smoke_gaps_unit")])
         call([executable(export_build, "smoke_topology_unit")])
@@ -618,7 +639,7 @@ def main():
                 run_identity_host(root, run)
                 run_bundle_host(root, run, find_one(run / "shared", IDENTITY_IMAGE_NAMES))
                 run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
-                         switches)
+                         switches, source)
                 check_prebuild(root, args.cmake, source, generated[name],
                                executable(export_build, "smoke_topology_unit"), run,
                                compiler_options)
