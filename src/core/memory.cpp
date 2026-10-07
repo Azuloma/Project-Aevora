@@ -729,6 +729,20 @@ struct Memory::Impl {
         return true;
     }
 
+    /// The first branch of GetPointerImpl and nothing else: a page with a host pointer, with no
+    /// logging and none of the rasterizer handling the other page types trigger. An access that
+    /// crosses a page boundary is declined, because the next page needs its own translation.
+    u8* GetPlainExclusivePointer(Common::ProcessAddress vaddr, std::size_t size) const {
+        const u64 addr = GetInteger(vaddr) & 0xffffffffffffULL;
+        if ((addr & YUZU_PAGEMASK) + size > YUZU_PAGESIZE ||
+            !AddressSpaceContains(*current_page_table, addr, 1)) [[unlikely]] {
+            return nullptr;
+        }
+        const uintptr_t raw_pointer = current_page_table->entries[addr >> YUZU_PAGEBITS].ptr.Raw();
+        const uintptr_t pointer = Common::PageTable::PageInfo::ExtractPointer(raw_pointer);
+        return pointer != 0 ? reinterpret_cast<u8*>(pointer + addr) : nullptr;
+    }
+
     bool WriteExclusive128(Common::ProcessAddress vaddr, const u128 data, const u128 expected) {
         u8* const ptr = GetPointerImpl(
             GetInteger(vaddr),
@@ -982,6 +996,14 @@ bool Memory::WriteExclusive64(Common::ProcessAddress addr, u64 data, u64 expecte
 
 bool Memory::WriteExclusive128(Common::ProcessAddress addr, u128 data, u128 expected) {
     return impl->WriteExclusive128(addr, data, expected);
+}
+
+u8* Memory::GetPlainExclusivePointer(Common::ProcessAddress addr, std::size_t size) {
+    return impl->GetPlainExclusivePointer(addr, size);
+}
+
+void Memory::NoteExclusiveWrite(Common::ProcessAddress addr, std::size_t size) {
+    impl->NoteRecompWrite(GetInteger(addr), size);
 }
 
 std::string Memory::ReadCString(Common::ProcessAddress vaddr, std::size_t max_length) {

@@ -70,8 +70,10 @@ void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32
 
 void EmitSpinLockUnlock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp) {
     code.xor_(tmp, tmp);
+    // An xchg with a memory operand is implicitly locked, so it already orders everything before
+    // the release against everything after it; a following mfence only adds a full pipeline
+    // drain on every exclusive access.
     code.xchg(code.dword[ptr], tmp);
-    code.mfence();
 }
 
 namespace {

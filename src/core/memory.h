@@ -337,6 +337,29 @@ public:
     bool WriteExclusive128(Common::ProcessAddress addr, u128 data, u128 expected);
 
     /**
+     * Resolves the host pointer of a plain mapped page for an exclusive access, so a monitor can
+     * take its lock after address translation rather than across it. It has no side effects: a
+     * page that needs rasterizer handling, is unmapped, or is outside the address space returns
+     * nullptr and the caller must use Read/WriteExclusive, which perform that handling only when
+     * the access really happens (a store whose reservation was lost must not reach the GPU
+     * caches). An access that crosses a page boundary also returns nullptr, as the next page
+     * needs its own translation.
+     *
+     * @param addr The virtual address of the access.
+     * @param size The access width in bytes.
+     *
+     * @returns The host pointer, or nullptr when the access needs the full path.
+     */
+    u8* GetPlainExclusivePointer(Common::ProcessAddress addr, std::size_t size);
+
+    /**
+     * Reports a store made through a GetPlainExclusivePointer pointer to the recompiler's
+     * generation guard, as WriteExclusive does after its compare-and-swap. Call it after the
+     * store, outside the monitor lock.
+     */
+    void NoteExclusiveWrite(Common::ProcessAddress addr, std::size_t size);
+
+    /**
      * Reads a null-terminated string from the given virtual address.
      * This function will continually read characters until either:
      *

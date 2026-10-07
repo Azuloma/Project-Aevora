@@ -892,3 +892,55 @@ Read `CLAUDE.md`, this file, and `git status`/`git log`; then start item 1: desi
 - The exporter log tail is not evidence; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused`. Use a short ASCII `D:\hwk\<name>` work folder.
 - After `worker-start`, ensure `turnStart` is `observed`; otherwise send `orca terminal send --terminal <handle> --enter`. Run the full integration suite once per finished review-fix set; a test-only expectation fix needs syntax plus the affected case.
 - Useful commands: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` and `--only-aot-cache-matrix`. Switches: `SUYU_FPCR_STATS`, `SUYU_RECOMP_CHAIN_BUDGET`, `SUYU_AOT_TRANSLATE_ALL`, `SUYU_AOT_FM_INLINE`.
+
+## Archived on 2026-10-07 (from WORK_PLAN.md, end of twelfth session)
+
+### Carried acceptance criteria
+
+4(c) requires real split export and linked v1 launcher with fallback disabled, unreadable middle-module path, complete inventories/relocation input, named `Core::Load` refusals with zero guest execution, unregister/rebind, and unchanged all-static v4. 4(d) U1-U4 verify the synthetic three-module static/DLL/static fixture, loader refusals, bridge-list and lookup-miss model, and regression suites. Step 5 covers cache reuse in both binding directions, failure after DLL verification and before promotion, and kit-only split rejection; the remaining test cases and real `ArmRecomp` seam remain open.
+
+### Part 2 acceptance list
+
+- [x] Synthetic split static/Hybrid exports, linked v1 launcher without fallback, inventories, relocation diagnostics, and main-only all-DLL topology.
+- [x] Source/analysis refusals, including code-less module refusal; earlier ExeFS validation stops missing `main` and non-canonical NSO.
+- [x] Injected emit/compile/DLL-link/launcher-LNK1248/tamper/missing-DLL failures and retry reporting.
+- [x] All-static v4 regression and persistent AOT cache reuse/invalidation matrix; Build packages exclude `aot_cache`.
+- [ ] Remaining cases: MSVC-route LNK1248 / `launcher_link` injection pairs; NSO/NSP/XCI real-loader paths; real `ArmRecomp` null-callback and strict-miss refusals; a stub image missing only the identity export; static-module compile/link injection; and generic `launcher_link` fallback to MSVC.
+
+### Persistent AOT cache (implemented, U1-U4)
+
+- Defaults: user-data `aot_export_cache`, Build format only, producer = suyu revision + build id.
+- Entry key/layout authority: `src/suyu/aot_export_cache.h`; launcher, manifest, split module selection, and producer record are stored per entry.
+- Publish occurs after precompile and before packaging; reuse copies only on a full match.
+- Mismatches are named; a busy lock means no reuse and no publish; entries replace atomically.
+- Build/Windows only; packages contain no `aot_cache`.
+- Test seams and status fields cover cache root/producer identity, reuse, mismatch, busy, publish, and not-applicable outcomes.
+- Synthetic fixture final run: `--only-aot-cache` 272 passed / 0 failed; full design/evidence is in [OLD_HISTORY.md](OLD_HISTORY.md#2026-10-07-persistent-aot-cache-u1-u4-design-decisions-implemented-behavior-matrix-evidence).
+
+### Session handoff (2026-10-07, end of twelfth session; verbatim)
+
+#### State
+
+HEAD is `7db8f01` (`v0.0.1-dev16`); U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed, while the current test additions remain uncommitted. The final regression evidence is synthetic-fixture only; logs and work folders stay outside the repository.
+
+#### What was done this session
+
+Completed 4(d) U1-U4: the xmod three-module static/DLL/static fixture, the required bridge callback list and bundle-boundary lookup-miss model, loader-side refusals and path cases, and full/targeted regression runs. Full smoke exited 0 with unchanged ABI5/FM1/FPX golden hashes; fastmem had 0 mismatches across 5 fmdiff and 4 GG1 legs; reduced FPX had 1,786,000 cases with 0 mismatches, and full FPX had 100,587,904 plus 30,320,000 cases with 0 mismatches. Step 5 added and verified cache reuse in both binding directions, failure after DLL verification and before promotion, and kit-only split rejection; the integration run passed 272 tests with 0 failures and the build-kit package suite passed 14 tests. The host tree was rebuilt successfully, linking both `suyu.exe` and `suyu-cmd.exe`. The bridge is a test model and FPX evidence shows value/flag agreement only, not native-path selection. Review findings for U1-U3a were fixed; no re-review of U1 fixes was run.
+
+#### Open issues, in priority order
+
+1. Two-application-lifetime seam, including the real `ArmRecomp` null-callback refusal and strict lookup-miss refusal; the synthetic bridge/list and lookup model does not cover these.
+2. Fix `tests/export_regression` Qt-root lookup for the CPM Qt layout so `run_fixture.py` runs again.
+3. Step 6 PLA verification and PLA cache measurements.
+4. Remaining Step 5 cases: MSVC-route LNK1248 / `launcher_link` injection pairs; NSO/NSP/XCI real-loader paths; real `ArmRecomp` null-callback and strict-miss refusals; a stub image missing only the identity export; static-module compile/link injection; and generic `launcher_link` fallback to MSVC.
+5. Extra cache cases and older investigations.
+
+#### Immediate next action
+
+Start item 1: design the lifetime/unregister contract, verify the smallest host seam, obtain Code reviewer review, and update Markdown only after the unit loop is complete.
+
+#### How to work
+
+- Never run two `rebuild-suyu.bat`/ninja invocations on one build tree. Run `cmd /c <local>\rebuild-suyu.bat` from PowerShell, clear the three export variables after exports, and keep logs outside the repository.
+- The exporter log tail is not evidence; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused`. Use a short ASCII `D:\hwk\<name>` work folder.
+- Useful commands: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` and `--only-aot-cache-matrix`. Switches: `SUYU_FPCR_STATS`, `SUYU_RECOMP_CHAIN_BUDGET`, `SUYU_AOT_TRANSLATE_ALL`, `SUYU_AOT_FM_INLINE`.

@@ -36,6 +36,11 @@ public:
     bool ExclusiveWrite128(std::size_t core_index, VAddr vaddr, u128 value) override;
 
 private:
+    template <typename T>
+    T ExclusiveRead(std::size_t core_index, VAddr addr);
+    template <typename T>
+    bool ExclusiveWrite(std::size_t core_index, VAddr vaddr, T value);
+
     friend class ArmDynarmic32;
     friend class ArmDynarmic64;
     Dynarmic::ExclusiveMonitor monitor;

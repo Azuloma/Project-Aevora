@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-07, HEAD is `1844217` (`v0.0.1-dev15`); Milestone 4a part 2 units 1-5 and persistent AOT cache U1-U4 are implemented and committed, with cache verification limited to the synthetic fixture (262 passed / 0 failed). The confirmed cache defaults are user-data store, Build format only, and producer revision plus build id; real PLA cache behavior remains open. Next priorities are the two-application-lifetime seam, `export_regression` Qt-root lookup, step 4(d), remaining 4(c)/4a cases, and PLA repeats. Successful code generation, compilation, or startup alone does not establish game compatibility; keep public descriptions consistent with the evidence.
+As of 2026-10-07, HEAD is `8818bd3` on `main` (dev16); Milestone 4a 4(d) U1-U4 and the covered Step 5 cases are implemented and verified on the synthetic fixture. The held Step 5 cases, two-application-lifetime seam, and PLA verification remain open; next priority is issue 1 or Step 6 by the user's choice. Successful code generation, compilation, or startup alone does not establish game compatibility; keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, the latest Session handoff in `WORK_PLAN.md`, its persistent-cache section, and the Milestone 4a part 2 acceptance list. HEAD is `1844217`/dev15; cache U1-U4 is implemented and verified only on the synthetic fixture. Resume with the ordered open issues in that handoff. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, verify with logs outside the repository, obtain review, fix findings, then update Markdown. The user commits, tags, and pushes; agents never do so.
+Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is `8818bd3`/dev16; 4(d) U1-U4 and covered Step 5 cases are synthetic-fixture verified only. Ask the user whether to start issue 1 or Step 6; if issue 1, design the lifetime/unregister contract and verify the smallest host seam before review. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, verify with logs outside the repository, obtain review, fix findings, then update Markdown. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -112,6 +112,10 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - Never run two `rebuild-suyu.bat` or ninja invocations on one build tree concurrently.
 - After `orca orchestration worker-start`, check that `turnStart` is `observed`; otherwise submit with `orca terminal send --terminal <handle> --enter`.
 - Run the full integration suite once per finished set of review fixes, not after every small edit; a test-only expectation fix needs syntax checking and the affected case only.
+- When a long test is re-run, delete or truncate its log first; a monitor waiting for the `exit` line otherwise reads the previous run's line and reports a stale result.
+- `orca orchestration check --wait` redelivers the previous message unless the last `delivery_*` id is passed with `--ack`; a message with only `heartbeat` content is not a result.
+- Do not generate Python or Markdown through shell heredocs with `\\n` escapes (they become literal newlines); use Edit/Write tools, and syntax-check Python edits with `ast.parse`.
+- A negative control (deliberately breaking the model or production list) is required before trusting a new test that passed on the first run.
 
 - The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's Key facts from archived history section (details in `OLD_HISTORY.md`); `docs/Aevora/BUILD.md` has not been written yet.
 - A static launcher links all recompiled modules into one image; MSVC x64 images are limited to 2 GB (LNK1248). Check the image size impact of generated-code changes before a full PLA export.
