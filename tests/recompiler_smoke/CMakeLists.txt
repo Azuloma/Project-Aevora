@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(recompiler_smoke LANGUAGES C CXX)
-foreach(path_variable SUYU_SOURCE GENERATED_DIR LOOP_DIR)
+foreach(path_variable SUYU_SOURCE GENERATED_DIR LOOP_DIR XMOD_DIR)
   if(DEFINED ${path_variable})
     file(TO_CMAKE_PATH "${${path_variable}}" normalized_path)
     set(${path_variable} "${normalized_path}")
@@ -18,6 +18,46 @@ if(LOOP_DIR)
   if(NOT MSVC)
     target_link_libraries(smoke_loop PRIVATE m)
   endif()
+elseif(XMOD_DIR)
+  # The three-module split fixture (export.cpp --xmod): module "smoke" and "third" are
+  # linked statically into xmod_host, module "second" is built as a shared image that
+  # the production bundle loader loads from the build's shared/ directory. Like the
+  # identity test, the images carry their identity from compile definitions that run.py
+  # takes from the topology header's own conversion.
+  if(NOT IDENTITY_BUNDLE_BYTES OR NOT REGISTRY_C)
+    message(FATAL_ERROR "the three-module fixture needs IDENTITY_BUNDLE_BYTES and REGISTRY_C")
+  endif()
+  file(TO_CMAKE_PATH "${REGISTRY_C}" registry_c)
+  set(RECOMP_STATIC_ONLY ON)
+  add_subdirectory("${XMOD_DIR}" xmod_smoke_static)
+  add_subdirectory("${XMOD_DIR}/third" xmod_third_static)
+  set(RECOMP_STATIC_ONLY OFF)
+  set(RECOMP_BUILD_STATIC_LIB OFF)
+  add_subdirectory("${XMOD_DIR}/second" xmod_second_shared)
+  if(NOT TARGET recompiled_second)
+    message(FATAL_ERROR "Generated module 'second' does not define the shared image target "
+                        "'recompiled_second'")
+  endif()
+  target_compile_definitions(recompiled_second PRIVATE
+      RECOMP_IDENTITY_NAME="second" RECOMP_IDENTITY_BUNDLE_BYTES=${IDENTITY_BUNDLE_BYTES})
+  set_target_properties(recompiled_second PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shared"
+      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/shared")
+  # The standalone runner is not part of this test.
+  if(TARGET recompiled)
+    set_target_properties(recompiled PROPERTIES EXCLUDE_FROM_ALL ON)
+  endif()
+  add_executable(xmod_host xmod_host.cpp xmod_exec.c "${registry_c}"
+      "${SUYU_SOURCE}/src/core/arm/recomp/recomp_bundle.cpp")
+  target_compile_features(xmod_host PRIVATE cxx_std_20 c_std_11)
+  target_include_directories(xmod_host PRIVATE "${SUYU_SOURCE}/src" "${XMOD_DIR}")
+  set_source_files_properties(xmod_exec.c PROPERTIES COMPILE_DEFINITIONS
+      "SUYU_HOSTED_RECOMP=1;RECOMP_SHARED_MODULE=1")
+  target_link_libraries(xmod_host PRIVATE recomp_static_smoke recomp_static_third)
+  if(NOT MSVC)
+    target_link_libraries(xmod_host PRIVATE m ${CMAKE_DL_LIBS})
+  endif()
+  add_dependencies(xmod_host recompiled_second)
 elseif(NOT GENERATED_DIR)
   add_executable(smoke_export export.cpp "${gaps_source}")
   target_compile_features(smoke_export PRIVATE cxx_std_20)

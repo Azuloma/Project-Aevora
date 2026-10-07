@@ -1,11 +1,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
+#include <string>
 #include <vector>
 #include "core/arm/recomp/recomp_gaps.h"
 #include "core/recompiler/arm64_to_c.h"
 #include "code.h"
 #include "loop_code.h"
+#include "xmod_code.h"
 
 static bool EnvOn(const char* name) {
     const char* value = std::getenv(name);
@@ -39,11 +42,34 @@ static int ExportLoop(const char* out_dir, const char* gaps_path) {
     return 0;
 }
 
+// --xmod <dir>: the three-module split fixture, the first module in <dir> and the
+// others in <dir>/<name>, all with the code of xmod_code.h. Separate from the default
+// export so the golden-hashed smoke trees stay as they are. Uses the same
+// SUYU_RECOMP_AB_* switches; the split tests export it with FM1, GG1, FPX1 and identity.
+static int ExportXmod(const std::string& out_dir) {
+    // Module order is the topology order: static, shared (the DLL), static.
+    static const char* const kModules[] = {"smoke", "second", "third"};
+    int failed = 0;
+    for (size_t i = 0; i < std::size(kModules); ++i) {
+        const auto stats = suyu::recomp::EmitProject(
+            kModules[i], reinterpret_cast<const uint8_t*>(xmod_code), sizeof(xmod_code), 0x1000,
+            i == 0 ? out_dir : out_dir + "/" + kModules[i], true);
+        if (stats.unhandled != 0 || stats.emitted != sizeof(xmod_code) / 4) {
+            std::fprintf(stderr, "xmod export: module %s emitted %llu of %zu, %llu unhandled\n",
+                         kModules[i], static_cast<unsigned long long>(stats.emitted),
+                         sizeof(xmod_code) / 4, static_cast<unsigned long long>(stats.unhandled));
+            failed = 1;
+        }
+    }
+    return failed;
+}
+
 int main(int argc, char** argv) {
     if (argc >= 3 && !std::strcmp(argv[1], "--loop")) {
         return ExportLoop(argv[2], argc >= 4 ? argv[3] : nullptr);
     }
-    if (argc != 2) return 2;
+    const bool xmod = argc == 3 && !std::strcmp(argv[1], "--xmod");
+    if (argc != 2 && !xmod) return 2;
     // Same switches the nso_emit harness uses for the ABI 6 variants.
     suyu::recomp::g_emit_fastmem = EnvOn("SUYU_RECOMP_AB_FASTMEM");
     suyu::recomp::g_emit_guard_gen = EnvOn("SUYU_RECOMP_AB_GUARD_GEN");
@@ -52,6 +78,7 @@ int main(int argc, char** argv) {
     suyu::recomp::g_emit_fpx_shadow = fpx && !std::strcmp(fpx, "shadow");
     suyu::recomp::g_emit_fm_inline = EnvOn("SUYU_RECOMP_AB_FM_INLINE");
     suyu::recomp::g_emit_image_identity = EnvOn("SUYU_RECOMP_AB_IDENTITY");
+    if (xmod) return ExportXmod(argv[2]);
     const auto stats = suyu::recomp::EmitProject(
         "smoke", reinterpret_cast<const uint8_t*>(smoke_code), sizeof(smoke_code),
         0x1000, argv[1], true);

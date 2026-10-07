@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-07, Milestone 4a steps 1-3 and 4(a)-(c) part 1 are implemented through `d764d8e`; 4(c) part 2 units 1-5 are committed through `02c0298`; and persistent AOT cache U1-U4 are implemented through `71ce879` (U4 is uncommitted) and verified on the synthetic fixture. The three cache questions were confirmed: user-data store, Build format only, and producer revision plus build id; real PLA cache behavior remains open. FMI remains correct in targeted tests but exceeds the 2 GB x64 static-launcher limit. The source build works on Windows x64, JIT PLA runs at 30 FPS, and the dev8 PLA static AOT export with fallback disabled reaches gameplay with zero JIT transitions at about 25-30 FPS versus 30 FPS JIT. A complete gameplay checklist has not been confirmed. Successful code generation, compilation, or startup alone does not establish game compatibility. Keep public descriptions consistent with the evidence.
+As of 2026-10-07, HEAD is `1844217` (`v0.0.1-dev15`); Milestone 4a part 2 units 1-5 and persistent AOT cache U1-U4 are implemented and committed, with cache verification limited to the synthetic fixture (262 passed / 0 failed). The confirmed cache defaults are user-data store, Build format only, and producer revision plus build id; real PLA cache behavior remains open. Next priorities are the two-application-lifetime seam, `export_regression` Qt-root lookup, step 4(d), remaining 4(c)/4a cases, and PLA repeats. Successful code generation, compilation, or startup alone does not establish game compatibility; keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, the latest Session handoff in `WORK_PLAN.md`, its persistent-cache section, and the Milestone 4a step 4(c) part 2 acceptance list. Persistent AOT cache U1-U4 is implemented and verified on the synthetic fixture; next work is the two-application-lifetime seam, `export_regression` Qt-root lookup, step 4(d), then PLA repeats measuring entry size, launcher hash time, and publish/copy time. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, run the required verification with full logs outside the repository, obtain Code reviewer review, fix findings, then update Markdown and report the files plus a suggested commit message. The user commits, tags, and pushes; agents never do so. See [Agent orchestration](#agent-orchestration) for the coordination contract.
+Read `CLAUDE.md`, the latest Session handoff in `WORK_PLAN.md`, its persistent-cache section, and the Milestone 4a part 2 acceptance list. HEAD is `1844217`/dev15; cache U1-U4 is implemented and verified only on the synthetic fixture. Resume with the ordered open issues in that handoff. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, verify with logs outside the repository, obtain review, fix findings, then update Markdown. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -107,6 +107,11 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - The user may also hand work to Codex directly; re-check `git status` and the diff before editing.
 
 ## Build and verification rules
+
+- Suyu's log tail is lost at export exit; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` status fields, never the log tail, as cache evidence.
+- Never run two `rebuild-suyu.bat` or ninja invocations on one build tree concurrently.
+- After `orca orchestration worker-start`, check that `turnStart` is `observed`; otherwise submit with `orca terminal send --terminal <handle> --enter`.
+- Run the full integration suite once per finished set of review fixes, not after every small edit; a test-only expectation fix needs syntax checking and the affected case only.
 
 - The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's Key facts from archived history section (details in `OLD_HISTORY.md`); `docs/Aevora/BUILD.md` has not been written yet.
 - A static launcher links all recompiled modules into one image; MSVC x64 images are limited to 2 GB (LNK1248). Check the image size impact of generated-code changes before a full PLA export.

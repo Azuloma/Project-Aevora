@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -255,8 +256,8 @@ def write_bundle_registry(root, topology_unit, identity_tree):
     return registry
 
 
-def bundle_case(host, case, directory, expected_exit, items):
-    result = subprocess.run([str(host), case, str(directory)], check=False, timeout=60,
+def bundle_case(host, case, directory, expected_exit, items, env=None):
+    result = subprocess.run([str(host), case, str(directory)], check=False, timeout=60, env=env,
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
     output = result.stdout + result.stderr
     missing = [item for item in items if item not in output]
@@ -299,6 +300,61 @@ def run_bundle_host(root, run, image):
         bundle_case(host, case, empty_dir if case == "dll-missing" else image_dir, 1, items)
         cases += 1
     print(f"Bundle checks passed: {cases} cases (registry v1 loader, bindings, refusals).")
+
+
+# The three-module split fixture (export.cpp --xmod): static "smoke", the DLL "second" between
+# them, static "third". One registry, written by the production writer, names all three.
+XMOD_MODULES = ("smoke", "second", "third")
+XMOD_DLL_MODULE = "second"
+XMOD_GUARD_ABORT_EXIT = 86  # xmod_exec.c: the guard stopped the probe block before its effect
+
+
+def check_xmod_guard(host, image, image_dir):
+    """The probe block of one image after a one-bit code change: the guard must name it."""
+    result = subprocess.run([str(host), f"guard-{image}", str(image_dir)], check=False, timeout=60,
+                            env=dict(os.environ, SUYU_RECOMP_STRICT="1"), capture_output=True,
+                            text=True, encoding="utf-8", errors="replace")
+    match = re.search(r"probe pc (\w+) expected (\w+) read (\w+)", result.stdout)
+    if not match:
+        raise RuntimeError(f"xmod guard-{image}: no probe line in:\n{result.stdout[-800:]}")
+    pc, expected, read = match.groups()
+    message = f"unsupported code change or unavailable code at 0x{pc} (expected {expected}, read {read})"
+    if result.returncode != XMOD_GUARD_ABORT_EXIT or message not in result.stderr:
+        raise RuntimeError(f"xmod guard-{image}: exit {result.returncode}, expected "
+                           f"{XMOD_GUARD_ABORT_EXIT} with '{message}' in:\n{result.stderr[-800:]}")
+
+
+def run_xmod(root, exporter, build, topology_unit, switches):
+    tree = root / "generated-xmod"
+    tree.mkdir()
+    env = dict(os.environ)
+    for key in AB_SWITCHES:
+        env.pop(key, None)
+    env.update(switches)
+    call([exporter, "--xmod", tree], env=env)
+    registry = root / "xmod-registration.c"
+    call([topology_unit, "--write-registry-v1", registry, IDENTITY_BUNDLE_HEX,
+          *bundle_registry_arguments(tree), *XMOD_MODULES, "--dll", XMOD_DLL_MODULE], timeout=15)
+    run = build("run-xmod", f"-DXMOD_DIR={tree.as_posix()}",
+                f"-DIDENTITY_BUNDLE_BYTES={bundle_byte_list(topology_unit, IDENTITY_BUNDLE_HEX)}",
+                f"-DREGISTRY_C={registry.as_posix()}")
+    host = executable(run, "xmod_host")
+    image_dir = find_one(run / "shared", IDENTITY_IMAGE_NAMES).parent
+    cases = 0
+    if os.name == "nt":
+        bundle_case(host, "ok", image_dir, 0, ("bundle ok",))
+        # Exclusive reservation, CLREX, pairs, counter and FADD across the three images.
+        bundle_case(host, "exec", image_dir, 0, ("exec ok",))
+        cases += 2
+        # A changed code word must stop the probe block in each image, the DLL included.
+        for image in range(len(XMOD_MODULES)):
+            check_xmod_guard(host, image, image_dir)
+            cases += 1
+    else:
+        print("Three-module DLL checks skipped: shared images are a Windows-only feature.")
+        bundle_case(host, "ok", image_dir, 1, ("not supported on this platform", "second"))
+        cases += 1
+    print(f"Three-module split checks passed: {cases} cases (static/DLL/static).")
 
 
 def prebuild_cmake(cmake, source, build_dir, exefs, modules, compiler_options):
@@ -475,6 +531,8 @@ def main():
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument("--cc", help="explicit C compiler path, if needed")
     parser.add_argument("--cxx", help="explicit C++ compiler path, if needed")
+    parser.add_argument("--only-xmod", action="store_true",
+                        help="run only the three-module split fixture (static/DLL/static)")
     args = parser.parse_args()
     source = args.source.resolve()
     test_source = Path(__file__).resolve().parent
@@ -503,6 +561,11 @@ def main():
                 cache_generator = line.split("=", 1)[1]
         print(f"CMake generator: {cache_generator}")
         exporter = executable(export_build, "smoke_export")
+        if args.only_xmod:
+            identity_switches = dict(VARIANTS)["identity"]
+            run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
+                     identity_switches)
+            return
         call([executable(export_build, "smoke_gaps_unit")])
         call([executable(export_build, "smoke_topology_unit")])
         call([executable(export_build, "smoke_aot_cache_unit"), root / "aot-cache-unit"])
@@ -554,6 +617,8 @@ def main():
             if name == "identity":
                 run_identity_host(root, run)
                 run_bundle_host(root, run, find_one(run / "shared", IDENTITY_IMAGE_NAMES))
+                run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
+                         switches)
                 check_prebuild(root, args.cmake, source, generated[name],
                                executable(export_build, "smoke_topology_unit"), run,
                                compiler_options)

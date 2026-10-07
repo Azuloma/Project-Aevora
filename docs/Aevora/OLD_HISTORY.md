@@ -829,3 +829,33 @@ Per module (image-relevant sum, dev8 / FMI): main 1,455.3 / 1,780.5; sdk 131.1 /
 - **Review:** Code reviewer (Orca, gpt-6.1-sol, high) found one P2 issue (write/flush errors not checked before reporting the log as saved) and a wording caveat (MSVC is not proven unable to produce smaller code; the change now says it does not remove the limit and is costly); both were fixed. Control flow (failure return, staging cleanup, Hybrid retry, one-module Hybrid) was reviewed with no findings.
 - **Verification:** `rebuild-suyu.bat` (Build Tools 2026 vcvars64, Ninja, `-j 8`) built suyu and suyu-cmd after the change and after the review fix; no warnings from `game_export.cpp`.
 - **Not run:** no export exercised the new paths; injected LNK1248 for static, Hybrid retry, and one-module Hybrid, and log-helper Unicode/append/rotation/open-failure/write-failure cases remain untested.
+## 2026-10-07 persistent AOT cache U1-U4 (design, decisions, implemented behavior, matrix, evidence)
+
+### Persistent AOT cache (DECIDED; option b)
+
+The user chose option b: reintroduce and verify a persistent AOT cache. Benefits are faster re-exports, reproducibility checks, preservation of good builds after packaging failures, and making the existing reuse code live and tested; costs are about 3 GB per PLA entry, stale-artifact risk, and implementation effort. `RunAotPrecompile` already compares the manifest's full scan, backend, ABI/features, FMI, correctness revision, translate-all, source hash, coverage fingerprint, fallback policy, and split bundle/bindings/topology/DLL records, but reuse is unreachable because each export creates fresh staging; Build packaging also removes `aot_cache`.
+
+The confirmed defaults are a user-data store, Build format only, and producer identity based on the suyu revision plus build id. The store is `aot_export_cache` under suyu user data, outside the repository and output folder. Each entry is `aot_export_cache/<title_id>_<platform>_<backend>_<split|all-static>/`; underscores are separators and key parts may contain dashes but never underscores. Layout is authoritative in `src/suyu/aot_export_cache.h`: `launcher/static_launcher.exe`, `aot_manifest.json`, `exefs/recomp_modules.cmake` for split entries, and `cache_entry.txt` with layout version, entry name, `producer.suyu_revision`, and `producer.build_id`. The platform name is `windows`.
+
+**Implemented behavior:** U1 (store/key, atomic publish, lock, producer identity) is committed as `2043b92`; U2 (publish and failed-export preservation) as `edb6eb5`; U3 (persistent reuse and split reader) as `71ce879`; U4 (integration matrix and supporting status fields) is implemented but uncommitted at hand-off. Publishing occurs after successful AOT precompile and before packaging; valid artifacts remain available when later packaging fails. Reuse takes the per-entry lock without waiting, validates the record and artifacts, compares every recorded input and the manifest launcher hash/size, and copies only a full match. Mismatches name the item; lock contention skips both reuse and publish; entries replace in place without generations/LRU; source-format and non-Windows exports do not use the cache; packages contain no `aot_cache`.
+
+The integration matrix covers identical reuse, source/backend/split/coverage/generator/producer invalidation, missing or tampered artifacts, failed export preservation, lock contention, and package exclusion. Test seams provide a cache root and producer revision/build id only for test-driven exports; status fields expose `reused`, named mismatch/reason, busy, publish, and not-applicable outcomes. Open: Hybrid publish/reuse on real PLA; PLA entry size, multi-GB launcher hash time, publish/copy time, real split export, and FMI; ACL-unreadable manifests, post-match copy failure, rename/restore failures, process-to-process unit lock contention, and dirty-tree-only producer changes; plus items 6/7 and the remaining acceptance cases listed above.
+
+### Eleventh-session handoff (verbatim)
+
+- **Current local state:** HEAD is `71ce879`; U1 `2043b92`, U2 `edb6eb5`, and U3 `71ce879` are committed; U4 is uncommitted. Uncommitted files are `src/suyu/game_export.cpp`, `src/suyu/game_export.h`, `src/suyu/main.cpp`, `tests/export_integration/run_export_integration.py`, and these Markdown files; the user commits. The host build tree was restored with the three export variables cleared; local work folders and logs are outside the repository.
+
+- **Build/test:** Final `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` passed 262/0; use `--only-aot-cache-matrix` for the matrix alone. Fixture entries are about 0.03 GiB. `rebuild-suyu.bat` rebuilt suyu and suyu-cmd afterwards and the three export variables were cleared. Never run two rebuilds or ninja invocations on one build tree concurrently.
+- **Switches:** `SUYU_FPCR_STATS=1` is diagnostic-only and must not be used for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode. `SUYU_AOT_FM_INLINE=1` remains off for PLA because the prior static export exceeded the 2 GB limit.
+
+### What this session did
+
+- Implemented persistent AOT cache U1-U4: U1 `2043b92`, U2 `edb6eb5`, U3 `71ce879`, and U4 uncommitted. The three confirmed defaults are a user-data store, Build format only, and producer revision plus build id.
+- Verification counts: `--only-multimodule` 35 passed/0 failed; split Hybrid 16/0; injection 24/0; all-static 11/0; source refusals 3/3.
+- Per-export seam run passed new split-option checks; two pre-existing failures need the Python `cryptography` package.
+- Fixed the launcher LNK1248 blocking dialog in automated runs.
+- The final synthetic-fixture cache run passed 262/0; status fields are the evidence because suyu's log tail is lost at exit.
+
+### Verified context retained from history
+
+JIT 30 FPS; Hybrid 15-20 FPS; dev6 static 16-20 FPS; dev8 static 25-30 FPS with zero fallback; FMI export 2.19 GB fails LNK1248; main DLL `SizeOfImage` is 1,459.1 MiB without FMI / 1,783.7 MiB with FMI. These measurements are historical evidence, not a matched comparison; details remain in [OLD_HISTORY.md](OLD_HISTORY.md).
