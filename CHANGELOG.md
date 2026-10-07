@@ -2,6 +2,18 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev15 - Unreleased
+
+*Development commit 15 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added a persistent user-data AOT cache for Windows Build exports with authoritative entry layout, producer revision/build-id records, per-entry locking, atomic publish/replace, interrupted-publish recovery, and failed-package preservation.
+- Added full-match reuse and named mismatch reasons for manifest inputs, split topology, artifacts, and launcher SHA-256/size records, plus test-only cache and producer seams and export status fields.
+- Added the cache unit test and publish/reuse/invalidation integration matrix; the final synthetic-fixture run passed 262 tests with 0 failures.
+
+### Changed
+- Build packages continue to exclude `aot_cache`; Source-format, non-Windows, and lock-busy exports do not use or publish the persistent cache.
+
 ## v0.0.1-dev14 - Unreleased
 
 *Development commit 14 toward v0.0.1. Not a release; no build artifacts are published.*
@@ -13,7 +25,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Fixed
 - Launcher LNK1248 failures no longer block automated runs on a modal dialog; test-driven exports report the rejection while interactive users retain the dialog.
 
-The existing cache reuse path is unreachable with fresh per-export staging; a persistent AOT cache is the next planned work.
+The persistent cache was subsequently implemented in v0.0.1-dev15; this entry records the pre-cache state.
 
 ## v0.0.1-dev13 - Unreleased
 

@@ -1233,6 +1233,14 @@ bool GameExportDialog::AotCacheReusedForTesting() const {
     return last_aot_cache_reused;
 }
 
+QString GameExportDialog::AotCacheOutcomeForTesting() const {
+    return last_aot_cache_outcome;
+}
+
+QString GameExportDialog::AotCachePublishForTesting() const {
+    return last_aot_cache_publish;
+}
+
 QStringList GameExportDialog::FallbackModulesForTesting() const {
     return last_fallback_modules;
 }
@@ -3907,7 +3915,8 @@ void GameExportDialog::PublishAotCacheEntry(
     const auto& cache_root = target->root;
     const auto& key = target->key;
     const auto& producer = target->producer;
-    const auto skip = [](const QString& reason) {
+    const auto skip = [this](const QString& reason) {
+        last_aot_cache_publish = QStringLiteral("not published: %1").arg(reason);
         LOG_WARNING(Frontend, "AOT cache: not published: {}", reason.toStdString());
     };
 
@@ -3956,6 +3965,8 @@ void GameExportDialog::PublishAotCacheEntry(
         fail(QString::fromStdString(error));
         return;
     }
+    // From here the entry is in place; whatever the logging below throws does not undo that.
+    last_aot_cache_publish = QStringLiteral("published");
     std::string path_error;
     const auto entry_path = Cache::EntryPath(cache_root, key, &path_error);
     LOG_INFO(Frontend, "AOT cache: published {} ({:.2f} GiB)",
@@ -3966,7 +3977,11 @@ void GameExportDialog::PublishAotCacheEntry(
     // The standard library throws on a path it cannot convert or an allocation failure; the
     // cache is an optimisation and must never take down a finished export. A half-built
     // staging tree is cleared by the next PrepareStaging.
-    LOG_WARNING(Frontend, "AOT cache: not published: {}", exception.what());
+    if (last_aot_cache_publish != QStringLiteral("published")) {
+        last_aot_cache_publish =
+            QStringLiteral("not published: %1").arg(QString::fromUtf8(exception.what()));
+    }
+    LOG_WARNING(Frontend, "AOT cache: publish step threw: {}", exception.what());
 }
 
 bool GameExportDialog::IsKnownFailStage(const QString& stage) {
@@ -4225,8 +4240,6 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     // The persistent cache holds the finished build of an earlier export of this key. When its
     // producer and artifacts are intact it is what the check below reads (`reuse_dir`), and
     // only a full match copies it into this export's cache directory.
-    last_aot_cache_reused = false;
-    last_aot_cache_busy = false;
     QString reuse_dir = cache_dir;
     std::optional<AotCacheTarget> cache_target;
     std::unique_ptr<suyu::aot_cache::EntryLock> cache_lock;
@@ -4245,17 +4258,21 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             // Another export (or a lock failure) keeps this export out of the cache for good:
             // it neither reuses nor publishes, so it cannot replace an entry it never read.
             last_aot_cache_busy = true;
+            last_aot_cache_outcome = QStringLiteral("busy: %1").arg(QString::fromStdString(lock_error));
             LOG_INFO(Frontend, "AOT cache not used: {}", lock_error);
         } else if (const auto entry_path =
                        Cache::EntryPath(cache_target->root, cache_target->key, &lock_error)) {
             std::string mismatch;
             if (!std::filesystem::exists(*entry_path)) {
+                last_aot_cache_outcome = QStringLiteral("no entry yet");
                 LOG_INFO(Frontend, "AOT cache: no entry yet at {}",
                          Common::FS::PathToUTF8String(*entry_path));
             } else if (Cache::ValidateEntry(*entry_path, cache_target->key,
                                             cache_target->producer, &mismatch)) {
                 reuse_dir = FromFsPath(*entry_path);
             } else {
+                last_aot_cache_outcome = QStringLiteral("not reused: entry mismatch in %1")
+                                             .arg(QString::fromStdString(mismatch));
                 LOG_INFO(Frontend, "AOT cache not reused: entry mismatch in {}", mismatch);
             }
         }
@@ -4318,6 +4335,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             // a split cache (and a split export never reuses an all-static one).
             const QJsonObject manifest_object = QJsonDocument::fromJson(manifest_bytes).object();
             bool same_topology = false;
+            QString split_detail;
             std::optional<SplitExportRecord> cached_split;
             if (split_main) {
                 QString mismatch;
@@ -4331,6 +4349,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     &mismatch);
                 same_topology = cached_split.has_value();
                 if (!same_topology) {
+                    split_detail = QStringLiteral("split export mismatch in %1").arg(mismatch);
                     LOG_INFO(Frontend, "AOT cache not reused: split export mismatch in {}",
                              mismatch.toStdString());
                 }
@@ -4381,6 +4400,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     restored = CopyCacheArtifacts(ToFsPath(reuse_dir), ToFsPath(cache_dir),
                                                   split_main, &copy_error);
                     if (!restored) {
+                        last_aot_cache_outcome = QStringLiteral("not reused: %1").arg(copy_error);
                         LOG_ERROR(Frontend, "AOT cache not reused: {}", copy_error.toStdString());
                     }
                 }
@@ -4390,14 +4410,24 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     last_recomp_compiler =
                         manifest_object.value(QStringLiteral("recomp_compiler")).toString();
                     last_aot_cache_reused = reuse_dir != cache_dir;
+                    last_aot_cache_outcome = QStringLiteral("reused");
                     LOG_INFO(Frontend, "Reusing completed AOT cache at {}",
                              reuse_dir.toStdString());
                     return cache_dir;
                 }
             } else {
-                LOG_INFO(Frontend, "AOT cache not reused: changed {}",
-                         changed_items.join(QStringLiteral(", ")).toStdString());
+                const QString changed_text = changed_items.join(QStringLiteral(", "));
+                last_aot_cache_outcome =
+                    QStringLiteral("not reused: %1changed %2")
+                        .arg(split_detail.isEmpty() ? QString{} : split_detail + QStringLiteral("; "),
+                             changed_text);
+                LOG_INFO(Frontend, "AOT cache not reused: changed {}", changed_text.toStdString());
             }
+        } else {
+            last_aot_cache_outcome = QStringLiteral("not reused: cannot read %1")
+                                         .arg(QDir::toNativeSeparators(reuse_manifest_path));
+            LOG_INFO(Frontend, "AOT cache not reused: cannot read {}",
+                     reuse_manifest_path.toStdString());
         }
     }
     cache_lock.reset();
@@ -7245,6 +7275,13 @@ void GameExportDialog::OnExport() {
         return;
     }
     const ExportRunGuard run_guard{export_in_progress};
+
+    // What the persistent AOT cache did for this export (see AotCacheOutcomeForTesting): reset
+    // here, before any early refusal, so a stopped export never reports the previous one's.
+    last_aot_cache_reused = false;
+    last_aot_cache_busy = false;
+    last_aot_cache_outcome = QStringLiteral("not applicable");
+    last_aot_cache_publish = QStringLiteral("not attempted");
 
     // Per-export split state, local to this run: nothing from an earlier export in this
     // dialog (a split export, a failure after its images were collected) can reach this

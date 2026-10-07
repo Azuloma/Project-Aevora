@@ -24,6 +24,15 @@ The earlier patch idea replaced non-ASCII characters in the generated filesystem
 
 ## Progress record (archived)
 
+## Session handoff (2026-10-06, end of tenth session)
+
+Archived verbatim from the previous `WORK_PLAN.md` handoff. It recorded HEAD `02c0298`, completion of part 2 units 1-5, the 35/16/24/11 synthetic scenario counts, the unreachable fresh-staging cache reuse path, open launcher/static-module/MSVC/LNK1248 and PLA questions, and the decision to reintroduce a persistent AOT cache (option b). The previous handoff's immediate next action was to confirm the three cache questions and implement U1; the detailed source text remains in the repository history.
+
+### 2026-10-07: Persistent AOT cache U1-U4 handoff
+
+- U1 `2043b92`, U2 `edb6eb5`, U3 `71ce879`, and U4 uncommitted implement the persistent user-data AOT cache, atomic publish, lock, producer identity, reuse/invalidation, and synthetic integration matrix.
+- Final `--only-aot-cache` verification passed 262/0; `--only-aot-cache-matrix` is available for the matrix alone. Real PLA size, hash, publish/copy timing, split export, and FMI remain open.
+
 ### 2026-10-04: Handoff documentation
 
 Created the root agent guide and this work plan. Verified the existing repository layout, README, local Git baseline/origin, exporter naming code, and CMake dependency entry points. Documentation creation does not constitute a host build, export fix, or successful PLA run. No source-code fix was applied during this handoff.
@@ -820,4 +829,3 @@ Per module (image-relevant sum, dev8 / FMI): main 1,455.3 / 1,780.5; sdk 131.1 /
 - **Review:** Code reviewer (Orca, gpt-6.1-sol, high) found one P2 issue (write/flush errors not checked before reporting the log as saved) and a wording caveat (MSVC is not proven unable to produce smaller code; the change now says it does not remove the limit and is costly); both were fixed. Control flow (failure return, staging cleanup, Hybrid retry, one-module Hybrid) was reviewed with no findings.
 - **Verification:** `rebuild-suyu.bat` (Build Tools 2026 vcvars64, Ninja, `-j 8`) built suyu and suyu-cmd after the change and after the review fix; no warnings from `game_export.cpp`.
 - **Not run:** no export exercised the new paths; injected LNK1248 for static, Hybrid retry, and one-module Hybrid, and log-helper Unicode/append/rotation/open-failure/write-failure cases remain untested.
-

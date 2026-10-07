@@ -152,6 +152,13 @@ public:
     /// True when the last export took its launcher and manifest from the persistent AOT cache
     /// instead of building them.
     bool AotCacheReusedForTesting() const;
+    /// What the last export's persistent-cache lookup decided, in words: "reused", "no entry
+    /// yet", "not reused: <the mismatched items>", "busy: <reason>" or "not applicable". The
+    /// status is synchronous, unlike suyu's log, which trails an export.
+    QString AotCacheOutcomeForTesting() const;
+    /// What the last export did about publishing its build: "published", "not published:
+    /// <reason>" or "not attempted" (reused, busy, or no cache for this export).
+    QString AotCachePublishForTesting() const;
     /// The Coverage row's text: recorded gaps and Hybrid runs for the selected game.
     QString CoverageStatusForTesting() const;
 
@@ -297,6 +304,10 @@ private:
     /// Set by RunAotPrecompile(): the entry's lock was not available, so this export builds
     /// without the persistent AOT cache and does not publish to it.
     bool last_aot_cache_busy{false};
+    /// The wording behind last_aot_cache_reused / _busy and the publish step, for the test
+    /// status (see AotCacheOutcomeForTesting).
+    QString last_aot_cache_outcome;
+    QString last_aot_cache_publish;
 
     /// Compiler that built the last export's recompiled modules into the
     /// single-file launcher (clang-cl or MSVC), or empty when nothing was

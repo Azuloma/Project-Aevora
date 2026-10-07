@@ -60,6 +60,10 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 
 `src/suyu/game_export.cpp` (about 7,700 lines) and `game_export.h` (about 300 lines).
 
+| Persistent AOT cache | Location | Purpose |
+|---|---|---|
+| Cache key, layout, lock, staging, publish | `src/suyu/aot_export_cache.h`, `src/suyu/aot_export_cache.cpp` (v, 2026-10-07) | Standard-library-only authoritative entry naming/layout (`aot_export_cache/<title>_<platform>_<backend>_<split\|all-static>`), producer record, non-waiting per-entry lock, interrupted-publish recovery, validation, atomic replacement, and size reporting. |
+
 | Symbol | Location | Purpose |
 |---|---|---|
 | `GameExportDialog` | `game_export.h:44` | Export dialog and state. |
@@ -67,6 +71,9 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `FindBestCmakeExecutable()` | `game_export.cpp:2931` (v) | Finds CMake on PATH, then in VS-bundled locations. |
 | `WantsCompiledOutput()` | `game_export.cpp:3139` (v) | Build (compile) versus Source-only output. |
 | `RunAotPrecompile()` | `game_export.cpp:3355` (v) | Block discovery and translation orchestration. |
+| `AotBackendName()` / `ResolveAotCacheTarget()` | `game_export.cpp:3477`, `:3846` (v, 2026-10-07) | Share one backend name between manifest/key and resolve the test-driven or user-data cache target. |
+| `CopyCacheArtifacts()` / `PublishAotCacheEntry()` | `game_export.cpp:3877`, `:3906` (v, 2026-10-07) | Define the single artifact list used for publish and reuse; publish a valid entry after AOT precompile and before packaging. |
+| `VerifyCachedLauncher()` | `game_export.cpp:3799` (v, 2026-10-07) | Require and verify manifest launcher SHA-256 and size before reuse. |
 | `recomp_modules.cmake` / `recomp_registration.c` generation | `game_export.cpp:3950-4030` (v: `:3991`, `:4019`) | Module list in NSO load order and `suyu_recomp_static_modules_v4()` registration table. **The object involved in the earlier `LNK1181` failure is built from this file.** |
 | Split option and bundle identity | `game_export.cpp:3416-3551`, `:4632`, `:6886-6890` (v, 2026-10-06) | Resolves `SUYU_AOT_SPLIT_MAIN` once per export, computes the versioned canonical bundle id, emits registry-v1/topology data, and logs each image's PE `SizeOfImage`; split cache and package records include topology, bindings, DLL hashes, and launcher size. |
 | Prebuild DLL-bound module validation | `src/suyu_cmd/recomp_modules/CMakeLists.txt:26-126` (v, 2026-10-06) | Reads topology DLL bindings, checks version, bundle ID/bytes, module membership, target existence/type, and effective file name, then builds the shared image with identity definitions. |
@@ -76,7 +83,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `PackageNativeExport()` | `game_export.cpp:5960` (v) | Stages the final export package. |
 | `ParseSplitMainOption()` / `ResolveSplitMainOption()` | `game_export.cpp:3432`, `:3805` (v, 2026-10-06) | Parse the per-export split option and resolve it with a test-driven refusal status. |
 | `IsKnownFailStage()` / `ShouldInjectFailure()` | `game_export.cpp:3786`, `:3794` (v, 2026-10-06) | Validate and apply test-driven clang-route export failure injection. |
-| `ReadCachedSplitExport()` | `game_export.cpp:3613` (v, 2026-10-06) | Reads a completed split cache record; the reuse path is unreachable until persistent-cache work gives exports a cache outside fresh staging. |
+| `ReadCachedSplitExport()` | `game_export.cpp:3633` (v, 2026-10-07) | Reads a completed split cache record; its reuse path is now reachable through the persistent cache. |
 | Gap-seeded discovery | around `game_export.cpp:220`, `3220-3330` | Reads `<user dir>/recomp/gaps/<title>.json` to seed blocks at Hybrid gap addresses. |
 | Runtime DLL list | around `game_export.cpp:193-200` | FFmpeg, DXC, OpenSSL, and Discord RPC copied into packages. |
 | Unit-limit environment overrides | `ReadPositiveSizeFromEnv()` ~`game_export.cpp:124`; read before `EmitProject()` ~`:3828` (v, 2026-10-05) | `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`. |
@@ -205,6 +212,9 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
 | `tests/export_integration/make_multimodule_fixture.py` | `write_multimodule_fixture()` (v, 2026-10-06) | Generates sparse canonical multi-module ExeFS fixtures with cross-module calls, markers, unreadable paths, and code-less options. |
 | `tests/export_integration/run_export_integration.py` | `multimodule_split_scenarios()`, `split_source_failure_scenarios()`, `split_failure_injection_scenarios()`, `split_option_scenarios()` (v, 2026-10-06) | Exercises real split static/Hybrid exports, source/analysis refusals, injected build/package failures, per-export option handling, and retries. |
+| `src/suyu/main.cpp` RPC export options | `main.cpp:6173-6179` (v, 2026-10-07) | Test-driven export RPC accepts `aot_cache_root`, `aot_producer_revision`, and `aot_producer_build_id`; status fields are returned around `:5789-5795`. |
+| `tests/recompiler_smoke/aot_cache_unit.cpp` | `smoke_aot_cache_unit` (v, 2026-10-07) | Covers naming, producer seam, lock, staging, publish/replace, interrupted-publish restore, launcher requirement, and non-ANSI cache roots. |
+| `tests/export_integration/run_export_integration.py` | `aot_cache_publish_scenarios()`, `aot_cache_matrix_scenarios()`, `--only-aot-cache`, `--only-aot-cache-matrix` (v, 2026-10-07) | Covers publish/failure preservation/reuse/producer changes/lock and the named artifact, manifest-input, backend/topology, source, and package-exclusion matrix. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests; export-regression fixture execution remains blocked by its Qt-root layout lookup. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
 

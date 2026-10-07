@@ -442,9 +442,11 @@ class Run:
         self.record('cache: nothing left in the cache root after the failed export', not leftovers,
                     ','.join(leftovers))
 
-        def export_and_run(tag, expect_reused, producer):
+        def export_and_run(tag, expect_reused, producer, expect_outcome=None,
+                           expect_publish=None):
             """An export that must (not) take its build from the cache, with a package that
-            passes the split checks and runs."""
+            passes the split checks and runs. The cache's own account of the export (outcome
+            of the lookup, what happened to publishing) comes with the export status."""
             status = self.export('static', 'build', rom=fixture, output=out, split_main='1',
                                  aot_cache_root=str(root), conflict='replace', **producer)
             self.record('cache: %s: export succeeds' % tag, status.get('success'),
@@ -453,11 +455,21 @@ class Run:
                                            else 'rebuilt, not taken from the cache'),
                         status.get('aot_cache_reused') is expect_reused,
                         'aot_cache_reused=%s' % status.get('aot_cache_reused'))
+            outcome = status.get('aot_cache_outcome', '')
+            publish = status.get('aot_cache_publish', '')
+            wanted_outcome = expect_outcome or ('reused' if expect_reused else None)
+            if wanted_outcome:
+                self.record('cache: %s: lookup outcome' % tag,
+                            outcome == wanted_outcome if wanted_outcome == 'reused'
+                            else outcome.startswith(wanted_outcome), outcome)
+            wanted_publish = expect_publish or ('not attempted' if expect_reused else 'published')
+            self.record('cache: %s: publish outcome' % tag, publish == wanted_publish, publish)
             if status.get('success'):
                 self.check_split_package('cache ' + tag, package, info)
                 code, output, log = self.launch(package, fixture.name + '.exe', keys=True,
                                                 timeout=180)
                 self.check_split_run('cache ' + tag, code, log, info)
+            return status
 
         # The same inputs and producer take the build from the cache and leave it untouched.
         entry_before = snapshot(entries_after[0]) if len(entries_after) == 1 else None
@@ -487,7 +499,9 @@ class Run:
             entry_before = snapshot(entries_after[0])
             try:
                 # The producer matches the entry's, so only the lock keeps it from reusing.
-                export_and_run('lock held elsewhere', False, producer_a)
+                # Neither reads nor publishes: the entry it never read stays as it was.
+                export_and_run('lock held elsewhere', False, producer_a, expect_outcome='busy',
+                               expect_publish='not attempted')
             finally:
                 kernel32.CloseHandle(held)
             self.record('cache: a busy entry is neither reused nor replaced',
@@ -508,19 +522,254 @@ class Run:
             export_and_run('launcher altered in place in the entry', False, producer_a)
             check_entry('after the launcher was altered', entries_after[0], 'test-rev-a')
 
-            # The busy export never reaches the publish step (which would merely fail on the
-            # lock for as long as the other export holds it, not by design). suyu writes its
-            # log with a delay, so this is read last and the busy export's stretch is cut out
-            # between its own line and the next export's first cache line.
-            log = (self.work / 'appdata' / 'suyu' / 'log' / 'suyu_log.txt').read_text(
-                encoding='utf-8', errors='replace')
-            busy = 'AOT cache not used: another export holds the lock'
-            start = log.find(busy)
-            end = log.find('AOT cache not reused', start) if start >= 0 else -1
-            segment = log[start:end] if start >= 0 and end > start else ''
-            self.record('cache: the busy export names the lock and skips publishing',
-                        bool(segment) and 'AOT cache: not published' not in segment and
-                        'AOT cache: published' not in segment, 'stretch of %d chars' % len(segment))
+    def aot_cache_matrix_scenarios(self):
+        """The persistent AOT cache's reuse/invalidation matrix. Each case damages or changes
+        one thing the reuse check compares, exports, and must see a rebuild whose own log
+        segment names that item; a rebuild also republishes, so the next case starts from a
+        sound entry. Different backends and topologies get entries of their own, and a Source
+        export leaves the cache alone."""
+        import re
+        layout = cache_layout()
+        fixture = self.work / 'MatrixFixture'
+        info = make_multimodule_fixture.write_multimodule_fixture(fixture)
+        out = self.work / 'out-matrix'
+        root = self.work / 'aot-cache-matrix'
+        producer = {'aot_producer_revision': 'matrix-rev', 'aot_producer_build_id': 'matrix-build'}
+        launcher_name = layout['kLauncherDirName'] + '/' + layout['kLauncherExecutableName']
+        selection = layout['kModuleSelectionFileName']
+
+        def entry_dirs():
+            return sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith('.')) \
+                if root.exists() else []
+
+        def split_entry():
+            # The entry names are the cache's naming contract (<title>_<platform>_<backend>_
+            # <topology>); a deliberate change of it fails here visibly.
+            found = [p for p in entry_dirs() if p.name.endswith('_suyu-static_split')]
+            return found[0] if len(found) == 1 else None
+
+        def export(tag, backend='static', rom=None, split='1', expect_reused=False,
+                   expect_log=None, run=False, producer_override=None):
+            status = self.export(backend, 'build', rom=rom or fixture, output=out, split_main=split,
+                                 aot_cache_root=str(root), conflict='replace',
+                                 **(producer_override or producer))
+            reused = status.get('aot_cache_reused')
+            self.record('matrix: %s: export succeeds, %s' % (
+                            tag, 'from the cache' if expect_reused else 'rebuilt'),
+                        status.get('success') and reused is expect_reused,
+                        '%s aot_cache_reused=%s' % (status.get('status', ''), reused))
+            # The cache's own account of this export, from the status (suyu's log trails an
+            # export and loses its tail, so it is not read).
+            outcome = status.get('aot_cache_outcome', '')
+            if expect_reused:
+                self.record('matrix: %s: lookup outcome' % tag, outcome == 'reused', outcome)
+            elif expect_log:
+                self.record('matrix: %s: the outcome names the mismatch' % tag,
+                            expect_log in outcome, '%s | wanted: %s' % (outcome, expect_log))
+            self.record('matrix: %s: publish outcome' % tag,
+                        status.get('aot_cache_publish') ==
+                        ('not attempted' if expect_reused else 'published'),
+                        status.get('aot_cache_publish', ''))
+            if run and status.get('success'):
+                name = (rom or fixture).name
+                package = out / (name if backend == 'static' else name + ' - Hybrid AOT + JIT')
+                code, output, log = self.launch(package, package.name + '.exe', keys=True,
+                                                timeout=180)
+                self.check_split_run('matrix ' + tag, code, log, info, split=split == '1')
+            return status
+
+        def edit_manifest(pattern, replacement):
+            path = split_entry() / layout['kManifestFileName']
+            text = path.read_bytes().decode('utf-8')
+            # Exactly one occurrence, so the edit is the one the case names.
+            if len(re.findall(pattern, text)) != 1:
+                raise SystemExit('manifest does not hold exactly one match for ' + pattern)
+            path.write_bytes(re.sub(pattern, replacement, text, count=1).encode('utf-8'))
+
+        def module_dll():
+            manifest = json.loads((split_entry() / layout['kManifestFileName']).read_text(
+                encoding='utf-8'))
+            images = manifest.get('module_images', [])
+            if len(images) != 1:
+                raise SystemExit('the split entry does not record exactly one module image')
+            return split_entry() / layout['kLauncherDirName'] / images[0]['file']
+
+        def flip_last_byte(path):
+            data = bytearray(path.read_bytes())
+            data[-1] ^= 0xFF
+            path.write_bytes(bytes(data))
+
+        def append_byte(path):
+            with open(path, 'ab') as handle:
+                handle.write(b'\0')
+
+        def append_text(path, text):
+            with open(path, 'ab') as handle:
+                handle.write(text.encode('utf-8'))
+
+        # The first export has no entry and publishes one.
+        export('first export', expect_log='no entry yet')
+        entry = split_entry()
+        self.record('matrix: the first export publishes exactly one entry',
+                    entry is not None and len(entry_dirs()) == 1,
+                    ','.join(p.name for p in entry_dirs()))
+        if entry is None:
+            return
+        export('identical export', expect_reused=True, run=True)
+
+        changed = 'changed '   # a bundle-id change may precede it in the outcome
+        entry_mismatch = 'not reused: entry mismatch in '
+        split_mismatch = 'split export mismatch in '
+        dll_file = module_dll().name
+        cases = [
+            # A missing artifact of the entry; an unreadable one is the same to the reuse check.
+            ('launcher missing', lambda: (entry / launcher_name).unlink(),
+             entry_mismatch + launcher_name + ' (missing)'),
+            ('manifest missing', lambda: (entry / layout['kManifestFileName']).unlink(),
+             entry_mismatch + layout['kManifestFileName'] + ' (missing)'),
+            ('module selection missing', lambda: (entry / selection).unlink(),
+             entry_mismatch + selection + ' (missing)'),
+            ('entry record missing', lambda: (entry / layout['kEntryRecordFileName']).unlink(),
+             entry_mismatch + layout['kEntryRecordFileName'] + ' (missing or unreadable)'),
+            ('module DLL missing', lambda: module_dll().unlink(),
+             dll_file + ' (missing or unreadable)'),
+            ('module DLL altered', lambda: flip_last_byte(module_dll()), dll_file + ' sha256'),
+            ('module DLL lengthened', lambda: append_byte(module_dll()), dll_file + ' size'),
+            ('module selection altered', lambda: append_text(entry / selection, '# altered\n'),
+             'recomp_modules.cmake (DLL modules or bundle id)'),
+            # What the build recorded about its own inputs: a different value means the cached
+            # build was made for something else, which is what a changed input looks like.
+            ('generator revision',
+             lambda: edit_manifest(r'"correctness_revision": "[^"]*"',
+                                   '"correctness_revision": "older-generator"'),
+             changed + 'correctness_revision'),
+            ('source fingerprint',
+             lambda: edit_manifest(r'"source_exefs_sha256": "[0-9a-f]+"',
+                                   '"source_exefs_sha256": "' + '0' * 64 + '"'),
+             changed + 'source_exefs_sha256'),
+            ('scan mode',
+             lambda: edit_manifest(r'"full_scan": (true|false)',
+                                   lambda m: '"full_scan": ' + ('false' if m.group(1) == 'true'
+                                                                else 'true')),
+             changed + 'full_scan'),
+            ('translate-all',
+             lambda: edit_manifest(r'"translate_all": true', '"translate_all": false'),
+             changed + 'translate_all'),
+            ('image ABI', lambda: edit_manifest(r'"image_abi": 6', '"image_abi": 5'),
+             changed + 'image_abi'),
+            ('image features',
+             lambda: edit_manifest(r'"image_features": (\d+)',
+                                   lambda m: '"image_features": %d' % (int(m.group(1)) + 1)),
+             changed + 'image_features'),
+            ('inline fast memory', lambda: edit_manifest(r'"fm_inline": false', '"fm_inline": true'),
+             changed + 'fm_inline'),
+            ('backend',
+             lambda: edit_manifest(r'"effective_backend": "suyu-static"',
+                                   '"effective_backend": "suyu-hybrid"'),
+             changed + 'effective_backend'),
+            ('recorded coverage (manifest only)',
+             lambda: edit_manifest(r'"coverage_fingerprint": "[^"]*"', '"coverage_fingerprint": "00"'),
+             changed + 'coverage_fingerprint'),
+            ('fallback policy',
+             lambda: edit_manifest(r'"fallback_enabled": false', '"fallback_enabled": true'),
+             changed + 'fallback_policy'),
+            ('fallback modules',
+             lambda: edit_manifest(r'"fallback_modules": \[[^\]]*\]', '"fallback_modules": ["rtld"]'),
+             changed + 'fallback_policy'),
+            ('topology version',
+             lambda: edit_manifest(r'"topology_version": \d+', '"topology_version": 99'),
+             split_mismatch + 'topology_version'),
+            ('module binding',
+             lambda: edit_manifest(r'"subsdk1": "static"', '"subsdk1": "dll"'),
+             split_mismatch + 'module_bindings.subsdk1'),
+            ('bundle id',
+             lambda: edit_manifest(r'"bundle_id": "[0-9a-f]+"', '"bundle_id": "' + '1' * 64 + '"'),
+             split_mismatch + 'bundle_id'),
+        ]
+        for tag, mutate, log_text in cases:
+            mutate()
+            export(tag, expect_log=log_text)
+            self.record('matrix: %s: the rebuild republished a sound entry' % tag,
+                        split_entry() is not None and
+                        (split_entry() / launcher_name).is_file() and
+                        (split_entry() / layout['kEntryRecordFileName']).is_file())
+            entry = split_entry()
+
+        # A producer that differs by its build id alone is not trusted; the next export, with
+        # the original producer, then sees the entry written by that other build.
+        other_build = dict(producer, aot_producer_build_id='another-build')
+        export('producer build id', producer_override=other_build,
+               expect_log=entry_mismatch + 'producer.build_id')
+        export('back to the original producer', expect_log=entry_mismatch + 'producer.build_id')
+        export('after the matrix', expect_reused=True)
+
+        # Real recorded coverage: a store file for this title with a code offset of the main
+        # module changes the generated code, so the cached build no longer matches (the
+        # bundle id follows the coverage, so the topology is named too); the same coverage
+        # then reuses the rebuilt entry, and removing it invalidates that entry again.
+        main_build_id = ('SYNTHETIC-MULTI-main'.encode().ljust(0x20, b'\0')).hex()
+        coverage_file = (self.work / 'appdata' / 'suyu' / 'recomp' / 'gaps' /
+                         ('%016X.json' % info['title_id']))
+        coverage_file.parent.mkdir(parents=True, exist_ok=True)
+        coverage_file.write_text(json.dumps({
+            'schema': 'suyu-recomp-gaps', 'schema_version': 1,
+            'title_id': '%016X' % info['title_id'], 'runs': 1, 'hybrid_runs': 1,
+            'strict_static_runs': 0, 'clean_runs': 0, 'last_run_strict_static': False,
+            'truncated': False, 'unattributed_misses': 0,
+            'modules': [{'name': 'main', 'build_id': main_build_id, 'hits': 1,
+                         'offsets': [['4', 1]]}],
+            'modules_without_image': [], 'unimplemented_opcodes': []}), encoding='utf-8')
+        export('recorded coverage', expect_log=changed + 'coverage_fingerprint')
+        export('same coverage again', expect_reused=True)
+        coverage_file.unlink()
+        export('coverage removed', expect_log=changed + 'coverage_fingerprint')
+
+        # Another source: same title and key, different modules.
+        other = self.work / 'MatrixFixtureOtherSource'
+        make_multimodule_fixture.write_multimodule_fixture(other, ['rtld', 'main', 'sdk'])
+        export('other source', rom=other, expect_log=changed + 'source_exefs_sha256')
+        export('original source again', expect_log=changed + 'source_exefs_sha256')
+
+        # Other keys get entries of their own and leave this one alone.
+        before = snapshot(split_entry())
+        export('Hybrid, first', backend='hybrid', expect_log='no entry yet')
+        export('Hybrid, again', backend='hybrid', expect_reused=True, run=True)
+        export('all-static, first', split='0', expect_log='no entry yet')
+        export('all-static, again', split='0', expect_reused=True, run=True)
+        names = sorted(p.name for p in entry_dirs())
+        self.record('matrix: one entry per backend and topology', len(names) == 3 and
+                    any(n.endswith('_suyu-hybrid_split') for n in names) and
+                    any(n.endswith('_suyu-static_all-static') for n in names) and
+                    any(n.endswith('_suyu-static_split') for n in names), ','.join(names))
+        self.record('matrix: other entries left the split entry untouched',
+                    split_entry() is not None and snapshot(split_entry()) == before)
+        export('split again, from the cache', expect_reused=True)
+
+        # An export refused before it reaches the cache (a bad split option) reports nothing
+        # of the export before it, which ended with a reuse.
+        status = self.export('static', 'build', rom=fixture, output=out, split_main='bogus',
+                             aot_cache_root=str(root), **producer)
+        self.record('matrix: a refused export carries no cache state of the previous one',
+                    not status.get('success') and status.get('aot_cache_reused') is False and
+                    status.get('aot_cache_outcome') == 'not applicable' and
+                    status.get('aot_cache_publish') == 'not attempted',
+                    '%s / %s / %s' % (status.get('aot_cache_reused'),
+                                      status.get('aot_cache_outcome'),
+                                      status.get('aot_cache_publish')))
+
+        # A Source export has no launcher to cache: it neither reads nor writes the cache.
+        all_before = {p.name: snapshot(p) for p in entry_dirs()}
+        status = self.export('static', 'source', rom=fixture, output=self.work / 'out-matrix-source',
+                             split_main='0', aot_cache_root=str(root), conflict='replace', **producer)
+        self.record('matrix: Source export succeeds', status.get('success'), status.get('status', ''))
+        self.record('matrix: Source export leaves the cache untouched',
+                    {p.name: snapshot(p) for p in entry_dirs()} == all_before)
+        self.record('matrix: Source export does not use the cache at all',
+                    status.get('aot_cache_outcome') == 'not applicable' and
+                    status.get('aot_cache_publish') == 'not attempted',
+                    '%s / %s' % (status.get('aot_cache_outcome'), status.get('aot_cache_publish')))
+        self.record('matrix: no staging or trash left in the cache root',
+                    not [p.name for p in root.iterdir() if p.name.startswith('.')])
 
     def check_all_static_package(self, tag, package):
         manifest = json.loads((package / 'export-package.json').read_text())
@@ -1011,8 +1260,12 @@ class Run:
             self.split_source_failure_scenarios()
             self.split_failure_injection_scenarios()
             return
+        if a.only_aot_cache_matrix:
+            self.aot_cache_matrix_scenarios()
+            return
         if a.only_aot_cache:
             self.aot_cache_publish_scenarios()
+            self.aot_cache_matrix_scenarios()
             return
         if a.only_multimodule:
             self.split_source_failure_scenarios()
@@ -1184,7 +1437,9 @@ def main():
     parser.add_argument('--only-split-failures', action='store_true',
                         help='only the split-export refusal and failure-injection scenarios')
     parser.add_argument('--only-aot-cache', action='store_true',
-                        help='only the persistent AOT cache publish scenarios')
+                        help='only the persistent AOT cache scenarios (publish, reuse, matrix)')
+    parser.add_argument('--only-aot-cache-matrix', action='store_true',
+                        help='only the persistent AOT cache reuse/invalidation matrix')
     parser.add_argument('--variant', help='run only multi-module variants whose name contains this')
     parser.add_argument('--skip-multimodule', action='store_true',
                         help='leave out the multi-module split-export scenarios')

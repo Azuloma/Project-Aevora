@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-06. HEAD: `02c0298`; the user commits and pushes. Start with [Session handoff (2026-10-06, end of tenth session)](#session-handoff-2026-10-06-end-of-tenth-session), then read the persistent-cache section and part 2 acceptance list; older detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
+Handoff prepared: 2026-10-07. HEAD: `71ce879`; the user commits and pushes. Start with [Session handoff (2026-10-07, end of eleventh session)](#session-handoff-2026-10-07-end-of-eleventh-session), then read the persistent-cache section and part 2 acceptance list; older detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
 
@@ -11,8 +11,8 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 | Item | Evidence/status |
 |---|---|
 | Source repository | Root contains the Suyu-derived source, build files, dependency metadata, and archived upstream documentation. |
-| Git baseline | Initial commit `9f932d5`; HEAD `02c0298`; the user commits and pushes. |
-| Milestone 4a | Steps 1-3, 4(a)-(c) part 1, and 4(c) part 2 units 1-5 are implemented and verified through `02c0298`; the persistent cache, items 6-7, 4(d), remaining tests, and PLA verification remain open. |
+| Git baseline | Initial commit `9f932d5`; HEAD `71ce879`; the user commits and pushes. |
+| Milestone 4a | Steps 1-3, 4(a)-(c) part 1, and 4(c) part 2 units 1-5 are implemented through `02c0298`; persistent AOT cache units U1-U4 are implemented through `71ce879` and verified on the synthetic fixture; items 6-7, 4(d), remaining tests, and PLA verification remain open. |
 | Project/documentation | The project is Aevora (local folder remains HisuiWake); project docs are in `docs/Aevora/`, upstream docs in `docs/Suyu/`, and README/license policy is retained. |
 | Host source build | Verified with Build Tools 2026 MSVC 14.51 + Ninja; `docs/Aevora/BUILD.md` is not written. |
 | PLA export/run | JIT: 30 FPS. Hybrid (dev6-era, translate-all, budget 256): 15-20 FPS. v0.0.1-dev8 static AOT + Build (clang-cl): 25-30 FPS with no fallback in the observed overworld scene; conditions were not fully matched. Dev9 FMI export failed to link: image about 2.19 GB exceeds the 2 GB x64 limit (LNK1248). Steps 1-3, 4(a), 4(b), and 4(c) part 1 are committed through `d764d8e`; split export and linked v1 execution remain unverified. |
@@ -86,7 +86,7 @@ The full D1-D7 design note, data flow, failure modes, test plan, and step-3 meas
 - [x] Source/analysis refusals reached by the available fixtures, including code-less module refusal; missing `main` and non-canonical NSO are stopped earlier by ExeFS validation.
 - [x] Test-driven failure/retry injection for emit, compile, DLL link, launcher LNK1248, and tamper/missing DLL packaging; rejection reasons are reported without output.
 - [x] All-static v4 export remains unchanged and runs the full synthetic chain.
-- [ ] Persistent AOT cache and its reuse/invalidation matrix; the current `RunAotPrecompile` reuse path is unreachable because each export creates its cache inside fresh staging. Build exports must continue to delete `aot_cache` from packages.
+- [x] Persistent AOT cache and its reuse/invalidation matrix; Build exports continue to delete `aot_cache` from packages.
 - [ ] Items 6 and 7, and the not-covered cases: `launcher_link`, static-module compile/link injection, MSVC-route failures, real LNK1248 reproduction, two application lifetimes, and `export_regression` Qt-root lookup.
 
 Evidence for the completed items is recorded in [OLD_HISTORY.md](OLD_HISTORY.md#2026-10-06-milestone-4a-step-4c-part-2-units-1-5-per-export-split-seam-multi-module-fixture-split-export-through-the-real-exporter-failure-injection).
@@ -95,11 +95,11 @@ Evidence for the completed items is recorded in [OLD_HISTORY.md](OLD_HISTORY.md#
 
 The user chose option b: reintroduce and verify a persistent AOT cache. Benefits are faster re-exports, reproducibility checks, preservation of good builds after packaging failures, and making the existing reuse code live and tested; costs are about 3 GB per PLA entry, stale-artifact risk, and implementation effort. `RunAotPrecompile` already compares the manifest's full scan, backend, ABI/features, FMI, correctness revision, translate-all, source hash, coverage fingerprint, fallback policy, and split bundle/bindings/topology/DLL records, but reuse is unreachable because each export creates fresh staging; Build packaging also removes `aot_cache`.
 
-**Proposed defaults; confirm before U1:** (1) store under the suyu user-data directory, not output; (2) Build format only; Source exports retain generated C in staging; (3) include the suyu producer revision and build id in invalidation. The proposed entry is `aot_export_cache/<title_id>-<platform>-<backend>-<split-or-all-static>/`, one key per entry, outside the repository and output folder.
+The confirmed defaults are a user-data store, Build format only, and producer identity based on the suyu revision plus build id. The store is `aot_export_cache` under suyu user data, outside the repository and output folder. Each entry is `aot_export_cache/<title_id>_<platform>_<backend>_<split|all-static>/`; underscores are separators and key parts may contain dashes but never underscores. Layout is authoritative in `src/suyu/aot_export_cache.h`: `launcher/static_launcher.exe`, `aot_manifest.json`, `exefs/recomp_modules.cmake` for split entries, and `cache_entry.txt` with layout version, entry name, `producer.suyu_revision`, and `producer.build_id`. The platform name is `windows`.
 
-**Plan:** Build entries contain `launcher/`, `aot_manifest.json`, and `exefs/recomp_modules.cmake`; publish atomically after link/DLL collection, before packaging, and publish valid artifacts even if later packaging fails. Reuse copies launcher and manifest into staging only on a full match; mismatches name the item and rebuild, while missing/tampered files invalidate. Use a per-entry lock (contention runs without cache and does not publish), replace entries in place without generations/LRU, and log size (PLA about 3 GB). Build packages still contain no `aot_cache`; test seams override producer/generator revisions only in test-driven runs, and one authoritative key/layout is shared by publish, reuse, and tests.
+**Implemented behavior:** U1 (store/key, atomic publish, lock, producer identity) is committed as `2043b92`; U2 (publish and failed-export preservation) as `edb6eb5`; U3 (persistent reuse and split reader) as `71ce879`; U4 (integration matrix and supporting status fields) is implemented but uncommitted at hand-off. Publishing occurs after successful AOT precompile and before packaging; valid artifacts remain available when later packaging fails. Reuse takes the per-entry lock without waiting, validates the record and artifacts, compares every recorded input and the manifest launcher hash/size, and copies only a full match. Mismatches name the item; lock contention skips both reuse and publish; entries replace in place without generations/LRU; source-format and non-Windows exports do not use the cache; packages contain no `aot_cache`.
 
-**Implementation units:** U1 store/key, atomic publish, lock, and producer revision; U2 publish and failed-export preservation; U3 rewire reuse and split reader; U4 integration matrix. The matrix covers identical reuse, source/backend/split/coverage/generator/producer invalidation, missing or tampered artifacts, failed export preservation, lock contention, and package exclusion.
+The integration matrix covers identical reuse, source/backend/split/coverage/generator/producer invalidation, missing or tampered artifacts, failed export preservation, lock contention, and package exclusion. Test seams provide a cache root and producer revision/build id only for test-driven exports; status fields expose `reused`, named mismatch/reason, busy, publish, and not-applicable outcomes. Open: Hybrid publish/reuse on real PLA; PLA entry size, multi-GB launcher hash time, publish/copy time, real split export, and FMI; ACL-unreadable manifests, post-match copy failure, rename/restore failures, process-to-process unit lock contention, and dirty-tree-only producer changes; plus items 6/7 and the remaining acceptance cases listed above.
 
 ## Milestone 5: Implement improvements one at a time
 
@@ -128,22 +128,22 @@ For each feature, identify the responsible layer, add a clear setting where appr
 
 **Acceptance:** a clean checkout reproduces the documented software build, release contents match the license/input policy, and support claims match testing evidence. Reaching `v1.0.0` requires an explicitly agreed stable scope.
 
-## Session handoff (2026-10-06, end of tenth session)
+## Session handoff (2026-10-07, end of eleventh session)
 
 ### State at handoff
 
-- **Current local state:** HEAD is `02c0298` (committed units 1-5). Uncommitted at handoff: Markdown only (`CHANGELOG.md` dev14 section, `CLAUDE.md`, `CODEBASE_INDEX.md`, `WORK_PLAN.md`, `OLD_HISTORY.md`)—the user commits. The host build tree was restored with `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` cleared; no persistent cache exists; local work folders and logs are outside the repository.
+- **Current local state:** HEAD is `71ce879`; U1 `2043b92`, U2 `edb6eb5`, and U3 `71ce879` are committed; U4 is uncommitted. Uncommitted files are `src/suyu/game_export.cpp`, `src/suyu/game_export.h`, `src/suyu/main.cpp`, `tests/export_integration/run_export_integration.py`, and these Markdown files; the user commits. The host build tree was restored with the three export variables cleared; local work folders and logs are outside the repository.
 
-- **Build/test:** After every export-running integration run, from PowerShell use `cmd /c <local>\rebuild-suyu.bat`; it clears the three export variables and rebuilds `suyu` and `suyu-cmd`. `cmd.exe /c` from Git Bash opens an interactive shell and does nothing. Run `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> <options>` in the background with a long timeout; logs remain outside the repository. Static Build exports of the small fixture take roughly 10-30 minutes on clang-cl. Options: `--only-multimodule`, `--variant <substring>`, `--only-split-failures`, `--skip-multimodule`, `--skip-aot`.
+- **Build/test:** Final `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` passed 262/0; use `--only-aot-cache-matrix` for the matrix alone. Fixture entries are about 0.03 GiB. `rebuild-suyu.bat` rebuilt suyu and suyu-cmd afterwards and the three export variables were cleared. Never run two rebuilds or ninja invocations on one build tree concurrently.
 - **Switches:** `SUYU_FPCR_STATS=1` is diagnostic-only and must not be used for FPS. `SUYU_RECOMP_CHAIN_BUDGET` is 1-8192, default 256. `SUYU_AOT_TRANSLATE_ALL=1` applies to Hybrid; static AOT forces translate-all and strict mode. `SUYU_AOT_FM_INLINE=1` remains off for PLA because the prior static export exceeded the 2 GB limit.
 
 ### What this session did
 
-- Completed units 1-5: per-export seam; multi-module fixture; split static/Hybrid real exports; linked launcher and all-static checks; failure/retry injection; tamper/missing-DLL packaging checks.
+- Implemented persistent AOT cache U1-U4: U1 `2043b92`, U2 `edb6eb5`, U3 `71ce879`, and U4 uncommitted. The three confirmed defaults are a user-data store, Build format only, and producer revision plus build id.
 - Verification counts: `--only-multimodule` 35 passed/0 failed; split Hybrid 16/0; injection 24/0; all-static 11/0; source refusals 3/3.
 - Per-export seam run passed new split-option checks; two pre-existing failures need the Python `cryptography` package.
 - Fixed the launcher LNK1248 blocking dialog in automated runs.
-- Found cache reuse unreachable because exports create fresh staging; the user decided to reintroduce a persistent AOT cache (option b).
+- The final synthetic-fixture cache run passed 262/0; status fields are the evidence because suyu's log tail is lost at exit.
 
 ### Verified context retained from history
 
@@ -151,15 +151,17 @@ JIT 30 FPS; Hybrid 15-20 FPS; dev6 static 16-20 FPS; dev8 static 25-30 FPS with 
 
 ### Open issues, in priority order
 
-- Persistent cache and matrix are not verified; `launcher_link` generic launcher-link failure (fallback to MSVC), static-module compile/link injection, MSVC-route failures, real LNK1248 (needs PLA), real PLA split export, and two application lifetimes remain open.
-- `export_regression` Qt-root lookup; step 4(d); old-list items: review `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, pre-existing GG1 `g_recomp_gg_word` link failure, export/GPL/rtld/BUILD.md/version investigations.
+- Two-application-lifetime seam: bind `RecompProcess` twice, unregister on `SetRecompLookup(nullptr)`, and verify named `Core::Load` refusals with zero guest execution.
+- Remaining Milestone 4a cases: `launcher_link` generic launcher-link failure (fallback to MSVC), static-module compile/link injection, MSVC-route failures, real LNK1248 (needs PLA), and real PLA split export.
+- Older open investigations: review `a6b8690`, stale `export-package.json` producer revision `d0be6ce`, later `SignalInterrupt`, verify-always pin, `SUYU_NO_JIT`, FPX1 DN, the pre-existing GG1 `g_recomp_gg_word` link failure, and export/GPL/rtld/BUILD.md/version investigations.
 - PLA static AOT repeats without/with FMI and the gameplay checklist remain open.
-- Core-level seam for two application lifetimes: bind `RecompProcess` twice, unregister on `SetRecompLookup(nullptr)`, verify named `Core::Load` refusals with zero guest execution, after first verifying the smallest test-only host around `Core::System` that the dependencies allow.
-- Fix `tests/export_regression` Qt-root lookup so it accepts the CPM Qt package layout and `run_fixture.py` can run again.
+- Fix `tests/export_regression` Qt-root lookup for the CPM Qt package layout, then complete step 4(d).
+- PLA repeats remain open: measure entry size, multi-GB launcher hash time, publish/copy time, real split export, and FMI. Hybrid cache behavior is verified only on the synthetic fixture.
+- Remaining open cases include ACL-unreadable manifests, post-match copy failure, rename/restore failures, process lock contention unit coverage, dirty-tree-only producer changes, and items 6/7.
 
 ### Immediate next action
 
-Confirm the three pending cache questions with the user, then implement U1. After the cache: two-application-lifetime seam, `export_regression` Qt-root lookup, step 4(d), then PLA repeats.
+Implement the two-application-lifetime seam, then `export_regression` Qt-root lookup, step 4(d), and PLA repeats measuring entry size, launcher hash time, and publish/copy time.
 
 ### How to work
 

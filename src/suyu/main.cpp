@@ -5788,6 +5788,10 @@ void GMainWindow::ApplyAppMode(AppMode mode) {
                                             dialog->FallbackModulesForTesting())},
                                        {QStringLiteral("aot_cache_reused"),
                                         dialog->AotCacheReusedForTesting()},
+                                       {QStringLiteral("aot_cache_outcome"),
+                                        dialog->AotCacheOutcomeForTesting()},
+                                       {QStringLiteral("aot_cache_publish"),
+                                        dialog->AotCachePublishForTesting()},
                                        {QStringLiteral("coverage_status"),
                                         dialog->CoverageStatusForTesting()}};
                 });
