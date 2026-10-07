@@ -53,6 +53,10 @@ const Core::RecompHostHandshake kHost{{12, 5, ~u64{3}, 872, 880},
                                       {848, 856, u64{1} << 32},
                                       Core::RecompGuardGen::kHostVersion};
 
+// What the load handshakes are run with; a case may change one value to make the host
+// disagree with every image.
+Core::RecompHostHandshake g_host = kHost;
+
 #define HOST_CHECK(x)                                                                            \
     do {                                                                                         \
         if (!(x)) {                                                                              \
@@ -92,7 +96,7 @@ bool DllIsLoaded(const char* narrow_ascii_name) {
 int LoadOrRefuse(const SuyuRecompRegistryV1& registry, const std::filesystem::path& dir,
                  std::optional<Core::RecompBundle>* bundle) {
     std::string error;
-    *bundle = Core::LoadRecompBundleV1(registry, dir, kHost, &error);
+    *bundle = Core::LoadRecompBundleV1(registry, dir, g_host, &error);
     return *bundle ? 0 : Refused(error);
 }
 
@@ -288,6 +292,9 @@ int RunCase(const std::string& name, const std::filesystem::path& dir) {
     static const char kEscapingFile[] = "..\\recompiled_second.dll";
     if (name == "dll-missing") {
         // `dir` is an empty directory.
+    } else if (name == "dll-invalid" || name == "dll-missing-export") {
+        // `dir` holds a file of the DLL's name that is not a generated image: garbage
+        // bytes, or a valid DLL that exports none of the image entry points.
     } else if (name == "identity-bundle-mismatch") {
         copy.header.bundle_id[0] ^= 0xff;
     } else if (name == "identity-name-mismatch") {
@@ -303,6 +310,24 @@ int RunCase(const std::string& name, const std::filesystem::path& dir) {
         }
     } else if (name == "feature-mismatch") {
         dll.expected_features &= ~Core::RecompImageFeature::ExactFpX1;
+    } else if (name == "feature-mismatch-fm1") {
+        dll.expected_features &= ~Core::RecompImageFeature::FastmemPT1;
+    } else if (name == "feature-mismatch-gg1") {
+        dll.expected_features &= ~Core::RecompImageFeature::GuardGen1;
+    } else if (name == "host-fastmem-layout") {
+        g_host.fastmem.page_bits += 1;
+    } else if (name == "host-fpx-layout") {
+        g_host.fpx.off_fpcr += 8;
+    } else if (name == "host-gg1-version") {
+        g_host.guard_gen_host_version += 1;
+    } else if (name == "static-null-features") {
+        copy.entries[0].features = nullptr;
+    } else if (name == "static-null-fastmem") {
+        copy.entries[0].fastmem_v1 = nullptr;
+    } else if (name == "static-null-guard-gen") {
+        copy.entries[0].guard_gen_v1 = nullptr;
+    } else if (name == "static-null-fpx") {
+        copy.entries[0].fpx_v1 = nullptr;
     } else if (name == "feature-mismatch-image") {
         for (auto& entry : copy.entries) {
             entry.expected_features &= ~Core::RecompImageFeature::ExactFpX1;

@@ -221,7 +221,18 @@ BUNDLE_REFUSALS = (
     ("static-null-pointer", ("smoke", "lookup"), False),
     ("abi-mismatch", ("second", "ABI"), False),
     ("abi-mismatch-image", ("smoke", "image ABI"), False),
-    ("feature-mismatch", ("second", "features"), False),
+    ("feature-mismatch", ("second", "differ from module", "smoke"), False),
+    ("feature-mismatch-fm1", ("second", "lack FM1"), False),
+    ("feature-mismatch-gg1", ("second", "differ from module", "smoke"), False),
+    ("static-null-features", ("smoke", "features pointer"), False),
+    ("static-null-fastmem", ("smoke", "fastmem_v1 pointer"), False),
+    ("static-null-guard-gen", ("smoke", "guard_gen_v1 pointer"), False),
+    ("static-null-fpx", ("smoke", "fpx_v1 pointer"), False),
+    # The host's own handshake values disagree with every image; the first module checked,
+    # the static "smoke", refuses before the DLL is consulted.
+    ("host-fastmem-layout", ("smoke", "fastmem (FM1) layout"), False),
+    ("host-fpx-layout", ("smoke", "FPX1 handshake"), False),
+    ("host-gg1-version", ("smoke", "generation guard (GG1) handshake"), False),
     ("feature-mismatch-image", ("smoke", "features"), False),
     ("inventory-empty", ("empty",), False),
     ("inventory-missing-middle", ("main", "missing"), False),
@@ -256,14 +267,64 @@ def write_bundle_registry(root, topology_unit, identity_tree):
     return registry
 
 
-def bundle_case(host, case, directory, expected_exit, items, env=None):
+def bundle_case(host, case, directory, expected_exit, items, env=None, cwd=None):
     result = subprocess.run([str(host), case, str(directory)], check=False, timeout=60, env=env,
+                            cwd=cwd,
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
     output = result.stdout + result.stderr
     missing = [item for item in items if item not in output]
     if result.returncode != expected_exit or missing:
         raise RuntimeError(f"bundle case {case}: exit {result.returncode}, expected "
                            f"{expected_exit}; missing {missing} in:\n{output[-1500:]}")
+
+
+def bundle_stub_cases(host, root, run, on_windows):
+    """A file of the DLL's name that is not a generated image: refused, naming the module."""
+    garbage_dir = root / "bundle-garbage-dll"
+    garbage_dir.mkdir(parents=True, exist_ok=True)
+    (garbage_dir / IDENTITY_IMAGE_NAMES[0]).write_bytes(b"not a PE image\0" * 64)
+    bundle_case(host, "dll-invalid", garbage_dir, 1, ("second", "cannot load DLL"))
+    stub = find_one(run / "stub", IDENTITY_IMAGE_NAMES)
+    bundle_case(host, "dll-missing-export", stub.parent, 1,
+                ("second", "does not export recomp_image_lookup"))
+    return 2
+
+
+# The Win32 prefix that lifts MAX_PATH for creating the long directory in this test.
+EXTENDED_LENGTH_PREFIX = "\\\\?\\"
+
+
+def bundle_path_cases(host, root, image):
+    """The image directory as the process was given it: relative, from another current
+    directory, with spaces and brackets, and beyond MAX_PATH (loads, or says why not)."""
+    other_cwd = root / "bundle-other-cwd"
+    other_cwd.mkdir(parents=True, exist_ok=True)
+    relative = os.path.relpath(image.parent, other_cwd)
+    result = subprocess.run([str(host), "ok", relative], check=False, timeout=60, cwd=other_cwd,
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode != 0 or "bundle ok" not in result.stdout:
+        raise RuntimeError(f"bundle ok from another current directory with a relative image "
+                           f"directory '{relative}': exit {result.returncode}:\n"
+                           f"{(result.stdout + result.stderr)[-800:]}")
+    bundle_case(host, "ok", image.parent, 0, ("bundle ok",), cwd=other_cwd)
+    deep = root / "bundle-long-path"
+    for _ in range(0, 6):
+        deep = deep / ("long path segment [dll] " + "x" * 40)
+    # A path above MAX_PATH is created through the extended-length prefix.
+    os.makedirs(EXTENDED_LENGTH_PREFIX + str(deep), exist_ok=True)
+    shutil.copy2(image, EXTENDED_LENGTH_PREFIX + str(deep / image.name))
+    result = subprocess.run([str(host), "ok", str(deep)], check=False, timeout=60,
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+    output = result.stdout + result.stderr
+    if result.returncode == 0 and "bundle ok" in output:
+        outcome = "loaded"
+    elif result.returncode == 1 and "second" in output and "cannot load DLL" in output:
+        outcome = "refused with a diagnostic"
+    else:
+        raise RuntimeError(f"bundle ok beyond MAX_PATH ({len(str(deep))} chars): exit "
+                           f"{result.returncode}:\n{output[-800:]}")
+    print(f"Bundle path beyond MAX_PATH ({len(str(deep))} chars): {outcome}.")
+    return 3
 
 
 def run_bundle_host(root, run, image):
@@ -289,6 +350,8 @@ def run_bundle_host(root, run, image):
         shutil.copy2(image, copy_dir / image.name)
         bundle_case(host, "dll-in-unicode-dir", copy_dir, 0, ("bundle ok",))
         cases += 2
+        cases += bundle_stub_cases(host, root, run, on_windows)
+        cases += bundle_path_cases(host, root, image)
     else:
         print("Bundle DLL checks skipped: shared images are a Windows-only feature.")
         bundle_case(host, "ok", image_dir, 1, ("not supported on this platform", "second"))

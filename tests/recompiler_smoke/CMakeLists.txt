@@ -190,6 +190,12 @@ else()
         target_link_libraries(bundle_host PRIVATE m ${CMAKE_DL_LIBS})
       endif()
       add_dependencies(bundle_host ${identity_shared_target})
+      # A loadable image without the entry points, under the real image's file name.
+      add_library(bundle_stub_image SHARED bundle_stub_image.c)
+      set_target_properties(bundle_stub_image PROPERTIES OUTPUT_NAME "${identity_shared_target}"
+          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/stub"
+          LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/stub")
+      add_dependencies(bundle_host bundle_stub_image)
     endif()
   endif()
   if(NOT MSVC)
