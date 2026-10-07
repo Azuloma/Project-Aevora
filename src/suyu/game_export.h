@@ -149,6 +149,9 @@ public:
     /// Modules the last export could not recompile, which will run on the
     /// Dynarmic JIT instead. Empty when every module was recompiled.
     QStringList FallbackModulesForTesting() const;
+    /// True when the last export took its launcher and manifest from the persistent AOT cache
+    /// instead of building them.
+    bool AotCacheReusedForTesting() const;
     /// The Coverage row's text: recorded gaps and Hybrid runs for the selected game.
     QString CoverageStatusForTesting() const;
 
@@ -288,6 +291,12 @@ private:
     /// compile failure. Reported to the user when the export finishes, so a
     /// partially-degraded package cannot look like a clean one.
     QStringList last_fallback_modules;
+    /// Set by RunAotPrecompile(): the export's launcher and manifest came from the persistent
+    /// AOT cache, which therefore needs no publish afterwards.
+    bool last_aot_cache_reused{false};
+    /// Set by RunAotPrecompile(): the entry's lock was not available, so this export builds
+    /// without the persistent AOT cache and does not publish to it.
+    bool last_aot_cache_busy{false};
 
     /// Compiler that built the last export's recompiled modules into the
     /// single-file launcher (clang-cl or MSVC), or empty when nothing was

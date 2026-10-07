@@ -5786,6 +5786,8 @@ void GMainWindow::ApplyAppMode(AppMode mode) {
                                        {QStringLiteral("fallback_modules"),
                                         QJsonArray::fromStringList(
                                             dialog->FallbackModulesForTesting())},
+                                       {QStringLiteral("aot_cache_reused"),
+                                        dialog->AotCacheReusedForTesting()},
                                        {QStringLiteral("coverage_status"),
                                         dialog->CoverageStatusForTesting()}};
                 });

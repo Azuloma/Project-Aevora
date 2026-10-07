@@ -442,6 +442,86 @@ class Run:
         self.record('cache: nothing left in the cache root after the failed export', not leftovers,
                     ','.join(leftovers))
 
+        def export_and_run(tag, expect_reused, producer):
+            """An export that must (not) take its build from the cache, with a package that
+            passes the split checks and runs."""
+            status = self.export('static', 'build', rom=fixture, output=out, split_main='1',
+                                 aot_cache_root=str(root), conflict='replace', **producer)
+            self.record('cache: %s: export succeeds' % tag, status.get('success'),
+                        status.get('status', ''))
+            self.record('cache: %s: %s' % (tag, 'built from the cache' if expect_reused
+                                           else 'rebuilt, not taken from the cache'),
+                        status.get('aot_cache_reused') is expect_reused,
+                        'aot_cache_reused=%s' % status.get('aot_cache_reused'))
+            if status.get('success'):
+                self.check_split_package('cache ' + tag, package, info)
+                code, output, log = self.launch(package, fixture.name + '.exe', keys=True,
+                                                timeout=180)
+                self.check_split_run('cache ' + tag, code, log, info)
+
+        # The same inputs and producer take the build from the cache and leave it untouched.
+        entry_before = snapshot(entries_after[0]) if len(entries_after) == 1 else None
+        export_and_run('identical export', True, producer_b)
+        self.record('cache: reuse leaves the entry untouched',
+                    entry_before is not None and snapshot(entries_after[0]) == entry_before)
+        # Another producer's entry is not trusted: the build runs again and replaces it.
+        export_and_run('other producer', False, producer_a)
+        if len(entries_after) == 1:
+            check_entry('after the producer change', entries_after[0], 'test-rev-a')
+        export_and_run('republished entry', True, producer_a)
+
+        # Another export holds the entry's lock: this one builds without the cache and must
+        # not publish, so the entry it never read stays exactly as it was.
+        if len(entries_after) == 1:
+            import ctypes
+            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel32.CreateFileW.restype = ctypes.c_void_p
+            kernel32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32,
+                                             ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32,
+                                             ctypes.c_void_p]
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            generic_write, open_always, normal = 0x40000000, 4, 0x80
+            held = kernel32.CreateFileW(str(root / (entries_after[0].name + '.lock')),
+                                        generic_write, 0, None, open_always, normal, None)
+            self.record('cache: the test holds the entry lock', held not in (None, 2 ** 64 - 1, -1))
+            entry_before = snapshot(entries_after[0])
+            try:
+                # The producer matches the entry's, so only the lock keeps it from reusing.
+                export_and_run('lock held elsewhere', False, producer_a)
+            finally:
+                kernel32.CloseHandle(held)
+            self.record('cache: a busy entry is neither reused nor replaced',
+                        snapshot(entries_after[0]) == entry_before)
+
+            # A launcher changed inside the entry is not the one the build recorded: the
+            # export rebuilds and replaces the entry instead of packaging the damaged file.
+            launcher = (entries_after[0] / layout['kLauncherDirName'] /
+                        layout['kLauncherExecutableName'])
+            with open(launcher, 'ab') as damaged:
+                damaged.write(b'\0')
+            export_and_run('launcher lengthened in the entry', False, producer_a)
+            check_entry('after the launcher was lengthened', entries_after[0], 'test-rev-a')
+            # The same length with one byte changed is only caught by the SHA-256.
+            data = bytearray(launcher.read_bytes())
+            data[-1] ^= 0xFF
+            launcher.write_bytes(bytes(data))
+            export_and_run('launcher altered in place in the entry', False, producer_a)
+            check_entry('after the launcher was altered', entries_after[0], 'test-rev-a')
+
+            # The busy export never reaches the publish step (which would merely fail on the
+            # lock for as long as the other export holds it, not by design). suyu writes its
+            # log with a delay, so this is read last and the busy export's stretch is cut out
+            # between its own line and the next export's first cache line.
+            log = (self.work / 'appdata' / 'suyu' / 'log' / 'suyu_log.txt').read_text(
+                encoding='utf-8', errors='replace')
+            busy = 'AOT cache not used: another export holds the lock'
+            start = log.find(busy)
+            end = log.find('AOT cache not reused', start) if start >= 0 else -1
+            segment = log[start:end] if start >= 0 and end > start else ''
+            self.record('cache: the busy export names the lock and skips publishing',
+                        bool(segment) and 'AOT cache: not published' not in segment and
+                        'AOT cache: published' not in segment, 'stretch of %d chars' % len(segment))
+
     def check_all_static_package(self, tag, package):
         manifest = json.loads((package / 'export-package.json').read_text())
         runtime = {p.name for p in Path(self.args.suyu_dir).glob('*.dll')}

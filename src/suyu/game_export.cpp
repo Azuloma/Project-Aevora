@@ -1229,6 +1229,10 @@ QString GameExportDialog::ExportOutputForTesting() const {
     return test_export_output;
 }
 
+bool GameExportDialog::AotCacheReusedForTesting() const {
+    return last_aot_cache_reused;
+}
+
 QStringList GameExportDialog::FallbackModulesForTesting() const {
     return last_fallback_modules;
 }
@@ -3781,6 +3785,35 @@ static std::optional<SplitExportRecord> ReadCachedSplitExport(
     return record;
 }
 
+// Checks the launcher in `launcher_file` against the size and SHA-256 its manifest recorded.
+// On failure `mismatch` names the item; a manifest without the record counts as a mismatch,
+// since a launcher that cannot be verified is not reused.
+static bool VerifyCachedLauncher(const QJsonObject& manifest, const QString& launcher_file,
+                                 QString* mismatch) {
+    const QString recorded_sha256 = manifest.value(QStringLiteral("launcher_sha256")).toString();
+    if (recorded_sha256.isEmpty() || !manifest.contains(QStringLiteral("launcher_size_bytes"))) {
+        *mismatch = QStringLiteral("launcher_sha256 (not recorded)");
+        return false;
+    }
+    QString actual_sha256;
+    qint64 actual_size_bytes = 0;
+    if (!HashFileSha256(launcher_file, &actual_sha256, &actual_size_bytes)) {
+        *mismatch = QStringLiteral("%1 (missing or unreadable)")
+                        .arg(QDir::toNativeSeparators(launcher_file));
+        return false;
+    }
+    if (actual_size_bytes !=
+        manifest.value(QStringLiteral("launcher_size_bytes")).toVariant().toLongLong()) {
+        *mismatch = QStringLiteral("%1 size").arg(QDir::toNativeSeparators(launcher_file));
+        return false;
+    }
+    if (actual_sha256 != recorded_sha256) {
+        *mismatch = QStringLiteral("%1 sha256").arg(QDir::toNativeSeparators(launcher_file));
+        return false;
+    }
+    return true;
+}
+
 // Reports a refused or stopped export: always in the log, and in a dialog unless an
 // automated run drives the export.
 static void ReportExportRejection(QWidget* parent, bool test_driven, const QString& message) {
@@ -3791,25 +3824,89 @@ static void ReportExportRejection(QWidget* parent, bool test_driven, const QStri
     }
 }
 
+// Where the persistent AOT cache for an export lives and what identifies its entry. Publish
+// and reuse both resolve it here, so they always address the same entry.
+struct AotCacheTarget {
+    std::filesystem::path root;
+    suyu::aot_cache::EntryKey key;
+    suyu::aot_cache::ProducerIdentity producer;
+};
+
+// nullopt = no cache for this export: a test-driven export names its own root (without one the
+// cache stays off, so a test never touches the user's real cache), and only Windows Build
+// exports are cached.
+static std::optional<AotCacheTarget> ResolveAotCacheTarget(
+    bool test_driven, const GameExportDialog::TestExportOptions& test_options,
+    GameExportDialog::RecompileBackend backend, quint64 program_id, bool split_main) {
+    namespace Cache = suyu::aot_cache;
+    AotCacheTarget target;
+    if (test_driven) {
+        if (test_options.aot_cache_root.isEmpty()) {
+            return std::nullopt;
+        }
+        target.root = ToFsPath(test_options.aot_cache_root);
+    } else {
+        target.root =
+            Common::FS::GetSuyuPath(Common::FS::SuyuPath::SuyuDir) / Cache::kCacheRootDirName;
+    }
+    target.key = Cache::EntryKey{
+        QStringLiteral("%1").arg(program_id, 16, 16, QLatin1Char('0')).toStdString(),
+        Cache::kWindowsPlatformName, AotBackendName(backend).toStdString(), split_main};
+    // Test options outlive a test-driven export in a dialog; only such an export uses them.
+    target.producer = Cache::EffectiveProducer(
+        {Common::g_scm_rev, Common::g_build_id},
+        !test_driven || test_options.aot_producer_revision.isEmpty()
+            ? std::nullopt
+            : std::optional<Cache::ProducerIdentity>{Cache::ProducerIdentity{
+                  test_options.aot_producer_revision.toStdString(),
+                  test_options.aot_producer_build_id.toStdString()}});
+    return target;
+}
+
+// Copies the artifacts a cache entry consists of between an export's cache directory and an
+// entry (either direction): the one list of what the cache keeps. A split export also carries
+// its module selection. On failure `error` names the item and the cause.
+static bool CopyCacheArtifacts(const std::filesystem::path& from_root,
+                               const std::filesystem::path& to_root, bool split_main,
+                               QString* error) {
+    namespace Cache = suyu::aot_cache;
+    const auto copy_item = [&](const char* relative, bool directory) {
+        const std::filesystem::path from = from_root / relative;
+        const std::filesystem::path to = to_root / relative;
+        std::error_code ec;
+        std::filesystem::create_directories(to.parent_path(), ec);
+        if (!ec) {
+            if (directory) {
+                std::filesystem::copy(from, to, std::filesystem::copy_options::recursive, ec);
+            } else {
+                std::filesystem::copy_file(from, to, std::filesystem::copy_options::none, ec);
+            }
+        }
+        if (ec) {
+            *error = QStringLiteral("cannot copy %1: %2")
+                         .arg(QDir::toNativeSeparators(FromFsPath(from)),
+                              QString::fromStdString(ec.message()));
+            return false;
+        }
+        return true;
+    };
+    return copy_item(Cache::kLauncherDirName, true) &&
+           copy_item(Cache::kManifestFileName, false) &&
+           (!split_main || copy_item(Cache::kModuleSelectionFileName, false));
+}
+
 void GameExportDialog::PublishAotCacheEntry(
     const QString& cache_work, RecompileBackend backend, quint64 program_id, bool split_main,
     const std::optional<SplitExportRecord>& split_export) try {
     namespace Cache = suyu::aot_cache;
-    // A test-driven export names its own root; without one the cache stays off so a test
-    // never touches the user's real cache.
-    std::filesystem::path cache_root;
-    if (test_driven_export) {
-        if (test_options_.aot_cache_root.isEmpty()) {
-            return;
-        }
-        cache_root = ToFsPath(test_options_.aot_cache_root);
-    } else {
-        cache_root = Common::FS::GetSuyuPath(Common::FS::SuyuPath::SuyuDir) /
-                     Cache::kCacheRootDirName;
+    const auto target =
+        ResolveAotCacheTarget(test_driven_export, test_options_, backend, program_id, split_main);
+    if (!target) {
+        return;
     }
-    const Cache::EntryKey key{
-        QStringLiteral("%1").arg(program_id, 16, 16, QLatin1Char('0')).toStdString(),
-        Cache::kWindowsPlatformName, AotBackendName(backend).toStdString(), split_main};
+    const auto& cache_root = target->root;
+    const auto& key = target->key;
+    const auto& producer = target->producer;
     const auto skip = [](const QString& reason) {
         LOG_WARNING(Frontend, "AOT cache: not published: {}", reason.toStdString());
     };
@@ -3833,7 +3930,8 @@ void GameExportDialog::PublishAotCacheEntry(
 
     // The artifacts being kept must be the ones the build recorded: a module DLL that no
     // longer matches its recorded size and SHA-256 would replace a good entry with a bad one.
-    const QString launcher_dir = cache_work + QStringLiteral("/") + QLatin1String(Cache::kLauncherDirName);
+    const QString launcher_dir =
+        cache_work + QLatin1Char('/') + QLatin1String(Cache::kLauncherDirName);
     if (split_export) {
         for (const auto& image : split_export->images) {
             const QString path = launcher_dir + QLatin1Char('/') + QString::fromStdString(image.file);
@@ -3841,47 +3939,19 @@ void GameExportDialog::PublishAotCacheEntry(
             qint64 actual_size_bytes = 0;
             if (!HashFileSha256(path, &actual_sha256, &actual_size_bytes) ||
                 actual_size_bytes != image.size_bytes || actual_sha256 != image.sha256) {
-                skip(QStringLiteral("module image %1 is missing or differs from the build record")
+                fail(QStringLiteral("module image %1 is missing or differs from the build record")
                          .arg(QDir::toNativeSeparators(path)));
-                Cache::DiscardStaging(*lock, cache_root, key);
                 return;
             }
         }
     }
 
     // Copy, not move: packaging reads the same files from the staged export next.
-    const auto copy_into_staging = [&](const char* relative, bool directory) {
-        const std::filesystem::path from = ToFsPath(cache_work) / relative;
-        const std::filesystem::path to = *staging / relative;
-        std::error_code ec;
-        std::filesystem::create_directories(to.parent_path(), ec);
-        if (directory) {
-            std::filesystem::copy(from, to, std::filesystem::copy_options::recursive, ec);
-        } else {
-            std::filesystem::copy_file(from, to, std::filesystem::copy_options::none, ec);
-        }
-        if (ec) {
-            fail(QStringLiteral("cannot copy %1 into the cache: %2")
-                     .arg(QDir::toNativeSeparators(FromFsPath(from)),
-                          QString::fromStdString(ec.message())));
-            return false;
-        }
-        return true;
-    };
-    if (!copy_into_staging(Cache::kLauncherDirName, true) ||
-        !copy_into_staging(Cache::kManifestFileName, false) ||
-        (split_main && !copy_into_staging(Cache::kModuleSelectionFileName, false))) {
+    QString copy_error;
+    if (!CopyCacheArtifacts(ToFsPath(cache_work), *staging, split_main, &copy_error)) {
+        fail(copy_error);
         return;
     }
-
-    const Cache::ProducerIdentity producer = Cache::EffectiveProducer(
-        {Common::g_scm_rev, Common::g_build_id},
-        // Test options outlive a test-driven export in this dialog; only such an export uses them.
-        !test_driven_export || test_options_.aot_producer_revision.isEmpty()
-            ? std::nullopt
-            : std::optional<Cache::ProducerIdentity>{Cache::ProducerIdentity{
-                  test_options_.aot_producer_revision.toStdString(),
-                  test_options_.aot_producer_build_id.toStdString()}});
     if (!Cache::PublishEntry(*lock, cache_root, key, producer, &error)) {
         fail(QString::fromStdString(error));
         return;
@@ -4151,8 +4221,49 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     // scan mode. Reusing it makes re-opening the export dialog or packaging
     // the same title again effectively instant instead of decompressing every
     // NSO and regenerating gigabytes of C.
-    if (QFile::exists(manifest_path)) {
-        QFile manifest(manifest_path);
+    //
+    // The persistent cache holds the finished build of an earlier export of this key. When its
+    // producer and artifacts are intact it is what the check below reads (`reuse_dir`), and
+    // only a full match copies it into this export's cache directory.
+    last_aot_cache_reused = false;
+    last_aot_cache_busy = false;
+    QString reuse_dir = cache_dir;
+    std::optional<AotCacheTarget> cache_target;
+    std::unique_ptr<suyu::aot_cache::EntryLock> cache_lock;
+    if (WantsCompiledOutput() &&
+        platform_combo->currentData().toInt() == static_cast<int>(TargetPlatform::Windows)) {
+        cache_target = ResolveAotCacheTarget(test_driven_export, test_options_, backend,
+                                             SelectedProgramId(), split_main);
+    }
+    if (cache_target) {
+        namespace Cache = suyu::aot_cache;
+        std::string lock_error;
+        bool contended = false;
+        cache_lock = Cache::EntryLock::TryAcquire(cache_target->root, cache_target->key,
+                                                  &contended, &lock_error);
+        if (!cache_lock) {
+            // Another export (or a lock failure) keeps this export out of the cache for good:
+            // it neither reuses nor publishes, so it cannot replace an entry it never read.
+            last_aot_cache_busy = true;
+            LOG_INFO(Frontend, "AOT cache not used: {}", lock_error);
+        } else if (const auto entry_path =
+                       Cache::EntryPath(cache_target->root, cache_target->key, &lock_error)) {
+            std::string mismatch;
+            if (!std::filesystem::exists(*entry_path)) {
+                LOG_INFO(Frontend, "AOT cache: no entry yet at {}",
+                         Common::FS::PathToUTF8String(*entry_path));
+            } else if (Cache::ValidateEntry(*entry_path, cache_target->key,
+                                            cache_target->producer, &mismatch)) {
+                reuse_dir = FromFsPath(*entry_path);
+            } else {
+                LOG_INFO(Frontend, "AOT cache not reused: entry mismatch in {}", mismatch);
+            }
+        }
+    }
+    const QString reuse_manifest_path =
+        reuse_dir + QLatin1Char('/') + QLatin1String(suyu::aot_cache::kManifestFileName);
+    if (QFile::exists(reuse_manifest_path)) {
+        QFile manifest(reuse_manifest_path);
         if (manifest.open(QIODevice::ReadOnly | QIODevice::Text)) {
             const QByteArray manifest_bytes = manifest.readAll();
             const QString contents = QString::fromUtf8(manifest_bytes);
@@ -4162,12 +4273,16 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const bool same_backend = contents.contains(
                 QStringLiteral("\"effective_backend\": \"") + effective_backend_name +
                 QStringLiteral("\""));
+            // A persistent entry holds only the cache's artifacts (validated as a whole); an
+            // export's own cache directory also holds the generated project.
             const bool has_recompiled_project =
+                reuse_dir != cache_dir ||
                 QDir(cache_dir + QDir::separator() + QStringLiteral("exefs")).exists();
             const bool has_required_launcher =
                 !WantsCompiledOutput() ||
-                QFile::exists(cache_dir + QDir::separator() + QStringLiteral("launcher") +
-                              QDir::separator() + QStringLiteral("static_launcher.exe"));
+                QFile::exists(reuse_dir + QLatin1Char('/') +
+                              QLatin1String(suyu::aot_cache::kLauncherDirName) + QLatin1Char('/') +
+                              QLatin1String(suyu::aot_cache::kLauncherExecutableName));
             const bool same_image_abi = contents.contains(
                 suyu::recomp::g_emit_fastmem ? QStringLiteral("\"image_abi\": 6,")
                                              : QStringLiteral("\"image_abi\": 5,"));
@@ -4209,8 +4324,11 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 cached_split = ReadCachedSplitExport(
                     manifest_object, bundle_id_hex,
                     ListSourceModuleNames(source_exefs, exefs_dir),
-                    cache_dir + QStringLiteral("/exefs/recomp_modules.cmake"),
-                    cache_dir + QDir::separator() + QStringLiteral("launcher"), &mismatch);
+                    reuse_dir + QLatin1Char('/') +
+                        QLatin1String(suyu::aot_cache::kModuleSelectionFileName),
+                    reuse_dir + QLatin1Char('/') +
+                        QLatin1String(suyu::aot_cache::kLauncherDirName),
+                    &mismatch);
                 same_topology = cached_split.has_value();
                 if (!same_topology) {
                     LOG_INFO(Frontend, "AOT cache not reused: split export mismatch in {}",
@@ -4222,17 +4340,67 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                     LOG_INFO(Frontend, "AOT cache not reused: it is a split export (bundle_id)");
                 }
             }
-            if (same_scan && same_backend && same_image_abi && same_image_features &&
-                same_fm_inline && same_correctness_revision && same_coverage &&
-                same_translate_all && same_source && same_fallback_policy && same_topology &&
-                has_recompiled_project && has_required_launcher) {
-                last_fallback_modules = std::move(cached_fallback_modules);
-                last_split_export = std::move(cached_split);
-                LOG_INFO(Frontend, "Reusing completed AOT cache at {}", cache_dir.toStdString());
-                return cache_dir;
+            // Every comparison names itself, so a rebuild says which input changed.
+            QStringList changed_items;
+            const auto require = [&changed_items](bool same, const char* item) {
+                if (!same) {
+                    changed_items.append(QLatin1String(item));
+                }
+            };
+            require(same_scan, "full_scan");
+            require(same_backend, "effective_backend");
+            require(same_image_abi, "image_abi");
+            require(same_image_features, "image_features");
+            require(same_fm_inline, "fm_inline");
+            require(same_correctness_revision, "correctness_revision");
+            require(same_coverage, "coverage_fingerprint");
+            require(same_translate_all, "translate_all");
+            require(same_source, "source_exefs_sha256");
+            require(same_fallback_policy, "fallback_policy");
+            require(same_topology, "topology");
+            require(has_recompiled_project, "recompiled project");
+            require(has_required_launcher, "launcher");
+            if (has_required_launcher && WantsCompiledOutput()) {
+                QString launcher_mismatch;
+                if (!VerifyCachedLauncher(
+                        manifest_object,
+                        reuse_dir + QLatin1Char('/') +
+                            QLatin1String(suyu::aot_cache::kLauncherDirName) + QLatin1Char('/') +
+                            QLatin1String(suyu::aot_cache::kLauncherExecutableName),
+                        &launcher_mismatch)) {
+                    changed_items.append(launcher_mismatch);
+                }
+            }
+            if (changed_items.isEmpty()) {
+                bool restored = true;
+                if (reuse_dir != cache_dir) {
+                    // Packaging reads the export's own cache directory, so the entry's
+                    // artifacts move there only now that everything matched.
+                    QString copy_error;
+                    QDir().mkpath(cache_dir);
+                    restored = CopyCacheArtifacts(ToFsPath(reuse_dir), ToFsPath(cache_dir),
+                                                  split_main, &copy_error);
+                    if (!restored) {
+                        LOG_ERROR(Frontend, "AOT cache not reused: {}", copy_error.toStdString());
+                    }
+                }
+                if (restored) {
+                    last_fallback_modules = std::move(cached_fallback_modules);
+                    last_split_export = std::move(cached_split);
+                    last_recomp_compiler =
+                        manifest_object.value(QStringLiteral("recomp_compiler")).toString();
+                    last_aot_cache_reused = reuse_dir != cache_dir;
+                    LOG_INFO(Frontend, "Reusing completed AOT cache at {}",
+                             reuse_dir.toStdString());
+                    return cache_dir;
+                }
+            } else {
+                LOG_INFO(Frontend, "AOT cache not reused: changed {}",
+                         changed_items.join(QStringLiteral(", ")).toStdString());
             }
         }
     }
+    cache_lock.reset();
 
     // A changed input may have removed modules. Rebuild the owned cache from
     // an empty tree so no generated C or launcher survives from that input.
@@ -6003,6 +6171,19 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 QJsonDocument(QJsonArray{last_recomp_compiler}).toJson(QJsonDocument::Compact));
             out << "  \"recomp_compiler\": " << quoted.mid(1, quoted.size() - 2) << ",\n";
         }
+        {
+            // The persistent cache trusts a launcher only if it is still the file this build
+            // produced; reuse compares it with this record (see VerifyCachedLauncher).
+            QString launcher_sha256;
+            qint64 launcher_size_bytes = 0;
+            const QString launcher_file =
+                cache_dir + QLatin1Char('/') + QLatin1String(suyu::aot_cache::kLauncherDirName) +
+                QLatin1Char('/') + QLatin1String(suyu::aot_cache::kLauncherExecutableName);
+            if (HashFileSha256(launcher_file, &launcher_sha256, &launcher_size_bytes)) {
+                out << "  \"launcher_sha256\": \"" << launcher_sha256 << "\",\n";
+                out << "  \"launcher_size_bytes\": " << launcher_size_bytes << ",\n";
+            }
+        }
         if (split_main && export_topology) {
             // Split exports only; an all-static manifest has none of these fields. Written
             // from the export's topology and the images collected from it.
@@ -7501,7 +7682,8 @@ void GameExportDialog::OnExport() {
         }
     }
     // The build is complete and linked here, so keep it before packaging can fail.
-    if (uses_aot && WantsCompiledOutput() && platform == TargetPlatform::Windows) {
+    if (uses_aot && WantsCompiledOutput() && platform == TargetPlatform::Windows &&
+        !last_aot_cache_reused && !last_aot_cache_busy) {
         PublishAotCacheEntry(cache_work, backend, export_program_id, split_main, split_export);
     }
     injected("precompile");
