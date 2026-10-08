@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
     suyu::recomp::g_emit_fpx_shadow = fpx && !std::strcmp(fpx, "shadow");
     suyu::recomp::g_emit_fm_inline = EnvOn("SUYU_RECOMP_AB_FM_INLINE");
     suyu::recomp::g_emit_image_identity = EnvOn("SUYU_RECOMP_AB_IDENTITY");
+    suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
     if (xmod) return ExportXmod(argv[2]);
     const auto stats = suyu::recomp::EmitProject(
         "smoke", reinterpret_cast<const uint8_t*>(smoke_code), sizeof(smoke_code),

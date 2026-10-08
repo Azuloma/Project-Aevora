@@ -892,6 +892,64 @@ Read `CLAUDE.md`, this file, and `git status`/`git log`; then start item 1: desi
 - The exporter log tail is not evidence; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused`. Use a short ASCII `D:\hwk\<name>` work folder.
 - After `worker-start`, ensure `turnStart` is `observed`; otherwise send `orca terminal send --terminal <handle> --enter`. Run the full integration suite once per finished review-fix set; a test-only expectation fix needs syntax plus the affected case.
 - Useful commands: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` and `--only-aot-cache-matrix`. Switches: `SUYU_FPCR_STATS`, `SUYU_RECOMP_CHAIN_BUDGET`, `SUYU_AOT_TRANSLATE_ALL`, `SUYU_AOT_FM_INLINE`.
++
+
+## Archived on 2026-10-08 (from WORK_PLAN.md, end of thirteenth session)
+
+This archive preserves the displaced Step 6 and U1 evidence from the end-of-session batch. The complete verified facts are retained here so the current plan remains concise.
+
+### Step 6 PLA run (user-run): static AOT + FMI + main-DLL split
+
+- The exporting process had `SUYU_AOT_FASTMEM=1`, `SUYU_AOT_FM_INLINE=1`, and `SUYU_AOT_SPLIT_MAIN=1`; CPU Backend was “suyu static AOT (Experimental)”. The manifest recorded effective_backend `suyu-static`, fallback_enabled false, fm_inline true, image_abi 6, image_features 7, translate_all true, bundle_id `a064231234e1da3dc7560138bf901fabef907c3182811f4422ef1cf6a716299e`, module bindings main=dll and rtld/sdk/subsdk0/subsdk1=static, launcher size 471,994,880 bytes and SizeOfImage 479,465,472, main DLL size 1,857,218,560 bytes and SizeOfImage 1,870,344,192, 4,131,332 recompiled C blocks, 17,169,816 total instructions, producer revision `7db8f01` (dev16), and build id main. The export linked and ran without LNK1248.
+- User-observed FPS: intro and early pier stable at 30 FPS; Kotobuki Village unstable at 17-20 FPS. JIT at the same spot was 30.0 FPS. GPU utilization was JIT 30-33% versus AOT 18-25%.
+- “(JIT-capable)” is added only for strict static AOT built with a JIT; Hybrid is titled “suyu Hybrid JIT + AOT” without that qualifier.
+- Per-thread CPU over 60 seconds at Kotobuki (recomp/JIT): Core_0 76.3/76.8%, Core_1 80.4/78.7%, Core_2 81.4/77.2%, HostTiming 98.5/98.8%, GPU 18.8/27.7%, VulkanWorker 9.2/14.1%. At 17 versus 30 FPS this is roughly 1.8x more core time per frame; the JIT run may be limited by the 30 FPS cap.
+- RIP sampling (2,000-8,000 samples/core; no PDB for recompiled_image.dll) found about 46-55% in main-DLL generated code, 17-31% idle wait, about 7% in Dynarmic’s SpinLock page, and about 3.4% per core in the DLL guest-address lookup helper. Call-stack sampling found idle waits in Cnd_wait/Idle/MultiCoreRunIdleThread, not GPU/fence waits; the GPU thread was 83% in its command queue. Lower GPU utilization is consistent with fewer submitted frames, and a GPU synchronization fault is not supported by this evidence.
+- SpinLock samples were pause spin 1.7-2.1%, acquire xchg 2.7-3.2%, release xchg 0.9-1.2%, redundant mfence 1.0-1.4%, total about 6.8-7.3%. Callers were ExclusiveMonitor reservation reads/writes. The earlier statement that JIT showed about 0% SpinLock was invalid because its lock is inline. Removing all exclusive-monitor cost is estimated, not measured, at roughly 1-2 FPS.
+- Local diagnostics were outside the repository under `D:\HisuiWakeBuild\diag\` and logs under `D:\HisuiWakeBuild\logs\`. FMI-off, per-image comparison, link/hash/publish timings, loader inventory names, Hybrid publish/reuse, cache-entry size, and resolution-lowering FPS testing were not done. Step 6 remains open.
+
+### U1 exclusive-monitor change
+
+- U1 changed `src/core/memory.h/.cpp`, added `src/core/arm/dynarmic/dynarmic_exclusive_access.h` and the monitor fast path in `dynarmic_exclusive_monitor.cpp/.h`, listed the header in `src/core/CMakeLists.txt`, removed the redundant unlock mfence in `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp`, and added `tests/exclusive_access/`.
+- Plain mapped pages resolve a host pointer before the global lock; reservation bookkeeping plus one load or compare-and-swap run under the monitor lock. Cross-page, rasterizer-cached, unmapped, and out-of-range accesses use the old locked path. `NoteExclusiveWrite` runs after unlock only when the CAS ran.
+- Host builds of suyu and suyu-cmd exited 0 after each revision. The standalone test passed exact u8/u16/u32/u64/u128 counters, same-old-value reservation race, a race-free negative control, reservation semantics, upper-half compare failure, ClearProcessor isolation, and the attempted flag.
+- Three Orca Code reviewer rounds completed. Round 1 fixed lost-reservation GPU handling and a data race in the negative control; round 2 fixed page-crossing 128-bit/unaligned handling and conditional notification; round 3 approved with no findings.
+- PLA, recompiler smoke/fastmem/FPX, export integration, and Core::System notification/rasterizer coverage were not run. Suggested user commit title: `recomp: Resolve the exclusive access host pointer before taking the monitor lock and drop the redundant spin-lock unlock mfence`.
+
+### Persistent cache constraint and planned follow-ups
+
+- The user-data cache entry records producer revision `7db8f01c6bb726fb0736854b14f7667945699371`, build id `main`, launcher size 471,994,880 bytes, and the old runtime. Producer identity is the git commit hash plus branch; uncommitted changes do not change it.
+- The rebuilt host embeds `8818bd38d0c95d35fed1603df289cf75b66a40ce`. An export now rejects the cache producer and regenerates/recompiles; if the revision matched, it would reuse the old launcher without U1. Do not fake producer identity. Relink-only against the cache or commit plus full re-export are proposed; neither was performed.
+- U2 is a proposed lock-free reservation publish requiring explicit approval and tolerating an ABA-class identical-value race. U3 would inline ldxr/stxr through FM1 with ABI/version/handshake/hash changes.
+
+### Session handoff (2026-10-07, end of twelfth session; verbatim)
+
+#### State
+
+HEAD is `7db8f01` (`v0.0.1-dev16`); U1 `33ed262`, U2 `3dc53c7`, and U3a `71b5fd6` are committed, while the current test additions remain uncommitted. The final regression evidence is synthetic-fixture only; logs and work folders stay outside the repository.
+
+#### What was done this session
+
+Completed 4(d) U1-U4: the xmod three-module static/DLL/static fixture, the required bridge callback list and bundle-boundary lookup-miss model, loader-side refusals and path cases, and full/targeted regression runs. Full smoke exited 0 with unchanged ABI5/FM1/FPX golden hashes; fastmem had 0 mismatches across 5 fmdiff and 4 GG1 legs; reduced FPX had 1,786,000 and full FPX had 100,587,904 plus 30,320,000 cases, all with 0 mismatches. Step 5 added and verified cache reuse in both binding directions, failure after DLL verification and before promotion, and kit-only split rejection; the integration run passed 272 tests with 0 failures and the build-kit package suite passed 14 tests. The host tree was rebuilt successfully, linking both `suyu.exe` and `suyu-cmd.exe`. The bridge is a test model and FPX evidence shows value/flag agreement only, not native-path selection. Review findings for U1-U3a were fixed; no re-review of U1 fixes was run.
+
+#### Open issues, in priority order
+
+1. Two-application-lifetime seam, including the real `ArmRecomp` null-callback refusal and strict lookup-miss refusal; the synthetic bridge/list and lookup model does not cover these.
+2. Fix `tests/export_regression` Qt-root lookup for the CPM Qt layout so `run_fixture.py` runs again.
+3. Step 6 PLA verification and PLA cache measurements.
+4. Remaining Step 5 cases: MSVC-route LNK1248 / `launcher_link` injection pairs; NSO/NSP/XCI real-loader paths; real `ArmRecomp` null-callback and strict-miss refusals; a stub image missing only the identity export; static-module compile/link injection; and generic `launcher_link` fallback to MSVC.
+5. Extra cache cases and older investigations.
+
+#### Immediate next action
+
+Start item 1: design the lifetime/unregister contract, verify the smallest host seam, obtain Code reviewer review, and update Markdown only after the unit loop is complete.
+
+#### How to work
+
+- Never run two `rebuild-suyu.bat`/ninja invocations on one build tree. Run `cmd /c <local>\rebuild-suyu.bat` from PowerShell, clear the three export variables after exports, and keep logs outside the repository.
+- The exporter log tail is not evidence; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused`. Use a short ASCII `D:\hwk\<name>` work folder.
+- Useful commands: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` and `--only-aot-cache-matrix`. Switches: `SUYU_FPCR_STATS`, `SUYU_RECOMP_CHAIN_BUDGET`, `SUYU_AOT_TRANSLATE_ALL`, `SUYU_AOT_FM_INLINE`.
+
 
 ## Archived on 2026-10-07 (from WORK_PLAN.md, end of twelfth session)
 

@@ -36,6 +36,8 @@ GG1_CHANGED = ABI6_CHANGED | {"recompiled_smoke_0.c", "recompiled_second_0.c"}
 # FMI (the FM1 fast path inline at access sites) changes only the runtime pair:
 # the header gains the inline helpers and renames, recomp_runtime.c a define.
 FMI_CHANGED = {"recomp_runtime.c", "recomp_runtime.h"}
+# Direct B/BL chaining changes only the block units.
+DIRECT_CHAIN_CHANGED = {"recompiled_smoke_0.c", "recompiled_second_0.c"}
 
 # name -> SUYU_RECOMP_AB_* switches. abi6gg and ggfpx are GG1's on-top-of-FM1
 # and GG1+FPX1-together combinations; neither is golden-hashed (GG1 is not
@@ -49,11 +51,18 @@ VARIANTS = (("abi5", {}),
             ("abi6fmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FM_INLINE": "1"}),
             ("ggfmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                        "SUYU_RECOMP_AB_FM_INLINE": "1"}),
+            # Direct B/BL chaining on top of FM1, and of FM1 with GG1: it changes the block
+            # units only, and the whole run battery has to hold with it (the "slice" and
+            # "hybrid-direct-chain" modes exercise the chained self-loop).
+            ("abi6dc", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_DIRECT_CHAIN": "1"}),
+            ("ggdc", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
+                      "SUYU_RECOMP_AB_DIRECT_CHAIN": "1"}),
             # Split-export identity on top of ggfpx; structural only, not golden-hashed.
             ("identity", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                           "SUYU_RECOMP_AB_FPX": "1", "SUYU_RECOMP_AB_IDENTITY": "1"}))
 AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
-               "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY")
+               "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY",
+               "SUYU_RECOMP_AB_DIRECT_CHAIN")
 # The identity export adds one export to each module's recomp_export.c and nothing else.
 IDENTITY_CHANGED = {"recomp_export.c"}
 # Shared-image names of the "second" module, per the generator's naming rule
@@ -578,6 +587,26 @@ def check_fm_inline(base, fmi, what):
             raise RuntimeError(f"{module}: recomp_runtime.c does not keep its helper names")
 
 
+def check_direct_chain(base, chained, what):
+    # Direct chaining changes the block units only, and only the unconditional B/BL
+    # whose target is a block of the same module.
+    check_differences(base, chained, DIRECT_CHAIN_CHANGED, what)
+    for module, plain_module, name in ((chained, base, "smoke"),
+                                        (chained / "second", base / "second", "second")):
+        unit = (module / "src" / f"recompiled_{name}_0.c").read_text(encoding="utf-8")
+        target = f"blk_{name}_0000000000001000"
+        chain = (f"c->pc=g_module_base+0x1000ULL; if (--c->chain_budget <= 0) return; "
+                 f"RECOMP_TAIL_CALL({target}) }}")
+        if chain not in unit or "#define RECOMP_TAIL_CALL(f)" not in unit:
+            raise RuntimeError(f"{module}: the 1000 self-branch is not a direct chain")
+        # RET and BLR stay indirect: the unit must still park the PC and return.
+        if unit.count("RECOMP_TAIL_CALL(blk_") != 1 or "/* RET */" not in unit or "/* BLR */" not in unit:
+            raise RuntimeError(f"{module}: a branch other than the in-module B/BL was chained")
+        plain = (plain_module / "src" / f"recompiled_{name}_0.c").read_text(encoding="utf-8")
+        if "RECOMP_TAIL_CALL" in plain:
+            raise RuntimeError(f"{base}: direct chaining leaked into the switched-off output")
+
+
 def check_coverage_loop(root, exporter, build):
     """recomp_gaps.json end to end: record a miss, re-export with it, run statically."""
     env = dict(os.environ)
@@ -668,6 +697,8 @@ def main():
         check_ggfpx(generated["abi6gg"], generated["ggfpx"])
         check_fm_inline(generated["abi6"], generated["abi6fmi"], "FMI")
         check_fm_inline(generated["abi6gg"], generated["ggfmi"], "GG1+FMI")
+        check_direct_chain(generated["abi6"], generated["abi6dc"], "direct chain")
+        check_direct_chain(generated["abi6gg"], generated["ggdc"], "GG1+direct chain")
         check_identity(generated["ggfpx"], generated["identity"])
 
         for name, switches in VARIANTS:

@@ -3489,6 +3489,7 @@ struct BundleIdInputs {
     bool guard_gen{};
     bool fpx{};
     bool fm_inline{};
+    bool direct_chain{};
     unsigned image_abi{};
     unsigned image_features{};
     QString coverage_fingerprint;
@@ -3522,6 +3523,7 @@ static std::string ComputeBundleId(const BundleIdInputs& inputs) {
     add("guard_gen", flag(inputs.guard_gen));
     add("fpx", flag(inputs.fpx));
     add("fm_inline", flag(inputs.fm_inline));
+    add("direct_chain", flag(inputs.direct_chain));
     add("image_abi", QByteArray::number(inputs.image_abi));
     add("image_features", QByteArray::number(inputs.image_features));
     add("coverage_fingerprint", inputs.coverage_fingerprint.toUtf8());
@@ -4164,6 +4166,12 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         suyu::recomp::g_emit_fm_inline = false;
     }
     const bool fm_inline = suyu::recomp::EmitFmInline();
+    // Direct chaining of unconditional B/BL is opt-in until measured:
+    // SUYU_AOT_DIRECT_CHAIN=1. Like FMI it changes the generated code but not the
+    // image ABI or features, so the manifest and bundle id record it separately.
+    suyu::recomp::g_emit_direct_chain =
+        qEnvironmentVariable("SUYU_AOT_DIRECT_CHAIN") == QStringLiteral("1");
+    const bool direct_chain = suyu::recomp::g_emit_direct_chain;
     // What the images will report from recomp_image_features(), recorded in the
     // manifest so a cached export with other features is not reused.
     const unsigned image_features =
@@ -4225,7 +4233,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         bundle_id_hex = ComputeBundleId(BundleIdInputs{
             source_hash, effective_backend_name, full_scan, translate_all,
             suyu::recomp::g_emit_fastmem, suyu::recomp::EmitGuardGen(), suyu::recomp::g_emit_fpx,
-            fm_inline, suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
+            fm_inline, direct_chain, suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
             coverage_fingerprint, fallback_enabled, dll_modules});
         LOG_INFO(Frontend, "Split export: main is built as a DLL, bundle id {}", bundle_id_hex);
     }
@@ -4311,6 +4319,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const bool same_fm_inline =
                 fm_inline ? contents.contains(QStringLiteral("\"fm_inline\": true,"))
                           : !contents.contains(QStringLiteral("\"fm_inline\": true,"));
+            // A cache from before this field existed was emitted without direct chaining.
+            const bool same_direct_chain =
+                direct_chain ? contents.contains(QStringLiteral("\"direct_chain\": true,"))
+                             : !contents.contains(QStringLiteral("\"direct_chain\": true,"));
             const bool same_correctness_revision = contents.contains(
                 QStringLiteral("\"correctness_revision\": \"") +
                 QLatin1String(kGeneratorCorrectnessRevision) + QStringLiteral("\","));
@@ -4371,6 +4383,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             require(same_image_abi, "image_abi");
             require(same_image_features, "image_features");
             require(same_fm_inline, "fm_inline");
+            require(same_direct_chain, "direct_chain");
             require(same_correctness_revision, "correctness_revision");
             require(same_coverage, "coverage_fingerprint");
             require(same_translate_all, "translate_all");
@@ -6170,6 +6183,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             out << "  \"image_features\": " << image_features << ",\n";
             out << "  \"fm_inline\": " << (fm_inline ? "true" : "false") << ",\n";
         }
+        out << "  \"direct_chain\": " << (direct_chain ? "true" : "false") << ",\n";
         out << "  \"correctness_revision\": \"" << kGeneratorCorrectnessRevision << "\",\n";
         out << "  \"source_exefs_sha256\": \"" << source_hash << "\",\n";
         out << "  \"translate_all\": " << (translate_all ? "true" : "false") << ",\n";

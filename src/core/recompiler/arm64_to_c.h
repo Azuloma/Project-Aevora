@@ -359,6 +359,13 @@ inline bool EmitFmInline() {
 // the emitted text is byte-identical to what it would be without it.
 inline bool g_emit_image_identity = false;
 
+// Direct chaining of unconditional B and BL: a branch whose target is a block of
+// the same module jumps straight to that block instead of parking the PC and
+// returning to the module's run-slice loop for a lookup and an indirect call.
+// Changes no ABI, feature bit or result. Off by default, and while it is off
+// the emitted text is byte-identical to what it would be without it.
+inline bool g_emit_direct_chain = false;
+
 // Strict static exports have no fallback to carry deliberately gated forms.
 inline bool TranslateAllForExport(bool strict_static, bool explicitly_requested) {
     return strict_static || explicitly_requested;
@@ -380,24 +387,28 @@ inline constexpr int kChainBudget = 256;
 inline constexpr size_t kDefaultUnitSourceBytes = size_t{8} << 20;
 inline constexpr size_t kDefaultUnitBlocks = 5000;
 
-// Conditional branches deliberately do not chain. Measured: chaining them too
-// takes 2.00 ms/frame against 1.80, and turns a tight distribution into one
-// spanning 1.70-2.54 across six reps while the dynarmic arm stays at 2.905 in
-// the same runs. It also pushed JIT transitions from 69,008 to 88,983 and more
-// than doubled lookup misses, which is unexplained and worth understanding
-// before trying this again.
+// Only the unconditional B and BL use this, and only when g_emit_direct_chain is
+// on. Conditional branches deliberately do not chain. Measured on an earlier
+// emitter: chaining them too takes 2.00 ms/frame against 1.80, and turns a tight
+// distribution into one spanning 1.70-2.54 across six reps while the dynarmic arm
+// stays at 2.905 in the same runs. It also pushed JIT transitions from 69,008 to
+// 88,983 and more than doubled lookup misses, which is unexplained and worth
+// understanding before trying this again.
+//
+// The tail call goes through RECOMP_TAIL_CALL, which the unit header defines as a
+// guaranteed tail call where the compiler offers one (clang's musttail) and as a
+// plain call elsewhere. Without the guarantee the frame depth is bounded only by
+// the chain budget, so the budget check must stay ahead of the call.
 inline std::string ChainTo(u64 t) {
     char b[256];
     if (g_chain_blocks && g_chain_mod && g_chain_blocks->count(t)) {
         char nm[64];
         FuncNameTo(nm, g_chain_mod, t);
         // The declaration is at block scope so a unit needs no list of the
-        // blocks it reaches. `return f(c)` is written as a tail call, though
-        // nothing may come of that below -O2 - which is why the budget has to
-        // bound the depth rather than assume it stays at one frame.
+        // blocks it reaches.
         snprintf(b, sizeof b,
                  "{ void %s(GuestContext*); c->pc=g_module_base+0x%llxULL; "
-                 "if (--c->chain_budget <= 0) return; %s(c); return; }",
+                 "if (--c->chain_budget <= 0) return; RECOMP_TAIL_CALL(%s) }",
                  nm, (unsigned long long)t, nm);
     } else {
         snprintf(b, sizeof b, "{ c->pc=g_module_base+0x%llxULL; return; }",
@@ -406,6 +417,8 @@ inline std::string ChainTo(u64 t) {
     return b;
 }
 
+// Not called by the current emitter (RET, BR and BLR still return to the
+// run-slice loop); kept as the starting point for chaining computed targets.
 // The same for a computed target. A chain of blocks otherwise ends at the first
 // BR, BLR or RET, and every one of those is a round trip out to the host
 // dispatcher: RunThread plus the dispatch lambda are 24.7% of all cycles in a
@@ -1228,6 +1241,10 @@ inline bool Translate(u32 i, u64 pc, std::string& out, bool* unhandled = nullptr
         if ((i & 0xFC000000) == 0x94000000) {
             snprintf(buf, sizeof buf, "c->x[30]=g_module_base+0x%llxULL;", (unsigned long long)next);
             put(buf);
+        }
+        if (g_emit_direct_chain) {
+            put(ChainTo(t));
+            return false;
         }
         snprintf(buf, sizeof buf, "c->pc=g_module_base+0x%llxULL; return;",
                  (unsigned long long)t);
@@ -5219,6 +5236,19 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
                   "#include \"recomp_runtime.h\"\n#include <stdint.h>\n"
                   "#include <string.h>\n#include <math.h>\n"
                   "struct _recomp_ent{uint64_t lo,hi; BlockFn fn;};\n\n";
+        if (g_emit_direct_chain) {
+            output << "/* Direct B/BL chain. musttail makes the jump a guaranteed tail call,\n"
+                      "   so a chain does not grow the stack; other compilers get a plain\n"
+                      "   call bounded by the chain budget. */\n"
+                      "#if defined(__clang__) && defined(__has_attribute)\n"
+                      "#if __has_attribute(musttail)\n"
+                      "#define RECOMP_TAIL_CALL(f) __attribute__((musttail)) return f(c);\n"
+                      "#endif\n"
+                      "#endif\n"
+                      "#ifndef RECOMP_TAIL_CALL\n"
+                      "#define RECOMP_TAIL_CALL(f) f(c); return;\n"
+                      "#endif\n\n";
+        }
         if (u == 0) output << "int g_recomp_guard_host_v2=0;\n";
         if (EmitGuardGen()) {
             output << "static uint32_t recomp_gg_seen[" << std::max<size_t>(unit_blocks, 1)

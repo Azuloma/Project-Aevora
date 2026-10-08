@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-07, HEAD is `8818bd3` on `main` (dev16); Milestone 4a 4(d) U1-U4 and the covered Step 5 cases are implemented and verified on the synthetic fixture. The held Step 5 cases, two-application-lifetime seam, and PLA verification remain open; next priority is issue 1 or Step 6 by the user's choice. Successful code generation, compilation, or startup alone does not establish game compatibility; keep public descriptions consistent with the evidence.
+As of 2026-10-08, HEAD is still `8818bd3` on `main` (dev16), and uncommitted U1 runtime/test and Markdown work exists. Milestone 4a 4(d) U1-U4 and covered Step 5 cases are synthetic-fixture verified; Step 6 static AOT + FMI + main-DLL split ran, but Kotobuki was 17-20 FPS versus 30 FPS JIT. U1 is implemented and reviewed but its PLA effect is not measured; ask the user to choose relink-only or commit plus full re-export before measuring. Successful code generation, compilation, or startup alone does not establish game compatibility; keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is `8818bd3`/dev16; 4(d) U1-U4 and covered Step 5 cases are synthetic-fixture verified only. Ask the user whether to start issue 1 or Step 6; if issue 1, design the lifetime/unregister contract and verify the smallest host seam before review. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, verify with logs outside the repository, obtain review, fix findings, then update Markdown. The user commits, tags, and pushes; agents never do so.
+Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is still `8818bd3`/dev16 with uncommitted work; 4(d) U1-U4 and covered Step 5 cases are synthetic-fixture verified, and Step 6/U1 PLA measurement remains open. First ask the user whether to relink the cached launcher with U1 or commit and perform a full re-export; never fake the cache producer identity. Then measure Kotobuki FPS and SpinLock share before choosing approved U2 or generated-code investigation. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, verify with logs outside the repository, obtain review, fix findings, then update Markdown. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -116,6 +116,12 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - `orca orchestration check --wait` redelivers the previous message unless the last `delivery_*` id is passed with `--ack`; a message with only `heartbeat` content is not a result.
 - Do not generate Python or Markdown through shell heredocs with `\\n` escapes (they become literal newlines); use Edit/Write tools, and syntax-check Python edits with `ast.parse`.
 - A negative control (deliberately breaking the model or production list) is required before trusting a new test that passed on the first run.
+- The persistent AOT cache identifies its producer by git commit hash plus branch and stores the launcher: an uncommitted runtime-only change reuses the old launcher, while a new commit makes the cache unusable and requires a full rebuild/export. Plan relink-only or commit plus full export before exporting.
+- `(JIT-capable)` in the title bar is a strict-static qualifier, not Hybrid.
+- Orca `check --wait` can replay an earlier message; inspect sender/subject, acknowledge the previous delivery id, pass the run, release each worker with `worker-release`, and do not treat heartbeat messages as results.
+- The host rebuild helper is `D:\HisuiWakeBuild\diag\buildsuyu.cmd`; run it through `cmd.exe /c` with an absolute path and keep logs outside the repository.
+- PLA samplers are local diagnostics; a recompiled image has no PDB, so attribute DLL samples by RVA. The JIT exclusive lock is inline and cannot be compared with the separate SpinLock page.
+- A new standalone test must fail under a deliberately weakened implementation, and that negative control must itself be data-race free.
 
 - The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's Key facts from archived history section (details in `OLD_HISTORY.md`); `docs/Aevora/BUILD.md` has not been written yet.
 - A static launcher links all recompiled modules into one image; MSVC x64 images are limited to 2 GB (LNK1248). Check the image size impact of generated-code changes before a full PLA export.

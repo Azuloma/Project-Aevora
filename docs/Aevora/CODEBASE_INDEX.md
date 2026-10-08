@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `9f932d5` (2026-10-04), produced from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `8818bd3` (2026-10-08), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
@@ -100,6 +100,8 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | File | Purpose |
 |---|---|
 | `arm_recomp.h/.cpp` (~2,400 lines) | `ArmRecomp : ArmInterface`. Block lookup/dispatch loop, context marshalling (`GuestContextView`, `RecompHostMem` with static_assert-locked offsets), registration hooks (`SetRecompLookup:52`, `SetRecompBindCallback:130`, `BindRecompProcess:135`, `SetRecompPrepareCallback`, `SetRecompBaseSetter`, `PrepareRecompProcess`). |
+| `src/core/arm/dynarmic/dynarmic_exclusive_access.h` | Lock-scoped reservation read/compare-and-swap wrappers (`ReadMarked<T>`, `WriteCompared<T>`) with optional attempted reporting. |
+| `src/core/arm/dynarmic/dynarmic_exclusive_monitor.h/.cpp` | Dynarmic exclusive-monitor fast path: resolves plain-page host pointers before the monitor lock, retains the locked Memory path for special/cross-page accesses, and conditionally reports writes. |
 | `recomp_bundle.h/.cpp` | Production v1 bundle loading and transactional DLL validation (`LoadRecompBundleV1:444`, `BindRecompBundleToInventory`, `ApplyRecompBundleBases`, `GetRecompExecutableDirectory`); used by the v1 launcher and smoke tests. |
 | `recomp_bridge_required.h` | Shared required host-bridge callback X-macro list and first-missing-callback helper (v, 2026-10-07). |
 | `recomp_image_features.h` | ABI 6 feature bits (FM1 `0x1`, GG1 `0x2`, FPX1 `0x4`). |
@@ -132,7 +134,7 @@ Key runtime facts:
 |---|---|
 | `System` | `core/core.h:145`. Boot in `core/core.cpp`: `InitializeKernel` (~:263), `SetupForApplicationProcess` (~:273), `Load` (~:303). The load path reads `ReadNSOModules:375` and invokes `BindRecompProcess:386` before process publication. |
 | Timing / CPU threads | `core/core_timing.h:61` (`CoreTiming`), `core/cpu_manager.h:33` (`CpuManager`). |
-| Memory | `core/device_memory.h:19` (guest DRAM backing), `core/memory.h:59` (per-process virtual memory). |
+| Memory | `core/device_memory.h:19` (guest DRAM backing), `core/memory.h:59` (per-process virtual memory); `Memory::GetPlainExclusivePointer` and `Memory::NoteExclusiveWrite` support the reviewed U1 exclusive-monitor path. |
 | CPU interface | `core/arm/arm_interface.h:48` (`ArmInterface`); dynarmic glue in `core/arm/dynarmic/`. |
 | Kernel | `hle/kernel/kernel.h:87` (`KernelCore`); `k_process`, `k_thread`, `k_scheduler`, `k_memory_manager`. |
 | Services/IPC | `hle/service/service.h:49` (`ServiceFrameworkBase`), `hle_ipc.h`, `server_manager.h`, `sm/`. Major services include `acc`, `am`, `apm`, `audio`, `filesystem`, `hid`, `ns`, `nvdrv` (GPU driver ioctls), and `vi` (display). |
@@ -217,6 +219,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/export.cpp --xmod` | Emits the synthetic static/DLL/static xmod images (v, 2026-10-07). |
 | `tests/recompiler_smoke/run.py --only-xmod` | Runs only the xmod export and host scenarios (v, 2026-10-07). |
 | `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
+| `tests/exclusive_access/run.py`, `exclusive_access_test.cpp` | Standalone reservation/CAS test; covers exact u8/u16/u32/u64/u128 counters, reservation semantics, isolation, upper-half comparison, attempted reporting, and a race-free negative control (v, 2026-10-08). |
 | `tests/export_integration/make_multimodule_fixture.py` | `write_multimodule_fixture()` (v, 2026-10-06) | Generates sparse canonical multi-module ExeFS fixtures with cross-module calls, markers, unreadable paths, and code-less options. |
 | `tests/export_integration/run_export_integration.py` | `multimodule_split_scenarios()`, `split_source_failure_scenarios()`, `split_failure_injection_scenarios()`, `split_option_scenarios()` (v, 2026-10-06) | Exercises real split static/Hybrid exports, source/analysis refusals, injected build/package failures, per-export option handling, and retries. |
 | `src/suyu/main.cpp` RPC export options | `main.cpp:6173-6179` (v, 2026-10-07) | Test-driven export RPC accepts `aot_cache_root`, `aot_producer_revision`, and `aot_producer_build_id`; status fields are returned around `:5789-5795`. |

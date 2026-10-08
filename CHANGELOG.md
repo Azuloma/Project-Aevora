@@ -2,6 +2,17 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev17 - Unreleased
+
+*Development entry 17 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added opt-in direct chaining of unconditional in-module `B`/`BL` (`SUYU_AOT_DIRECT_CHAIN=1`, `g_emit_direct_chain`): the branch tail-calls the target block (clang `musttail`, plain call elsewhere) instead of returning to `recomp_image_run_slice` for a lookup. Off by default and byte-identical when off. Recorded in the cache manifest and bundle id. Synthetic smoke variants `abi6dc`/`ggdc` pass; no `BL` execution test, integration run, review, or PLA measurement yet.
+- Added the thirteenth-session handoff and archived Step 6 static AOT/FMI/main-DLL evidence, U1 exclusive-monitor verification, and cache-launcher constraints.
+
+### Changed
+- Documented the user-run Kotobuki Village comparison (17-20 FPS static AOT versus 30 FPS JIT), sampling results, U1 status, and the relink-only versus full re-export decision.
+
 ## v0.0.1-dev16 - Unreleased
 
 *Development entry 16 toward v0.0.1. Not a release; no build artifacts are published.*
