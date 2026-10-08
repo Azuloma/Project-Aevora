@@ -168,14 +168,21 @@ static_assert(sizeof(std::atomic<u64>) == sizeof(u64) && std::atomic<u64>::is_al
 //
 // It bounds two things. How long a guest loop can run without the interrupt and
 // SVC checks below getting a look in; and, if the generated calls are not tail
-// calls, how deep the host stack goes. Guest threads run on 512 KB fibers
-// (common/fiber.cpp) and a block frame carrying SIMD locals is not small.
+// calls, how deep the host stack goes. Guest threads run on 2 MiB fibers
+// (512 * 4096 bytes, common/fiber.cpp) and a block frame carrying SIMD locals is
+// not small. Today only the opt-in direct B/BL chain (g_emit_direct_chain) calls
+// blocks from blocks; it is a guaranteed tail call under clang (musttail) and a
+// plain call, bounded by this budget, elsewhere.
+//
+// The measurements below were taken with an earlier emitter whose ChainTo chained
+// B, BL and the conditional forms; they do not describe the current emitter,
+// where the module's run_slice loop iterates between blocks.
 //
 // This comment used to say 256 overflowed that stack and crashed on boot, and
 // that raising the budget was only safe when the generated code was built with
 // -foptimize-sibling-calls. That flag is still only on the GNU branch - the
-// MSVC branch emits "/O1" with no tail-call guarantee, and ChainTo calls into
-// another translation unit - so by that reasoning Windows should fall over well
+// MSVC branch emitted "/O1" then (it is /O2 now) with no tail-call guarantee, and
+// ChainTo calls into another translation unit - so by that reasoning Windows should fall over well
 // below the ABI 4 default of 4096.
 //
 // It does not. Measured on Mario Kart 8 running fully static with zero JIT

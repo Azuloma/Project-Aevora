@@ -7,6 +7,7 @@
 #include "core/arm/recomp/recomp_gaps.h"
 #include "core/recompiler/arm64_to_c.h"
 #include "code.h"
+#include "bl_code.h"
 #include "loop_code.h"
 #include "xmod_code.h"
 
@@ -64,9 +65,27 @@ static int ExportXmod(const std::string& out_dir) {
     return failed;
 }
 
+// --bl <dir>: the direct B/BL chaining fixture (bl_code.h). Honours
+// SUYU_RECOMP_AB_DIRECT_CHAIN so one fixture is exported both with and without it.
+static int ExportBl(const char* out_dir) {
+    suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
+    const auto stats = suyu::recomp::EmitProject(
+        "bl", reinterpret_cast<const uint8_t*>(bl_code), sizeof(bl_code), BL_BASE, out_dir, true);
+    if (stats.unhandled != 0 || stats.emitted != sizeof(bl_code) / 4) {
+        std::fprintf(stderr, "bl export: emitted %llu of %zu, %llu unhandled\n",
+                     static_cast<unsigned long long>(stats.emitted), sizeof(bl_code) / 4,
+                     static_cast<unsigned long long>(stats.unhandled));
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc >= 3 && !std::strcmp(argv[1], "--loop")) {
         return ExportLoop(argv[2], argc >= 4 ? argv[3] : nullptr);
+    }
+    if (argc == 3 && !std::strcmp(argv[1], "--bl")) {
+        return ExportBl(argv[2]);
     }
     const bool xmod = argc == 3 && !std::strcmp(argv[1], "--xmod");
     if (argc != 2 && !xmod) return 2;

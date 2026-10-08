@@ -607,6 +607,24 @@ def check_direct_chain(base, chained, what):
             raise RuntimeError(f"{base}: direct chaining leaked into the switched-off output")
 
 
+def check_direct_chain_bl(root, exporter, build):
+    """A chained BL, executed: with and without direct chaining (the control)."""
+    env = dict(os.environ)
+    for key in AB_SWITCHES:
+        env.pop(key, None)
+    for name, chained in (("bl-plain", False), ("bl-chain", True)):
+        out = root / name
+        call([exporter, "--bl", out],
+             env=dict(env, **({"SUYU_RECOMP_AB_DIRECT_CHAIN": "1"} if chained else {})))
+        unit = (out / "src" / "recompiled_bl_0.c").read_text(encoding="utf-8")
+        if ("RECOMP_TAIL_CALL(blk_bl_000000000000100c)" in unit) != chained:
+            raise RuntimeError(f"{name}: the BL is not {'chained' if chained else 'plain'} in the text")
+        run = build(f"run-{name}", f"-DBL_DIR={out.as_posix()}",
+                    f"-DBL_EXPECT_CHAIN={1 if chained else 0}")
+        call([executable(run, "smoke_bl")], timeout=15)
+    print("Direct B/BL chain execution checks passed.")
+
+
 def check_coverage_loop(root, exporter, build):
     """recomp_gaps.json end to end: record a miss, re-export with it, run statically."""
     env = dict(os.environ)
@@ -683,6 +701,7 @@ def main():
         call([executable(export_build, "smoke_topology_unit")])
         call([executable(export_build, "smoke_aot_cache_unit"), root / "aot-cache-unit"])
         check_coverage_loop(root, exporter, build)
+        check_direct_chain_bl(root, exporter, build)
         generated = {}
         for name, switches in VARIANTS:
             generated[name] = root / f"generated-{name}"
@@ -704,6 +723,8 @@ def main():
         for name, switches in VARIANTS:
             guard_gen = "SUYU_RECOMP_AB_GUARD_GEN" in switches
             identity_options = []
+            if "SUYU_RECOMP_AB_DIRECT_CHAIN" in switches:
+                identity_options.append("-DSMOKE_DIRECT_CHAIN=1")
             if name == "identity":
                 topology_unit = executable(export_build, "smoke_topology_unit")
                 registry_c = write_bundle_registry(root, topology_unit, generated[name])

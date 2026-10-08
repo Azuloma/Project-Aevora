@@ -21,6 +21,17 @@ extern uint32_t* recomp_image_guard_gen_v1(uint32_t, uint64_t*, uint64_t*, const
 extern unsigned recomp_image_fpx_v1(uint32_t, uint32_t, uint64_t);
 #endif
 
+/* Without direct chaining, and with it under a guaranteed tail call (clang musttail),
+   a long slice runs at constant stack depth. A compiler without the guarantee gets a
+   plain call whose depth is bounded by the chain budget instead, so the flat-stack
+   check does not apply to it; the run completing is the check there. */
+#if !defined(SMOKE_DIRECT_CHAIN)
+#define SMOKE_FLAT_STACK 1
+#elif defined(__clang__) && defined(__has_attribute)
+#if __has_attribute(musttail)
+#define SMOKE_FLAT_STACK 1
+#endif
+#endif
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); return 1; } } while (0)
 
 /* Shaped like Common::PageTable's entries: 32 bytes, a pointer part of
@@ -458,7 +469,10 @@ int main(int argc, char** argv) {
         reset(0x1000, 4096);
         recomp_image_run_slice(&context);
         CHECK(context.x[0] == 4096 && context.chain_budget == 0);
-        CHECK(reads == 8192 && stack_max - stack_min < 4096);
+        CHECK(reads == 8192);
+#ifdef SMOKE_FLAT_STACK
+        CHECK(stack_max - stack_min < 4096);
+#endif
     } else if (!strcmp(mode, "hybrid-middle-entry")) {
 #ifdef RECOMP_FEATURE_GUARD_GEN1
         g_recomp_gg_word = 1;

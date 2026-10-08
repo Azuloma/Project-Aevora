@@ -293,12 +293,12 @@ inline size_t FuncNameTo(char (&b)[64], const char* mod, u64 v) {
     return (size_t)snprintf(b, sizeof b, "blk_%s_%016llx", mod, (unsigned long long)v);
 }
 
-// Set by the emit loop so a direct branch whose target is a known block start
-// can call that block instead of returning to the dispatcher. Null while the
-// decode tests run, which is what keeps their expected output stable.
-// Emits "carry on at t": a direct call when t is a block we emitted, otherwise
-// the original park-the-PC-and-return. Loop back edges are conditional, so the
-// conditional forms need this as much as the unconditional ones do.
+// Set by the emit loop (EmitProject) to the module's block starts, so a direct
+// branch whose target is one of them can call that block. Null while the decode
+// tests run, which is what keeps their expected output stable.
+// ChainTo emits "carry on at t": a direct tail call when t is a block we emitted,
+// otherwise the park-the-PC-and-return. Only the unconditional B and BL use it,
+// and only when g_emit_direct_chain is on.
 inline std::string ChainTo(u64 t);
 
 // With no JIT behind it there is no cheaper alternative to translating an
@@ -418,15 +418,17 @@ inline std::string ChainTo(u64 t) {
 }
 
 // Not called by the current emitter (RET, BR and BLR still return to the
-// run-slice loop); kept as the starting point for chaining computed targets.
-// The same for a computed target. A chain of blocks otherwise ends at the first
-// BR, BLR or RET, and every one of those is a round trip out to the host
-// dispatcher: RunThread plus the dispatch lambda are 24.7% of all cycles in a
-// JIT-free image against 17.7% in a hybrid one. recomp_lookup is this module's
-// own flat block index - one bounds check and one load - so resolving the
-// target here keeps execution inside the image whenever it stays in the module.
-// A target in another module misses the index and falls back to the dispatcher,
-// which is where it had to go anyway.
+// module's run-slice loop, which looks the target up); kept as the starting point
+// for chaining computed targets.
+// The note below was measured on an earlier emitter, before the run-slice loop
+// kept control flow inside the image: a chain of blocks ended at the first BR,
+// BLR or RET, and each of those was a round trip out to the host dispatcher:
+// RunThread plus the dispatch lambda were 24.7% of all cycles in a JIT-free image
+// against 17.7% in a hybrid one. recomp_lookup is this module's own flat block
+// index - one bounds check and one load - so resolving the target here keeps
+// execution inside the image whenever it stays in the module. A target in another
+// module misses the index and falls back to the dispatcher, which is where it
+// had to go anyway.
 inline std::string ChainIndirect(const std::string& target) {
     return "{ c->pc=" + target +
            "; { BlockFn _f=recomp_lookup(c->pc-g_module_base); "

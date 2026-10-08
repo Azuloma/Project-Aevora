@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(recompiler_smoke LANGUAGES C CXX)
-foreach(path_variable SUYU_SOURCE GENERATED_DIR LOOP_DIR XMOD_DIR)
+foreach(path_variable SUYU_SOURCE GENERATED_DIR LOOP_DIR XMOD_DIR BL_DIR)
   if(DEFINED ${path_variable})
     file(TO_CMAKE_PATH "${${path_variable}}" normalized_path)
     set(${path_variable} "${normalized_path}")
@@ -17,6 +17,22 @@ if(LOOP_DIR)
   target_compile_definitions(smoke_loop PRIVATE SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1)
   if(NOT MSVC)
     target_link_libraries(smoke_loop PRIVATE m)
+  endif()
+elseif(BL_DIR)
+  # The direct B/BL chaining fixture (export.cpp --bl). BL_EXPECT_CHAIN says whether
+  # the module was exported with direct chaining.
+  if(NOT DEFINED BL_EXPECT_CHAIN)
+    message(FATAL_ERROR "the B/BL fixture needs BL_EXPECT_CHAIN (0 or 1)")
+  endif()
+  file(GLOB bl_sources "${BL_DIR}/src/*.c")
+  add_executable(smoke_bl bl_c.c ${bl_sources}
+      "${BL_DIR}/recomp_runtime.c" "${BL_DIR}/recomp_export.c")
+  target_compile_features(smoke_bl PRIVATE c_std_11)
+  target_include_directories(smoke_bl PRIVATE "${BL_DIR}")
+  target_compile_definitions(smoke_bl PRIVATE SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1
+      BL_EXPECT_CHAIN=${BL_EXPECT_CHAIN})
+  if(NOT MSVC)
+    target_link_libraries(smoke_bl PRIVATE m)
   endif()
 elseif(XMOD_DIR)
   # The three-module split fixture (export.cpp --xmod): module "smoke" and "third" are
@@ -85,6 +101,9 @@ else()
   target_compile_features(smoke_run PRIVATE c_std_11)
   target_include_directories(smoke_run PRIVATE "${GENERATED_DIR}")
   target_compile_definitions(smoke_run PRIVATE SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1)
+  if(SMOKE_DIRECT_CHAIN)
+    target_compile_definitions(smoke_run PRIVATE SMOKE_DIRECT_CHAIN=1)
+  endif()
   # Exercise the emitter's real multi-module CMake definitions. Rebuilding a
   # hand-written approximation would hide missing per-module symbol aliases.
   set(RECOMP_STATIC_ONLY ON)
