@@ -11,6 +11,7 @@
 #include "core/frontend/graphics_context.h"
 
 struct SDL_Window;
+union SDL_Event;
 
 namespace Core {
 class System;
@@ -68,6 +69,13 @@ public:
     bool PumpEventsWhileLoading();
 
 protected:
+    /// Offers a mouse or window-focus event to the frontend overlay before the game sees it.
+    /// Returns true if the overlay took it (the pointer is over its UI), in which case the game
+    /// must not get it.
+    virtual bool RouteOverlayEvent(const SDL_Event& event) {
+        return false;
+    }
+
     /// Called by WaitEvent when a key is pressed or released.
     void OnKeyEvent(int key, u8 state);
 

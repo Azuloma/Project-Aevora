@@ -63,8 +63,9 @@ struct NativeStatusSnapshot {
     // whatever the frame rate; it only means something in single-core mode.
     bool speed_meaningful{};
 
-    // Filled in by the window's status refresh alone: ShaderNotify's reporting
-    // bookkeeping is not synchronised, so exactly one thread may query it.
+    // Filled in by SampleNativeStatus, which only the main thread calls:
+    // ShaderNotify's reporting bookkeeping is not synchronised, so exactly one
+    // thread may query it.
     int shaders_building{};
 
     bool applet_running{};

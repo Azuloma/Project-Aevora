@@ -1025,6 +1025,8 @@ void EmuWindow_SDL2::WaitEvent() {
     }
 
 
+    const bool taken_by_overlay = RouteOverlayEvent(event);
+
     switch (event.type) {
     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
     case SDL_EVENT_WINDOW_RESIZED:
@@ -1055,13 +1057,13 @@ void EmuWindow_SDL2::WaitEvent() {
         break;
     case SDL_EVENT_MOUSE_MOTION:
         // ignore if it came from touch
-        if (event.motion.which != SDL_TOUCH_MOUSEID)
+        if (event.motion.which != SDL_TOUCH_MOUSEID && !taken_by_overlay)
             OnMouseMotion(static_cast<s32>(event.motion.x), static_cast<s32>(event.motion.y));
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP:
         // ignore if it came from touch
-        if (event.button.which != SDL_TOUCH_MOUSEID) {
+        if (event.button.which != SDL_TOUCH_MOUSEID && !taken_by_overlay) {
             OnMouseButton(event.button.button,
                           event.button.down ? SDL_PRESSED : SDL_RELEASED,
                           static_cast<s32>(event.button.x), static_cast<s32>(event.button.y));
@@ -1227,9 +1229,6 @@ void EmuWindow_SDL2::RefreshWindowStatus() {
 
     SuyuCmd::NativeStatusSnapshot display{};
     SuyuCmd::TryGetNativeStatusSnapshot(display);
-    if (display.game_running) {
-        display.shaders_building = system.GPU().ShaderNotify().ShadersBuilding();
-    }
     const std::string title = SuyuCmd::FormatNativeTitle(display);
     SDL_SetWindowTitle(render_window, title.c_str());
 }

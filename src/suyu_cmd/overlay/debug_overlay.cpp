@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cfloat>
 #include <cstdlib>
 #include <cstring>
 
@@ -10,6 +11,10 @@
 #include <imgui_impl_vulkan.h>
 
 #include "common/logging.h"
+#include "common/scm_rev.h"
+#include "core/arm/recomp/arm_recomp.h"
+#include "suyu_cmd/native_status.h"
+#include "suyu_cmd/overlay/build_identity.h"
 #include "suyu_cmd/overlay/debug_overlay.h"
 
 namespace SuyuCmd {
@@ -21,9 +26,6 @@ namespace {
 constexpr u32 kDescriptorPoolSize = 16;
 // Frames the backend may still have in flight beyond the swapchain images.
 constexpr u32 kExtraFramesInFlight = 1;
-// Longest frame gap fed to ImGui; a stall must not turn into a huge animation step.
-constexpr float kMaxDeltaTimeSeconds = 0.25f;
-constexpr float kPlaceholderDeltaTimeSeconds = 1.0f / 60.0f;
 
 // Set by the ImGui backend's error callback, which carries no user data. The backend keeps going
 // after a failed call, so Record checks this at each stage and disables the overlay for good.
@@ -62,6 +64,10 @@ bool DebugOverlay::Initialize(const Core::Frontend::VulkanOverlayContext& new_co
     context = new_context;
     failed = false;
     vulkan_error_seen = false;
+    input_router.SetCaptureRegions({});
+    command_bar_visible = false;
+    command_bar_height_px = 0.0f;
+    show_debug_window = false;
 
     if (!ImGui_ImplVulkan_LoadFunctions(context.api_version, LoadVulkanFunction, &context)) {
         LOG_ERROR(Frontend, "Debug overlay could not load the Vulkan entry points ImGui needs");
@@ -74,8 +80,8 @@ bool DebugOverlay::Initialize(const Core::Frontend::VulkanOverlayContext& new_co
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    // Input arrives in a later stage; until then the overlay is display-only.
-    io.ConfigFlags |= ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoMouseCursorChange;
+    // The window owns the OS pointer; ImGui only draws its own while the window hides it.
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     ImGui::StyleColorsDark();
 
     last_frame_time = std::chrono::steady_clock::now();
@@ -143,43 +149,292 @@ void DebugOverlay::Record(void* command_buffer, u64 render_pass, u32 width, u32 
     if (!EnsureBackend(render_pass) || vulkan_error_seen) {
         LOG_ERROR(Frontend, "Debug overlay disabled: Vulkan backend setup failed");
         failed = true;
+        input_router.SetCaptureRegions({});
         return;
     }
 
     const auto now = std::chrono::steady_clock::now();
     const float delta_seconds = std::chrono::duration<float>(now - last_frame_time).count();
     last_frame_time = now;
+    // The measurement keeps long stalls as they were; only ImGui's animation step is clamped.
+    const FrameTiming timing = TimeFrame(delta_seconds);
+    if (timing.measurable) {
+        frame_times.Add(timing.measured_ms);
+    }
+    target_width_px = width;
+    target_height_px = height;
 
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
-    io.DeltaTime = delta_seconds > 0.0f ? std::min(delta_seconds, kMaxDeltaTimeSeconds)
-                                        : kPlaceholderDeltaTimeSeconds;
+    io.DeltaTime = timing.animation_delta_seconds;
 
+    ApplyQueuedInput();
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
     BuildUi();
+    PublishCaptureRegions();
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
                                     static_cast<VkCommandBuffer>(command_buffer));
     if (vulkan_error_seen) {
         LOG_ERROR(Frontend, "Debug overlay disabled: a Vulkan call failed while drawing");
         failed = true;
+        input_router.SetCaptureRegions({});
+    }
+}
+
+void DebugOverlay::ApplyQueuedInput() {
+    ImGuiIO& io = ImGui::GetIO();
+    input_router.Drain(pending_input);
+    for (const OverlayInputEvent& event : pending_input) {
+        switch (event.kind) {
+        case OverlayInputEvent::Kind::MouseMove:
+            io.AddMousePosEvent(event.x, event.y);
+            break;
+        case OverlayInputEvent::Kind::MouseButton:
+            // The press says where it landed; the position may not have been queued before it.
+            io.AddMousePosEvent(event.x, event.y);
+            io.AddMouseButtonEvent(event.button, event.down);
+            break;
+        case OverlayInputEvent::Kind::MouseWheel:
+            io.AddMouseWheelEvent(event.x, event.y);
+            break;
+        case OverlayInputEvent::Kind::MouseLeave:
+            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+            break;
+        case OverlayInputEvent::Kind::Reset:
+            // Losing focus makes ImGui release every button and cancel any drag in progress.
+            io.AddFocusEvent(false);
+            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+            break;
+        case OverlayInputEvent::Kind::FocusGained:
+            io.AddFocusEvent(true);
+            break;
+        }
     }
 }
 
 void DebugOverlay::BuildUi() {
-    constexpr ImGuiWindowFlags kStatusFlags =
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
-    constexpr float kMargin = 8.0f;
+    BuildCommandBar();
+    BuildDebugWindow();
 
-    ImGui::SetNextWindowPos(ImVec2(kMargin, kMargin));
-    ImGui::SetNextWindowBgAlpha(0.6f);
-    if (ImGui::Begin("Aevora overlay status", nullptr, kStatusFlags)) {
-        ImGui::Text("Debug overlay  %.1f FPS", ImGui::GetIO().Framerate);
+    // A hidden OS pointer would leave nothing to aim with; draw one only while it is over the UI.
+    ImGuiIO& io = ImGui::GetIO();
+    io.MouseDrawCursor = hardware_cursor_hidden && (command_bar_visible || io.WantCaptureMouse);
+}
+
+void DebugOverlay::PublishCaptureRegions() {
+    std::vector<OverlayRect> regions;
+    if (command_bar_visible) {
+        regions.push_back({0.0f, 0.0f, ImGui::GetIO().DisplaySize.x, command_bar_height_px});
+    }
+    if (show_debug_window) {
+        regions.push_back(debug_window_rect);
+    }
+    // What was just built is what the event thread tests the next events against.
+    input_router.SetCaptureRegions(std::move(regions));
+}
+
+void DebugOverlay::BuildCommandBar() {
+    const ImGuiIO& io = ImGui::GetIO();
+    const CommandBarInput bar_input{
+        .mouse_in_window = ImGui::IsMousePosValid(&io.MousePos),
+        .mouse_y_px = io.MousePos.y,
+        .was_visible = command_bar_visible,
+        .bar_height_px = command_bar_height_px,
+        .menu_open = ImGui::IsPopupOpen(
+            "", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel),
+    };
+    command_bar_visible = ShouldShowCommandBar(bar_input);
+    if (!command_bar_visible) {
+        return;
+    }
+
+    if (ImGui::BeginMainMenuBar()) {
+        command_bar_height_px = ImGui::GetWindowHeight();
+        // Placeholders: the entries exist so the layout is settled, but do nothing yet.
+        ImGui::BeginDisabled();
+        ImGui::MenuItem("Settings");
+        ImGui::MenuItem("Cheats");
+        ImGui::EndDisabled();
+        ImGui::MenuItem("Debug", nullptr, &show_debug_window);
+        ImGui::EndMainMenuBar();
+    }
+}
+
+void DebugOverlay::BuildDebugWindow() {
+    if (!show_debug_window) {
+        return;
+    }
+    constexpr ImVec2 kFirstPosition{16.0f, 48.0f};
+    constexpr ImVec2 kFirstSize{320.0f, 120.0f};
+
+    ImGui::SetNextWindowPos(kFirstPosition, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(kFirstSize, ImGuiCond_FirstUseEver);
+    const bool expanded = ImGui::Begin("Debug", &show_debug_window);
+    // Recorded even when collapsed: the title bar still takes clicks.
+    debug_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                         ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
+    if (expanded) {
+        if (ImGui::CollapsingHeader("Backend", ImGuiTreeNodeFlags_DefaultOpen)) {
+            BuildBackendSection();
+        }
+        if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
+            BuildPerformanceSection();
+        }
+        if (ImGui::CollapsingHeader("CPU", ImGuiTreeNodeFlags_DefaultOpen)) {
+            BuildCpuSection();
+        }
+        if (ImGui::CollapsingHeader("Build identity")) {
+            BuildIdentitySection();
+        }
+        if (ImGui::CollapsingHeader("GPU")) {
+            BuildGpuSection();
+        }
     }
     ImGui::End();
+}
+
+void DebugOverlay::BuildBackendSection() {
+    constexpr ImVec4 kWarningColor{1.0f, 0.35f, 0.3f, 1.0f};
+    constexpr ImVec4 kOkColor{0.45f, 0.9f, 0.5f, 1.0f};
+
+    NativeStatusSnapshot snapshot;
+    const bool have_snapshot = TryGetNativeStatusSnapshot(snapshot);
+    const Core::RecompExecutionStats stats = Core::GetRecompExecutionStats();
+    const Core::RecompLiveStats live = Core::GetRecompLiveStats();
+
+    if (have_snapshot) {
+        ImGui::Text("Backend: %s%s", NativeBackendName(ClassifyGameBackend(snapshot)),
+                    GameBackendQualifier(snapshot).c_str());
+    } else {
+        ImGui::TextUnformatted("Backend: (no status yet)");
+    }
+    ImGui::Text("Mode: %s", have_snapshot ? ExecutionModeText(ClassifyGameBackend(snapshot))
+                                          : "(no status yet)");
+    ImGui::Text("JIT in this build: %s", live.jit_available ? "yes" : "no");
+    ImGui::Text("Static blocks run: %llu", static_cast<unsigned long long>(stats.blocks));
+    ImGui::Text("SVC calls: %llu", static_cast<unsigned long long>(stats.svc_calls));
+    // These count attempts to leave recompiled code, not handoffs that completed.
+    ImGui::Text("Fallback attempts: %llu", static_cast<unsigned long long>(live.jit_transitions));
+    ImGui::Text("  Lookup misses: %llu", static_cast<unsigned long long>(stats.lookup_misses));
+    ImGui::Text("  Unhandled: %llu", static_cast<unsigned long long>(stats.unhandled));
+    ImGui::Text("Refused (no fallback available): %llu",
+                static_cast<unsigned long long>(stats.no_fallback));
+
+    const FallbackCounters counters{live.jit_transitions, stats.lookup_misses, stats.unhandled,
+                                    stats.no_fallback};
+    switch (ClassifyFallback(counters)) {
+    case FallbackVerdict::Refused:
+        ImGui::TextColored(kWarningColor,
+                           "Uncovered code reached; fallback refused, execution could not continue.");
+        break;
+    case FallbackVerdict::Attempted:
+        ImGui::TextColored(kWarningColor,
+                           "Uncovered code reached; a JIT fallback was attempted: not fully static.");
+        break;
+    case FallbackVerdict::None:
+        // Zero is only "not yet" in hybrid, and says nothing about a JIT-only run.
+        ImGui::TextColored(kOkColor, "No fallback attempt so far (does not prove static execution).");
+        break;
+    }
+}
+
+void DebugOverlay::BuildPerformanceSection() {
+    NativeStatusSnapshot snapshot;
+    if (TryGetNativeStatusSnapshot(snapshot) && snapshot.perf_available) {
+        ImGui::Text("Game: %.1f FPS (%.2f ms)", snapshot.average_game_fps, snapshot.frametime_ms);
+        ImGui::Text("System: %.1f FPS", snapshot.system_fps);
+        if (snapshot.speed_meaningful) {
+            ImGui::Text("Emulation speed: %.0f%%", snapshot.emulation_speed * 100.0);
+        }
+    } else {
+        ImGui::TextUnformatted("Game: (no sample yet)");
+    }
+
+    // The presented-frame interval, as the overlay itself sees it, over the frames graphed below.
+    const float average_ms = frame_times.Average();
+    ImGui::Text("Presented: %.1f FPS", average_ms > 0.0f ? 1000.0f / average_ms : 0.0f);
+    char summary[64];
+    std::snprintf(summary, sizeof(summary), "avg %.1f ms  max %.1f ms", average_ms,
+                  frame_times.Max());
+    ImGui::PlotLines("##frame_times", frame_times.Values(),
+                     static_cast<int>(frame_times.Count()), frame_times.Offset(), summary, 0.0f,
+                     FLT_MAX, ImVec2(0.0f, 60.0f));
+}
+
+void DebugOverlay::BuildCpuSection() {
+    const std::array<u64, 4> pcs = Core::GetRecompCurrentPcs();
+    const std::map<u64, std::string> modules = Core::GetRecompModules();
+
+    // The backend records a PC at each recompiled dispatch and never clears it, so these are
+    // last-seen values: a core that has stopped keeps its old one, and a JIT-only run shows none.
+    ImGui::TextUnformatted("Guest PC at each core's last recompiled dispatch:");
+    for (std::size_t core = 0; core < pcs.size(); ++core) {
+        if (pcs[core] == 0) {
+            ImGui::Text("Core %zu: no recompiled dispatch recorded", core);
+            continue;
+        }
+        const GuestLocation location = ResolveGuestPc(pcs[core], modules);
+        if (location.found) {
+            ImGui::Text("Core %zu: 0x%llx  near %s+0x%llx", core,
+                        static_cast<unsigned long long>(pcs[core]), location.module.c_str(),
+                        static_cast<unsigned long long>(location.offset));
+        } else {
+            ImGui::Text("Core %zu: 0x%llx  (below the lowest known module)", core,
+                        static_cast<unsigned long long>(pcs[core]));
+        }
+    }
+    ImGui::TextWrapped("\"near\" is the nearest module base below the address; module sizes are "
+                       "not known, so it is not a range check. These are guest addresses, not "
+                       "host DLL RVAs.");
+}
+
+void DebugOverlay::BuildIdentitySection() {
+    ImGui::Text("Launcher: %s", Common::g_scm_rev);
+    ImGui::Text("Branch: %s", Common::g_scm_branch);
+    ImGui::Text("Version: %s", Common::g_build_version);
+
+    BuildIdentity identity;
+    if (!TryGetBuildIdentity(identity)) {
+        ImGui::TextUnformatted("Export manifest: not found (not an exported package)");
+        return;
+    }
+    const auto text = [](const std::string& value) {
+        return value.empty() ? "(not recorded)" : value.c_str();
+    };
+    const auto flag = [](const std::optional<bool>& value) {
+        return !value ? "(not recorded)" : *value ? "on" : "off";
+    };
+    ImGui::Text("Export backend: %s", text(identity.effective_backend));
+    ImGui::Text("Correctness revision: %s", text(identity.correctness_revision));
+    ImGui::Text("Bundle id: %s", text(identity.bundle_id));
+    if (identity.image_abi) {
+        ImGui::Text("Image ABI: %llu", static_cast<unsigned long long>(*identity.image_abi));
+    } else {
+        ImGui::TextUnformatted("Image ABI: (not recorded)");
+    }
+    if (identity.image_features) {
+        ImGui::Text("Image features: 0x%llx",
+                    static_cast<unsigned long long>(*identity.image_features));
+    } else {
+        ImGui::TextUnformatted("Image features: (not recorded)");
+    }
+    ImGui::Text("Inline fast memory: %s", flag(identity.fm_inline));
+    ImGui::Text("Direct chaining: %s", flag(identity.direct_chain));
+    ImGui::Text("Indirect chaining: %s", flag(identity.indirect_chain));
+    ImGui::Text("Fallback enabled: %s", flag(identity.fallback_enabled));
+    for (const auto& [module, binding] : identity.module_bindings) {
+        ImGui::Text("Module %s: %s", module.c_str(), text(binding));
+    }
+}
+
+void DebugOverlay::BuildGpuSection() {
+    NativeStatusSnapshot snapshot;
+    if (TryGetNativeStatusSnapshot(snapshot)) {
+        ImGui::Text("Shaders building: %d", snapshot.shaders_building);
+    }
+    ImGui::Text("Presentation target: %u x %u", target_width_px, target_height_px);
 }
 
 } // namespace SuyuCmd

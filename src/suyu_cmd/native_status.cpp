@@ -10,6 +10,8 @@
 #include "core/arm/recomp/arm_recomp.h"
 #include "core/core.h"
 #include "core/perf_stats.h"
+#include "video_core/gpu.h"
+#include "video_core/shader_notify.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/am/am_types.h"
@@ -123,6 +125,13 @@ NativeStatusSnapshot SampleNativeStatus(Core::System& system, bool consume_perf)
         if (!g_launch_version.empty()) {
             s.display_version = g_launch_version;
         }
+    }
+
+    // ShaderNotify's reporting bookkeeping is not synchronised, so exactly one thread may query
+    // it. Every sampler (the window's status refresh and the F12 panel's timer) runs on the
+    // main thread; the result is published here so the title and the overlay read one value.
+    if (s.game_running) {
+        s.shaders_building = system.GPU().ShaderNotify().ShadersBuilding();
     }
 
     const auto live = Core::GetRecompLiveStats();

@@ -171,6 +171,9 @@ struct RecompExecutionStats {
 };
 RecompExecutionStats GetRecompExecutionStats();
 std::array<u64, 4> GetRecompCurrentPcs();
+/// Load address -> module name of the running recompiled process, as the CPU backend recorded it.
+/// Empty until the loader has placed the modules. A copy: safe to call from any thread.
+std::map<u64, std::string> GetRecompModules();
 
 /**
  * CPU backend that executes statically recompiled AArch64 rather than JITing

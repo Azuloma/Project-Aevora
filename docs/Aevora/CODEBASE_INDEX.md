@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `cba2193` (2026-10-08), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `0ae08ea` plus uncommitted dev18 overlay files (2026-10-08), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
@@ -105,6 +105,7 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | File | Purpose |
 |---|---|
 | `arm_recomp.h/.cpp` (~2,400 lines) | `ArmRecomp : ArmInterface`. Block lookup/dispatch loop, context marshalling (`GuestContextView`, `RecompHostMem` with static_assert-locked offsets), registration hooks (`SetRecompLookup:52`, `SetRecompBindCallback:130`, `BindRecompProcess:135`, `SetRecompPrepareCallback`, `SetRecompBaseSetter`, `PrepareRecompProcess`). |
+| `src/core/arm/recomp/arm_recomp.h:176`, `arm_recomp.cpp:750` **(v)** | `Core::GetRecompModules()` returns a thread-safe copy of the recompiled module map for overlay diagnostics. |
 | `src/core/arm/dynarmic/dynarmic_exclusive_access.h` | Lock-scoped reservation read/compare-and-swap wrappers (`ReadMarked<T>`, `WriteCompared<T>`) with optional attempted reporting. |
 | `src/core/arm/dynarmic/dynarmic_exclusive_monitor.h/.cpp` | Dynarmic exclusive-monitor fast path: resolves plain-page host pointers before the monitor lock, retains the locked Memory path for special/cross-page accesses, and conditionally reports writes. |
 | `src/core/memory.h/.cpp` | `Memory::GetPlainExclusivePointer` (`memory.h:353`, `memory.cpp:1001`) and `Memory::NoteExclusiveWrite` (`memory.h:360`, `memory.cpp:1005`) support the lock-light U1 path. |
@@ -162,6 +163,8 @@ Key runtime facts:
 | GPU memory | `memory_manager.h:36`. |
 | Renderer contract | `rasterizer_interface.h:38`, `renderer_base.h:32`. |
 | Backends | `renderer_vulkan/renderer_vulkan.h:40`, `renderer_opengl/renderer_opengl.h:37`, plus null and (per survey) Metal. |
+| Vulkan overlay extension | `src/core/frontend/vulkan_overlay.h` and `src/core/frontend/emu_window.h:82` **(v)** | `Core::Frontend::VulkanOverlay`, `VulkanOverlayContext`, and `EmuWindow::GetVulkanOverlay()` provide the optional renderer/window extension point. |
+| Vulkan overlay rendering | `src/video_core/renderer_vulkan/renderer_vulkan.cpp:187` **(v)**; `src/video_core/renderer_vulkan/present/window_adapt_pass.cpp:37` **(v)** | `RendererVulkan::InitializeOverlay` owns setup/teardown; `WindowAdaptPass::Draw` records the overlay before ending the render pass. |
 | Caches | `texture_cache/`, `buffer_cache/`, shader/pipeline caches per backend, query cache, fence manager. |
 | Presentation | `renderer_vulkan/vk_present_manager.h:39`, blit-screen classes, `present/` (scaling filters, `fsr.h`, `fxaa.h`, `smaa.h`, `window_adapt_pass.h`), `framebuffer_config.h:23`. |
 | Shader frontend | `shader_recompiler/frontend/maxwell/translate_program.h:19`, Maxwell decoder, structured control flow. |
@@ -194,6 +197,12 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `src/suyu` (Qt) | `GMainWindow` (`main.h:170`, `main.cpp` ~8,500 lines), `BootGame`/`LoadROM`, `bootmanager.h` (`EmuThread`, `GRenderWindow`), `game_list.h`, `configuration/`. Recompiled-image actions: `OnLoadRecompiledImage`, `LoadRecompiledImagesFrom`, `OnLaunchRecompiledBuild`, `OnLaunchStaticBuild`. |
 | MCP server in Qt app | `src/suyu/mcp_server.{h,cpp}`, created at `main.cpp:5346-5445` (v). Port comes from `SUYU_MCP_PORT`. There are also "Hacker"/"Gamer" modes (`main.cpp:585-590` (v), `gamer_environment.*`). Fork-specific; purpose and security exposure not yet reviewed. |
 | `src/suyu_cmd` | SDL command-line frontend (`suyu.cpp`). Also used as the static launcher host (export build kit). The launcher's window title comes from the executable name in `emu_window/emu_window_sdl2_vk.cpp` (~`:35-62`); convert paths with `Common::FS::PathToUTF8String`, never `path::string()`, on Windows. |
+| `src/suyu_cmd/overlay/debug_overlay.{h,cpp}` | Dear ImGui Vulkan overlay UI: command bar, Debug window sections, build identity, native status, recompiled CPU, and GPU diagnostics. |
+| `src/suyu_cmd/overlay/overlay_logic.h` | ImGui-free command-bar visibility and bounded cross-thread mouse-input router. |
+| `src/suyu_cmd/overlay/overlay_stats.h` | Frame-time history, guest-PC/module placement, fallback counters/verdict, execution-mode text, and timing helpers. |
+| `src/suyu_cmd/overlay/build_identity.{h,cpp}` | Parses packaged `aot_manifest.json` display fields and stores the launcher build identity. |
+| `src/suyu_cmd/emu_window/emu_window_sdl2.h:75`, `emu_window_sdl2.cpp:1028` **(v)**; `emu_window_sdl2_vk.{h,cpp}:40,198` **(v)** | `EmuWindow_SDL2::RouteOverlayEvent` and Vulkan SDL event translation route overlay-owned mouse input before game dispatch. |
+| `src/suyu_cmd/native_status.cpp:110-134` **(v)** | `SampleNativeStatus` publishes the current shader-build count in `NativeStatusSnapshot::shaders_building`. |
 | Qt configuration tabs | `src/suyu/configuration/` (`configure_dialog.cpp`, `configure_per_game.cpp`, `configure_graphics_extensions.cpp` for `Category::RendererExtensions`). Labels and tooltips come from `src/suyu/configuration/shared_translation.cpp`; `src/qt_common/config/shared_translation.cpp` is a separate copy. |
 | `src/qt_common`, `src/frontend_common` | Shared Qt utilities; cross-frontend config, content/firmware/mod/playtime managers. |
 | `src/libretro_core` | Libretro core (`SUYU_BUILD_LIBRETRO_CORE`, default OFF). |
@@ -204,6 +213,7 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 ## 6. Build system and dependencies
 
 - Root `CMakeLists.txt` requires CMake 3.22 and C++20. Main options include `ENABLE_QT`, `ENABLE_SDL3`, `YUZU_USE_BUNDLED_{QT,FFMPEG,SDL3}`, `YUZU_CMD`, `SUYU_BUILD_LIBRETRO_CORE`, `SUYU_NO_JIT`, `YUZU_TESTS`, `YUZU_ROOM`, and `ENABLE_WEB_SERVICE`.
+- `externals/CMakeLists.txt:442-465` **(v)** builds the forced-bundled `Aevora::imgui`; `cpmfile.json:120-125` **(v)** pins ImGui v1.92.9b with a SHA-512 hash.
 - CPM (`CMakeModules/CPMUtil.cmake` + `cpmfile.json`, about 40 entries such as boost 1.90.0, fmt 12.1.0, openssl 3.6.2, SDL3 3.4.8, sirit v1.0.5, Vulkan 1.4.x, catch2 v3.13.0) is the main acquisition path. The cache defaults to `.cache/cpm` and can be moved with `-DCPM_SOURCE_CACHE`. Archives are extracted with `cmake -E tar` (`file(ARCHIVE_EXTRACT)` fails on non-ASCII entries under a non-UTF-8 ANSI code page). Patching needs Git for Windows (`patch`, found relative to `GIT_EXECUTABLE`); host shaders need `glslangValidator` (`src/video_core/host_shaders/CMakeLists.txt`). `SUYU_USE_LOCAL_EXTERNALS` (`LocalDependencies.cmake`) switches to local checkouts, in which case `.patch/` may not apply.
 - `CMakeModules/ExportBuildKit.cmake`: `SUYU_EXPORT_BUILD_KIT=ON` (Windows, MSVC, Ninja, Release only; needs Python 3) produces the export build kit. See `tools/export_build_kit/` (`package.py`, `registry_probe.c`, `README.md`; kit revision string `suyu-aot-kit-abi6-fm1-gg1-fpx1-control-r3` per survey).
 - Version string: `GenerateSCMRev.cmake` (`HEAD-<hash>-<ref>` or the tag). Note the hard-coded `v0.0.11 (mk8-recomp)` full name above.
@@ -218,6 +228,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 |---|---|
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
 | `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, production bundle-loading and mixed-image checks, the three-module xmod fixture, loader stub and lookup-boundary cases, and `check_prebuild` split consumer checks; MSVC golden hashes require `/utf-8`, matching the real build. |
+| `tests/recompiler_smoke/overlay_logic_unit.cpp`, `build_identity_unit.cpp` | Standalone tests for overlay command/input/statistics logic and AOT manifest build-identity parsing. |
+| `tests/recompiler_smoke/run.py` | The build-identity test requires `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or use a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`. |
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_exec.c` | Cross-image reservation, counter, FPX, guard, bridge-null, and lookup-boundary fixture execution (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_host.cpp` | Production bundle host for xmod module loading, handshakes, and per-image checks (v, 2026-10-07). |

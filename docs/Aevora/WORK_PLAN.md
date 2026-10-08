@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-08. HEAD is `0a9813a` (`v0.0.1-dev17`) on `main`; the Markdown cleanup of the fifteenth session is uncommitted. The user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-08-fifteenth-session); historical detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
+Handoff prepared: 2026-10-08. HEAD is `0ae08ea` on `main`; overlay stages D and E are uncommitted and not hardware-verified beyond the first stage-D build. The user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-08-sixteenth-session); historical detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
 
@@ -54,28 +54,32 @@ The user-data cache producer is the git revision plus branch and build id; the l
 
 Held items are the two-lifetime seam, real loader/refusal paths, `tests/export_regression` Qt-root lookup, MSVC `cl` route for the chain macro, old-manifest-without-chain-fields reuse, and six tracked `.pyc` files with no `.gitignore` entry. PLA results are user-run and scene-specific, not general compatibility or release evidence; the recompiled image has no PDB, so RVA attribution is the evidence boundary.
 
-## Session handoff (2026-10-08, fifteenth session)
+## Session handoff (2026-10-08, sixteenth session)
 
 ### State and completed work
 
-HEAD is `0a9813a`/dev17 (code last changed in `cba2193`). Milestone 4a synthetic work, U1, direct chaining, indirect chaining, reviews, smoke, cache matrix, negative controls, and host build are complete. PLA observations show no measurable CPU change from U1 or chaining; generated code and unexplained idle waits remain the likely investigation targets.
+HEAD is `0ae08ea`. Overlay stages D and E are uncommitted; the first stage-D build was checked on PLA, but the redesigned router and stage-E window have not been hardware-verified. The host build and smoke run pass, including the new overlay logic and build-identity tests.
 
 ### Open issues, in priority order
 
-1. Disassemble and map hot main-DLL RVAs to generated functions; decide whether an attribution-only re-export is needed.
-2. Stack-sample what the roughly 20% idle core wait is waiting on.
-3. Finish the Step 6 checklist above.
-4. Consider U2 only with explicit user approval and low priority; then address held work.
+1. User to run `SUYU_DEBUG_OVERLAY=1` on PLA and check the redesigned bar/Debug window input (click/drag/focus loss) and stage-E sections, then commit.
+2. Map hot main-DLL RVAs and investigate the idle-core wait from the previous handoff; these remain open and unchanged, and the overlay's guest PCs do not replace them.
+3. Resolve the deferred A-C finding: early-exit paths can destroy the window before the renderer.
+4. Implement planned Settings -> Controller / Graphics ImGui windows and keyboard forwarding.
+5. Finish the Step 6 checklist above.
+6. Consider U2 only with explicit user approval.
 
 ### Immediate next action
 
-Disassemble and map the hot RVAs, then ask the user for FPS from the chain builds if it is still unknown.
+Wait for the user's hardware check of stages D/E and their commit.
 
 ## How to work / procedures
 
 - Run `.cmd` helpers through PowerShell's `cmd.exe /c "D:\HisuiWakeBuild\diag\buildsuyu.cmd > D:\HisuiWakeBuild\diag\<log> 2>&1"`; read logs for ASCII `error C` and `BUILD_EXIT`. Run `runsmoke.cmd` once per finished fix set and require both smoke pass markers; a first-pass new test needs a deliberately weakened negative control.
+- The overlay smoke tests need `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or provide a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`.
+- Set `SUYU_DEBUG_OVERLAY=1` to enable the overlay; empty or `0` keeps the default behavior off.
 - For cache integration, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`, use a fresh short work directory, run `--only-aot-cache-matrix`, then rebuild. Keep logs/builds/exports outside the repository.
 - For PLA, find the largest-working-set `Pokemon Legends_ Arceus` PID, run `sample_raw_kotobuki4.ps1` and `sample_stacks.ps1`, and confirm flags in `aot_manifest.json`. Use `SUYU_AOT_FASTMEM=1`, `SUYU_AOT_FM_INLINE=1`, `SUYU_AOT_SPLIT_MAIN=1`; add chain flags only for chain experiments.
 - For Orca workers, write the specification with the Write tool, start the requested model/effort, submit an unobserved turn through its terminal handle, wait once for `worker_done`/`escalation`, verify the diff, release the worker, and acknowledge the delivery. See `CLAUDE.md` for role rules.
 
-Repository hygiene: six `.pyc` files are tracked and `.gitignore` has no `pycache` entry; the user must decide whether to untrack them. The displaced plan text is archived under [the fifteenth-session cleanup](OLD_HISTORY.md#archived-on-2026-10-08-from-work_planmd-fifteenth-session-cleanup).
+Repository hygiene: six `.pyc` files are tracked and `.gitignore` has no `pycache` entry; the user must decide whether to untrack them. The displaced handoff is archived under [the sixteenth-session replacement](OLD_HISTORY.md#archived-on-2026-10-08-from-work_planmd-sixteenth-session-replacement).

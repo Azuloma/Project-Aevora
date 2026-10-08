@@ -26,8 +26,12 @@ if (SUYU_CMD OR YUZU_CMD)
         controller_assign.h
         native_status.cpp
         native_status.h
+        overlay/build_identity.cpp
+        overlay/build_identity.h
         overlay/debug_overlay.cpp
         overlay/debug_overlay.h
+        overlay/overlay_logic.h
+        overlay/overlay_stats.h
         sdl_config.cpp
         sdl_config.h
         suyu.cpp

@@ -679,15 +679,39 @@ def check_coverage_loop(root, exporter, build):
     print("Coverage loop checks passed.")
 
 
+def find_nlohmann_include(explicit):
+    """Directory holding nlohmann/json.hpp, for the build-identity parser test.
+
+    The headers come from the host build's CPM cache (CPM_SOURCE_CACHE), so there is no fixed
+    path; --nlohmann-include or NLOHMANN_INCLUDE_DIR names it directly.
+    """
+    candidates = []
+    if explicit:
+        candidates.append(Path(explicit))
+    if os.environ.get("NLOHMANN_INCLUDE_DIR"):
+        candidates.append(Path(os.environ["NLOHMANN_INCLUDE_DIR"]))
+    cache = os.environ.get("CPM_SOURCE_CACHE")
+    if cache:
+        candidates.extend(sorted(Path(cache).glob("nlohmann_json/*/include")))
+    for candidate in candidates:
+        if (candidate / "nlohmann" / "json.hpp").is_file():
+            return candidate
+    raise SystemExit("smoke: nlohmann/json.hpp not found for smoke_build_identity_unit; pass "
+                     "--nlohmann-include or set NLOHMANN_INCLUDE_DIR (or CPM_SOURCE_CACHE)")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument("--cc", help="explicit C compiler path, if needed")
     parser.add_argument("--cxx", help="explicit C++ compiler path, if needed")
+    parser.add_argument("--nlohmann-include", type=Path,
+                        help="directory containing nlohmann/json.hpp (default: search the CPM cache)")
     parser.add_argument("--only-xmod", action="store_true",
                         help="run only the three-module split fixture (static/DLL/static)")
     args = parser.parse_args()
+    nlohmann_include = find_nlohmann_include(args.nlohmann_include)
     source = args.source.resolve()
     test_source = Path(__file__).resolve().parent
     with tempfile.TemporaryDirectory(prefix="suyu-recompiler-smoke-") as tmp:
@@ -708,7 +732,7 @@ def main():
         # Which generator the script uses is cmake's default unless -G is passed in
         # the environment; record it so a result can be tied to it.
         cache_generator = None
-        export_build = build("export")
+        export_build = build("export", f"-DNLOHMANN_INCLUDE_DIR={nlohmann_include.as_posix()}")
         for line in (export_build / "CMakeCache.txt").read_text(encoding="utf-8",
                                                                 errors="replace").splitlines():
             if line.startswith("CMAKE_GENERATOR:"):
@@ -721,6 +745,8 @@ def main():
                      identity_switches, source)
             return
         call([executable(export_build, "smoke_gaps_unit")])
+        call([executable(export_build, "smoke_overlay_logic_unit")])
+        call([executable(export_build, "smoke_build_identity_unit")])
         call([executable(export_build, "smoke_topology_unit")])
         call([executable(export_build, "smoke_aot_cache_unit"), root / "aot-cache-unit"])
         check_coverage_loop(root, exporter, build)

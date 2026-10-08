@@ -2,6 +2,23 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev18 - Unreleased
+
+*Development entry 18 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added an opt-in Dear ImGui debug overlay for the Windows `suyu-cmd` launcher and the static launcher, enabled by `SUYU_DEBUG_OVERLAY=1` and disabled by default. It includes a command bar, input routing, Backend, Performance, CPU, Build identity, and GPU sections, plus standalone logic and build-identity smoke tests.
+- Added ImGui v1.92.9b as the forced-bundled `Aevora::imgui` dependency, the Vulkan overlay extension point, recompiled-module and native-status diagnostics, and packaged AOT manifest display fields.
+
+### Changed
+- Overlay-owned mouse input is routed through a bounded, mutex-protected queue with focus/minimize reset handling; keyboard input is not forwarded to ImGui yet. The overlay reports guest PCs and fallback activity as diagnostics and does not treat successful startup or zero hybrid fallback attempts as proof of static execution.
+
+### Verified
+- The current uncommitted tree built successfully (`BUILD_EXIT=0`) and the smoke run passed (`SMOKE_EXIT=0`), including the two new standalone tests. Negative controls caught the exercised mutations, and a real AOT-cache manifest was parsed as expected; the smoke runner requires `nlohmann/json.hpp` via `--nlohmann-include`, `NLOHMANN_INCLUDE_DIR`, or `CPM_SOURCE_CACHE`.
+
+### Known limitations / held items
+- Stages D and E are uncommitted and have not been hardware-verified beyond the first stage-D build. Rendering/input after the redesigned router, the complete stage-E window, MSVC `cl` and non-Windows compilers, Vulkan failure injection, early-exit teardown ordering, and performance impact remain unverified. The user must hardware-check PLA, then commit; suggested commit message: `Add opt-in suyu-cmd ImGui debug overlay`.
+
 ## v0.0.1-dev17 - Unreleased
 
 *Development entry 17 toward v0.0.1. Not a release; no build artifacts are published.*

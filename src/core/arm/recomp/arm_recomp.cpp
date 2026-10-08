@@ -747,6 +747,11 @@ std::array<u64, 4> GetRecompCurrentPcs() {
     return result;
 }
 
+std::map<u64, std::string> GetRecompModules() {
+    std::scoped_lock lk{g_counters.hist_lock};
+    return g_counters.modules;
+}
+
 void SetRecompLookup(RecompLookupFn lookup) {
     std::scoped_lock lock{g_process_init_lock};
     g_code_guard_ready.store(false, std::memory_order_release);

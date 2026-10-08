@@ -1013,6 +1013,27 @@ Correction to the earlier chain claim: the historical statement that direct chai
 
 The complete superseded WORK_PLAN text follows verbatim so no removed detail is lost.
 
+## Archived on 2026-10-08 from WORK_PLAN.md (sixteenth-session replacement)
+
+The superseded fifteenth-session handoff follows verbatim.
+
+## Session handoff (2026-10-08, fifteenth session)
+
+### State and completed work
+
+HEAD is `0a9813a`/dev17 (code last changed in `cba2193`). Milestone 4a synthetic work, U1, direct chaining, indirect chaining, reviews, smoke, cache matrix, negative controls, and host build are complete. PLA observations show no measurable CPU change from U1 or chaining; generated code and unexplained idle waits remain the likely investigation targets.
+
+### Open issues, in priority order
+
+1. Disassemble and map hot main-DLL RVAs to generated functions; decide whether an attribution-only re-export is needed.
+2. Stack-sample what the roughly 20% idle core wait is waiting on.
+3. Finish the Step 6 checklist above.
+4. Consider U2 only with explicit user approval and low priority; then address held work.
+
+### Immediate next action
+
+Disassemble and map the hot RVAs, then ask the user for FPS from the chain builds if it is still unknown.
+
 # Aevora Work Plan
 
 Handoff prepared: 2026-10-08. HEAD is `cba2193` on `main`; the pending dev17 commit contains Markdown only, and the user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-08-end-of-fourteenth-session); detail is archived in [OLD_HISTORY.md](OLD_HISTORY.md).

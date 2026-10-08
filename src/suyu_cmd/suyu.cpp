@@ -36,6 +36,7 @@
 #include "common/detached_tasks.h"
 #include "common/logging/backend.h"
 #include "suyu_cmd/native_status.h"
+#include "suyu_cmd/overlay/build_identity.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
 #include "common/package_policy.h"
@@ -2586,6 +2587,11 @@ int main(int argc, char** argv) {
                         LOG_CRITICAL(Frontend, "Packaged manifest is unreadable: {}",
                                      Common::FS::PathToUTF8String(manifest_path));
                         return 2;
+                    }
+                    // Display-only copy for the debug overlay; the manifest stays the source.
+                    SuyuCmd::BuildIdentity build_identity;
+                    if (SuyuCmd::ParseBuildIdentity(metadata, build_identity)) {
+                        SuyuCmd::SetBuildIdentity(std::move(build_identity));
                     }
                     const auto entry = metadata.find("control_metadata");
                     if (entry != metadata.end()) {

@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdint>
 #include <cstdlib>
+#include <optional>
 #include <memory>
 #include <string>
 
@@ -98,6 +100,9 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     if (fullscreen) {
         Fullscreen();
         ShowCursor(false);
+        if (debug_overlay) {
+            debug_overlay->SetHardwareCursorHidden(true);
+        }
     }
 
     // Retrieve native window handles via SDL3 property system
@@ -165,6 +170,80 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     SDL_PumpEvents();
     LOG_INFO(Frontend, "suyu Version: {} | {}-{} (Vulkan)", Common::g_build_name,
              Common::g_scm_branch, Common::g_scm_desc);
+}
+
+namespace {
+
+// SDL numbers buttons left, middle, right, back, forward from 1; ImGui numbers them left,
+// right, middle, back, forward from 0.
+std::optional<std::uint8_t> ToOverlayButton(Uint8 sdl_button) {
+    switch (sdl_button) {
+    case SDL_BUTTON_LEFT:
+        return 0;
+    case SDL_BUTTON_RIGHT:
+        return 1;
+    case SDL_BUTTON_MIDDLE:
+        return 2;
+    case SDL_BUTTON_X1:
+        return 3;
+    case SDL_BUTTON_X2:
+        return 4;
+    default:
+        return std::nullopt;
+    }
+}
+
+} // namespace
+
+bool EmuWindow_SDL2_VK::RouteOverlayEvent(const SDL_Event& event) {
+    if (!debug_overlay) {
+        return false;
+    }
+    using Kind = SuyuCmd::OverlayInputEvent::Kind;
+    SuyuCmd::OverlayInputRouter& router = debug_overlay->GetInputRouter();
+
+    // The overlay lays itself out in framebuffer pixels; SDL reports window coordinates.
+    const float density = SDL_GetWindowPixelDensity(render_window);
+    const auto at = [&](Kind kind, float window_x, float window_y, std::uint8_t button = 0,
+                        bool down = false) {
+        return SuyuCmd::OverlayInputEvent{kind, window_x * density, window_y * density, button,
+                                          down};
+    };
+
+    switch (event.type) {
+    case SDL_EVENT_MOUSE_MOTION:
+        if (event.motion.which == SDL_TOUCH_MOUSEID) {
+            return false;
+        }
+        return router.Route(at(Kind::MouseMove, event.motion.x, event.motion.y));
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP: {
+        const std::optional<std::uint8_t> button = ToOverlayButton(event.button.button);
+        if (event.button.which == SDL_TOUCH_MOUSEID || !button) {
+            return false;
+        }
+        return router.Route(
+            at(Kind::MouseButton, event.button.x, event.button.y, *button, event.button.down));
+    }
+    case SDL_EVENT_MOUSE_WHEEL:
+        if (event.wheel.which == SDL_TOUCH_MOUSEID) {
+            return false;
+        }
+        return router.Route({Kind::MouseWheel, event.wheel.x, event.wheel.y, 0, false});
+    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+        router.Route({Kind::MouseLeave, 0.0f, 0.0f, 0, false});
+        return false;
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+    case SDL_EVENT_WINDOW_MINIMIZED:
+        // No release may ever arrive for a button held across this; drop what the overlay holds.
+        router.Route({Kind::Reset, 0.0f, 0.0f, 0, false});
+        return false;
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        router.Route({Kind::FocusGained, 0.0f, 0.0f, 0, false});
+        return false;
+    default:
+        return false;
+    }
 }
 
 Core::Frontend::VulkanOverlay* EmuWindow_SDL2_VK::GetVulkanOverlay() {

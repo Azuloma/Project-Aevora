@@ -36,6 +36,9 @@ public:
     void* metal_view{};
 #endif
 
+protected:
+    bool RouteOverlayEvent(const SDL_Event& event) override;
+
 private:
     std::unique_ptr<SuyuCmd::DebugOverlay> debug_overlay;
 };
