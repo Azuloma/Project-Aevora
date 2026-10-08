@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 
@@ -24,8 +25,13 @@ constexpr u32 kExtraFramesInFlight = 1;
 constexpr float kMaxDeltaTimeSeconds = 0.25f;
 constexpr float kPlaceholderDeltaTimeSeconds = 1.0f / 60.0f;
 
+// Set by the ImGui backend's error callback, which carries no user data. The backend keeps going
+// after a failed call, so Record checks this at each stage and disables the overlay for good.
+std::atomic<bool> vulkan_error_seen{false};
+
 void LogVulkanResult(VkResult result) {
     if (result != VK_SUCCESS) {
+        vulkan_error_seen = true;
         LOG_ERROR(Frontend, "Debug overlay Vulkan call failed: VkResult {}",
                   static_cast<int>(result));
     }
@@ -55,6 +61,7 @@ bool DebugOverlay::Initialize(const Core::Frontend::VulkanOverlayContext& new_co
     Shutdown();
     context = new_context;
     failed = false;
+    vulkan_error_seen = false;
 
     if (!ImGui_ImplVulkan_LoadFunctions(context.api_version, LoadVulkanFunction, &context)) {
         LOG_ERROR(Frontend, "Debug overlay could not load the Vulkan entry points ImGui needs");
@@ -133,7 +140,8 @@ void DebugOverlay::Record(void* command_buffer, u64 render_pass, u32 width, u32 
     if (failed || !context_created || width == 0 || height == 0) {
         return;
     }
-    if (!EnsureBackend(render_pass)) {
+    if (!EnsureBackend(render_pass) || vulkan_error_seen) {
+        LOG_ERROR(Frontend, "Debug overlay disabled: Vulkan backend setup failed");
         failed = true;
         return;
     }
@@ -153,6 +161,10 @@ void DebugOverlay::Record(void* command_buffer, u64 render_pass, u32 width, u32 
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
                                     static_cast<VkCommandBuffer>(command_buffer));
+    if (vulkan_error_seen) {
+        LOG_ERROR(Frontend, "Debug overlay disabled: a Vulkan call failed while drawing");
+        failed = true;
+    }
 }
 
 void DebugOverlay::BuildUi() {

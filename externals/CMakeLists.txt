@@ -437,7 +437,9 @@ endif()
 # The Vulkan backend resolves its entry points through ImGui_ImplVulkan_LoadFunctions
 # because the renderer loads Vulkan dynamically instead of linking vulkan-1.
 if (YUZU_CMD)
-    AddJsonPackage(NAME imgui DOWNLOAD_ONLY)
+    # Forced bundled: the targets below are built from source, so a system imgui package must not
+    # satisfy the request (it would leave imgui_SOURCE_DIR unset).
+    AddJsonPackage(NAME imgui DOWNLOAD_ONLY FORCE_BUNDLED_PACKAGE ON)
 
     add_library(aevora_imgui STATIC
         ${imgui_SOURCE_DIR}/imgui.cpp

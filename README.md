@@ -14,7 +14,7 @@
 <p>
 <p align="center">
   <a href="#Status">Status</a> |
-  <a href="#Planned Features">Planned Features</a> |
+  <a href="#Implemented features">Implemented features</a> |
   <a href="#License">License</a>
 <p>
 
@@ -39,6 +39,11 @@ Aevora is a personal project. It is not run for financial gain or recognition.
 
 There will be no Patreon, Ko-fi, or other fundraising campaign, and the project does not accept donations or other monetary support.
 
+## Implemented features
+
+- Native CPU processing in Static AoT recompiler
+- An implementation of ImGUI, useful for debugging and quick configuration changes
+
 ## Planned Features
 
 These planned features are not guaranteed to be implemented, and may change depending on the circumstances, potentially increasing or decreasing in the number of features
@@ -50,6 +55,9 @@ These planned features are not guaranteed to be implemented, and may change depe
 - Increased shadow resolution and distance
 - Increased LoD and draw distance
 - Enhanced ambient occlusion
+- 16x anisotropic filtering and increased filtering distance
+- Reducing stutter that occurs during shader compilation
+- Native controller and keyboard support
 
 ## Recompiler Scope
 

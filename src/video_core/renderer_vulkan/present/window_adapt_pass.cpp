@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <mutex>
+
 #include "core/frontend/framebuffer_layout.h"
 #include "core/frontend/vulkan_overlay.h"
 #include "video_core/framebuffer_config.h"
@@ -71,6 +73,7 @@ void WindowAdaptPass::Draw(const Device& device, RasterizerVulkan& rasterizer, S
         layer_it++;
     }
 
+    Scheduler* const scheduler_ptr = &scheduler;
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
         const f32 bg_red = Settings::values.bg_red.GetValue() / 255.0f;
         const f32 bg_green = Settings::values.bg_green.GetValue() / 255.0f;
@@ -108,6 +111,9 @@ void WindowAdaptPass::Draw(const Device& device, RasterizerVulkan& rasterizer, S
         // Drawn inside this pass: its attachment is DONT_CARE on load, so a second pass over the
         // same frame would discard the game image.
         if (overlay != nullptr) {
+            // The overlay backend submits to the graphics queue itself (font uploads), which the
+            // present thread and the scheduler also use; submit_mutex is the queue's lock.
+            std::scoped_lock queue_lock{scheduler_ptr->submit_mutex};
             overlay->Record(static_cast<void*>(*cmdbuf), reinterpret_cast<u64>(renderpass),
                             render_area.width, render_area.height);
         }
