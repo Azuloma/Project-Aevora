@@ -1002,3 +1002,8 @@ Start item 1: design the lifetime/unregister contract, verify the smallest host 
 - Never run two `rebuild-suyu.bat`/ninja invocations on one build tree. Run `cmd /c <local>\rebuild-suyu.bat` from PowerShell, clear the three export variables after exports, and keep logs outside the repository.
 - The exporter log tail is not evidence; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused`. Use a short ASCII `D:\hwk\<name>` work folder.
 - Useful commands: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-aot-cache` and `--only-aot-cache-matrix`. Switches: `SUYU_FPCR_STATS`, `SUYU_RECOMP_CHAIN_BUDGET`, `SUYU_AOT_TRANSLATE_ALL`, `SUYU_AOT_FM_INLINE`.
+## Archived on 2026-10-08 from WORK_PLAN.md (end of fourteenth session)
+
+This section preserves the superseded thirteenth-session handoff. At that point HEAD was `8818bd3`, U1 was uncommitted, the Kotobuki observation was 17-20 FPS versus 30 FPS JIT, and the next action was to ask whether to relink only or commit and fully re-export before measuring U1. That handoff is superseded by the verified U1 launcher measurements and chain experiments recorded in the fourteenth-session plan.
+
+Correction to the earlier chain claim: the historical statement that direct chains were intra-module (~380-410) described an older intended/state measurement, not active current call sites. Before `d89d6c2`, `ChainTo` and `ChainIndirect` had no call sites and B/BL/RET/BR/BLR/conditional branches returned through `run_slice`; current direct and indirect chaining are opt-in and independently flagged.

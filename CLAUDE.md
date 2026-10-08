@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-08, HEAD is still `8818bd3` on `main` (dev16), and uncommitted U1 runtime/test and Markdown work exists. Milestone 4a 4(d) U1-U4 and covered Step 5 cases are synthetic-fixture verified; Step 6 static AOT + FMI + main-DLL split ran, but Kotobuki was 17-20 FPS versus 30 FPS JIT. U1 is implemented and reviewed but its PLA effect is not measured; ask the user to choose relink-only or commit plus full re-export before measuring. Successful code generation, compilation, or startup alone does not establish game compatibility; keep public descriptions consistent with the evidence.
+As of 2026-10-08, HEAD is `cba2193` on `main`; the pending dev17 change is Markdown only. Milestone 4a 4(d) U1-U4 and covered Step 5 cases are synthetic-fixture verified; U1, direct chaining, and indirect chaining are implemented behind opt-in flags and off by default. The recompiler smoke suite passes all variants, the AOT cache matrix passes 194/0, and the host build exits 0; PLA observations cover U1, direct chaining, and direct-plus-indirect chaining, with FPS unreported for the chain runs. Successful code generation, compilation, or startup alone does not establish game compatibility; keep public descriptions consistent with the evidence.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is still `8818bd3`/dev16 with uncommitted work; 4(d) U1-U4 and covered Step 5 cases are synthetic-fixture verified, and Step 6/U1 PLA measurement remains open. First ask the user whether to relink the cached launcher with U1 or commit and perform a full re-export; never fake the cache producer identity. Then measure Kotobuki FPS and SpinLock share before choosing approved U2 or generated-code investigation. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, verify with logs outside the repository, obtain review, fix findings, then update Markdown. The user commits, tags, and pushes; agents never do so.
+Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is `cba2193`/dev17; U1, direct chaining, indirect chaining, and their synthetic verification are complete, while the next action is to disassemble and map the hot main-DLL RVAs. Never fake the cache producer identity. Then investigate generated-code cost and the unexplained idle core wait before considering approved U2; the remaining Step 6 checklist and held items stay open. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews every code change, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. For each unit, decide the cause and approach, implement one behavior, verify with logs outside the repository, obtain review, fix findings, then update Markdown. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -107,6 +107,8 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - The user may also hand work to Codex directly; re-check `git status` and the diff before editing.
 
 ## Build and verification rules
+
+- Standing export procedure: set `SUYU_AOT_FASTMEM=1`, `SUYU_AOT_FM_INLINE=1`, and `SUYU_AOT_SPLIT_MAIN=1` in the `suyu` process environment for the standard export; add `SUYU_AOT_DIRECT_CHAIN=1` and/or `SUYU_AOT_INDIRECT_CHAIN=1` only for the corresponding chain experiments. These are procedure settings; code defaults remain unchanged.
 
 - Suyu's log tail is lost at export exit; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` status fields, never the log tail, as cache evidence.
 - Never run two `rebuild-suyu.bat` or ninja invocations on one build tree concurrently.

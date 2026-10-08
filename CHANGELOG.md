@@ -7,11 +7,17 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 *Development entry 17 toward v0.0.1. Not a release; no build artifacts are published.*
 
 ### Added
-- Added opt-in direct chaining of unconditional in-module `B`/`BL` (`SUYU_AOT_DIRECT_CHAIN=1`, `g_emit_direct_chain`): the branch tail-calls the target block (clang `musttail`, plain call elsewhere) instead of returning to `recomp_image_run_slice` for a lookup. Off by default and byte-identical when off. Recorded in the cache manifest and bundle id. Synthetic smoke variants `abi6dc`/`ggdc` pass; no `BL` execution test, integration run, review, or PLA measurement yet.
-- Added the thirteenth-session handoff and archived Step 6 static AOT/FMI/main-DLL evidence, U1 exclusive-monitor verification, and cache-launcher constraints.
+- Added U1's lock-light exclusive monitor path and tests, opt-in direct B/BL chaining, and independent opt-in indirect RET/BR/BLR chaining. Chain paths are off by default, preserve byte-identical emitter output when off, use `RECOMP_TAIL_CALL` where enabled, and record `direct_chain`/`indirect_chain` in the manifest, cache reuse check, and bundle id.
+- Added chain smoke variants `abi6dc`, `ggdc`, `abi6ic`, and `ggdcic`, the `--bl` execution fixture, structural checks, cache-matrix cases, environment-driven reuse/invalidation scenarios, and negative controls. The smoke suite passed under clang-cl; the AOT cache matrix passed 194 tests with 0 failures; the host build exited 0.
+- Added the fourteenth-session handoff and archived the superseded thirteenth-session handoff.
 
 ### Changed
-- Documented the user-run Kotobuki Village comparison (17-20 FPS static AOT versus 30 FPS JIT), sampling results, U1 status, and the relink-only versus full re-export decision.
+- Corrected comments and documentation for the 2 MiB fiber stack, `/O2` MSVC route, and historical chain-budget measurements; documented that conditional branches do not chain.
+- Documented user-run Kotobuki observations: U1 reported 17-21 FPS, direct-chain and direct-plus-indirect-chain image sizes and CPU samples, recurring hot RVAs, and the unexplained idle wait. These are observations, not acceptance results; chain-run FPS was not reported. The standing procedure sets FASTMEM, FMI, and split-main environment variables, adding chain variables only for chain experiments.
+- Retained the thirteenth-session handoff and the Kotobuki comparison line: static AOT was 17-20 FPS versus 30 FPS JIT before the U1 launcher observation.
+
+### Verified
+- Direct and indirect chain reviews completed (direct: two rounds with findings fixed; indirect: two rounds, final approved), and the BL fixture covered both bases, budget exhaustion, middle-block targets, below-base targets, and BLR x30 ordering. MSVC `cl`, non-Windows compilers, old manifests without chain fields, and broader PLA correctness remain untested.
 
 ## v0.0.1-dev16 - Unreleased
 
