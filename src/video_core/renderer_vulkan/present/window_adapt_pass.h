@@ -11,6 +11,10 @@
 #include "common/math_util.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
+namespace Core::Frontend {
+class VulkanOverlay;
+}
+
 namespace Layout {
 struct FramebufferLayout;
 }
@@ -35,7 +39,8 @@ public:
 
     void Draw(const Device& device, RasterizerVulkan& rasterizer, Scheduler& scheduler, size_t image_index,
               std::list<Layer>& layers, std::span<const Tegra::FramebufferConfig> configs,
-              const Layout::FramebufferLayout& layout, Frame* dst);
+              const Layout::FramebufferLayout& layout, Frame* dst,
+              Core::Frontend::VulkanOverlay* overlay = nullptr);
 
     VkDescriptorSetLayout GetDescriptorSetLayout();
     VkRenderPass GetRenderPass();

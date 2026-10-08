@@ -18,6 +18,7 @@
 #include <ranges>
 #include "common/scope_exit.h"
 #include "common/settings.h"
+#include "core/frontend/vulkan_overlay.h"
 #include "core/core_timing.h"
 #include "core/frontend/graphics_context.h"
 #include "video_core/capture.h"
@@ -165,6 +166,7 @@ try
     }
 
     Report();
+    InitializeOverlay();
 } catch (const vk::Exception& exception) {
     LOG_ERROR(Render_Vulkan, "Vulkan initialization failed with error: {}", exception.what());
     throw std::runtime_error{fmt::format("Vulkan initialization error {}", exception.what())};
@@ -172,7 +174,39 @@ try
 
 RendererVulkan::~RendererVulkan() {
     scheduler.RegisterOnSubmit([] {});
+    if (overlay != nullptr) {
+        // Drain recorded work first: queued overlay draws must not outlive its Vulkan objects.
+        scheduler.Finish();
+    }
     void(device.GetLogical().WaitIdle());
+    if (overlay != nullptr) {
+        overlay->Shutdown();
+    }
+}
+
+void RendererVulkan::InitializeOverlay() {
+    if (is_headless) {
+        return;
+    }
+    Core::Frontend::VulkanOverlay* const candidate = render_window.GetVulkanOverlay();
+    if (candidate == nullptr) {
+        return;
+    }
+    const Core::Frontend::VulkanOverlayContext overlay_context{
+        .get_instance_proc_addr = reinterpret_cast<void*>(dld.vkGetInstanceProcAddr),
+        .instance = *instance,
+        .physical_device = static_cast<VkPhysicalDevice>(device.GetPhysical()),
+        .device = *device.GetLogical(),
+        .graphics_queue = device.GetGraphicsQueue().GetHandle(),
+        .graphics_queue_family = device.GetGraphicsFamily(),
+        .api_version = VK_API_VERSION_1_1,
+        .image_count = static_cast<u32>(swapchain.GetImageCount()),
+    };
+    if (!candidate->Initialize(overlay_context)) {
+        LOG_ERROR(Render_Vulkan, "Frontend overlay failed to initialize; continuing without it");
+        return;
+    }
+    overlay = candidate;
 }
 
 void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebuffers) {
@@ -222,7 +256,7 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
     scheduler.RequestOutsideRenderPassOperationContext();
     blit_swapchain.DrawToFrame(device, rasterizer, frame, framebuffers,
                                render_window.GetFramebufferLayout(), swapchain.GetImageCount(),
-                               swapchain.GetImageViewFormat());
+                               swapchain.GetImageViewFormat(), overlay);
     scheduler.Flush(*frame->render_ready);
 
     present_manager.Present(frame);

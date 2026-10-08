@@ -21,6 +21,7 @@ Snapshot of the source tree at `cba2193` (2026-10-08), updated from a read-only 
 | `scripts/` | Build-fix notes and helper scripts. Inspect before running; some clear caches. |
 | `dist/`, `hooks/` | Desktop/icon/udev assets; git pre-commit hook installed by CMake. |
 | `docs/Aevora/`, `docs/Suyu/` | Current project docs, including `WORK_PLAN.md` and `OLD_HISTORY.md`; archived upstream docs. |
+| Local, outside repository: `D:\HisuiWakeBuild\diag` | `buildsuyu.cmd`, `runsmoke.cmd`, and samplers. |
 
 ### Lineage markers found in the tree
 

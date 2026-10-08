@@ -835,6 +835,11 @@ public:
         return dld->vkQueuePresentKHR(queue, &present_info);
     }
 
+    /// Raw handle, for code that builds its own Vulkan objects (the frontend overlay).
+    VkQueue GetHandle() const noexcept {
+        return queue;
+    }
+
 private:
     VkQueue queue = nullptr;
     const DeviceDispatch* dld = nullptr;

@@ -221,6 +221,7 @@ add_library(core STATIC
     frontend/applets/web_browser.h
     frontend/emu_window.cpp
     frontend/emu_window.h
+    frontend/vulkan_overlay.h
     frontend/framebuffer_layout.cpp
     frontend/framebuffer_layout.h
     frontend/graphics_context.h

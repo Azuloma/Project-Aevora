@@ -431,3 +431,34 @@ elseif (APPLE AND NOT IOS)
         set(MOLTENVK_LIBRARY "${moltenvk_SOURCE_DIR}/MoltenVK/dylib/macOS/libMoltenVK.dylib" CACHE STRING "" FORCE)
     endif()
 endif()
+
+# Dear ImGui (core + Vulkan renderer backend) for the suyu-cmd debug overlay.
+# Upstream ships no CMake project, so it is fetched source-only and built here.
+# The Vulkan backend resolves its entry points through ImGui_ImplVulkan_LoadFunctions
+# because the renderer loads Vulkan dynamically instead of linking vulkan-1.
+if (YUZU_CMD)
+    AddJsonPackage(NAME imgui DOWNLOAD_ONLY)
+
+    add_library(aevora_imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+    )
+    target_include_directories(aevora_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+    target_compile_definitions(aevora_imgui PUBLIC
+        IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+        IMGUI_DISABLE_DEMO_WINDOWS
+        IMGUI_DISABLE_DEBUG_TOOLS
+        IMGUI_DISABLE_WIN32_FUNCTIONS
+        IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS
+    )
+    target_link_libraries(aevora_imgui PUBLIC Vulkan::Headers)
+    if (MSVC)
+        target_compile_options(aevora_imgui PRIVATE /W0)
+    else()
+        target_compile_options(aevora_imgui PRIVATE -w)
+    endif()
+    add_library(Aevora::imgui ALIAS aevora_imgui)
+endif()

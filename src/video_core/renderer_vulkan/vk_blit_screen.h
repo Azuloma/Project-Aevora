@@ -19,6 +19,10 @@ namespace Core {
 class System;
 }
 
+namespace Core::Frontend {
+class VulkanOverlay;
+}
+
 struct PresentFilters;
 
 namespace Tegra {
@@ -58,7 +62,8 @@ public:
     void DrawToFrame(const Device& device, RasterizerVulkan& rasterizer, Frame* frame,
                      std::span<const Tegra::FramebufferConfig> framebuffers,
                      const Layout::FramebufferLayout& layout, size_t current_swapchain_image_count,
-                     VkFormat current_swapchain_view_format);
+                     VkFormat current_swapchain_view_format,
+                     Core::Frontend::VulkanOverlay* overlay = nullptr);
 
     [[nodiscard]] vk::Framebuffer CreateFramebuffer(const Device& device, const Layout::FramebufferLayout& layout,
                                                     VkImageView image_view,

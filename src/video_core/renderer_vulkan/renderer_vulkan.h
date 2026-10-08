@@ -70,6 +70,7 @@ private:
     VkCommandBuffer BeginSingleTimeCommands();
     void EndSingleTimeCommands(VkCommandBuffer command_buffer);
     void Report() const;
+    void InitializeOverlay();
 
     vk::Buffer RenderToBuffer(std::span<const Tegra::FramebufferConfig> framebuffers,
                               const Layout::FramebufferLayout& layout, VkFormat format,
@@ -103,6 +104,10 @@ private:
     std::optional<TurboMode> turbo_mode;
 
     Frame applet_frame;
+
+    /// Frontend overlay drawn over the presented frame; null when the window offers none or its
+    /// initialisation failed. Owned by the window.
+    Core::Frontend::VulkanOverlay* overlay{};
 
     bool is_headless{false};
     std::vector<u8> headless_frame_data;

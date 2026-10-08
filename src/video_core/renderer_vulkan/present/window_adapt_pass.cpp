@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/frontend/framebuffer_layout.h"
+#include "core/frontend/vulkan_overlay.h"
 #include "video_core/framebuffer_config.h"
 #include "video_core/host_shaders/vulkan_present_vert_spv.h"
 #include "video_core/renderer_vulkan/present/layer.h"
@@ -34,7 +35,8 @@ WindowAdaptPass::~WindowAdaptPass() = default;
 void WindowAdaptPass::Draw(const Device& device, RasterizerVulkan& rasterizer, Scheduler& scheduler, size_t image_index,
                            std::list<Layer>& layers,
                            std::span<const Tegra::FramebufferConfig> configs,
-                           const Layout::FramebufferLayout& layout, Frame* dst) {
+                           const Layout::FramebufferLayout& layout, Frame* dst,
+                           Core::Frontend::VulkanOverlay* overlay) {
 
     const VkFramebuffer host_framebuffer{*dst->framebuffer};
     const VkRenderPass renderpass{*render_pass};
@@ -101,6 +103,13 @@ void WindowAdaptPass::Draw(const Device& device, RasterizerVulkan& rasterizer, S
             cmdbuf.BindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline_layout, 0,
                                       descriptor_sets[i], {});
             cmdbuf.Draw(4, 1, 0, 0);
+        }
+
+        // Drawn inside this pass: its attachment is DONT_CARE on load, so a second pass over the
+        // same frame would discard the game image.
+        if (overlay != nullptr) {
+            overlay->Record(static_cast<void*>(*cmdbuf), reinterpret_cast<u64>(renderpass),
+                            render_area.width, render_area.height);
         }
 
         cmdbuf.EndRenderPass();

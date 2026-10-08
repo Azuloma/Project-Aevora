@@ -23,9 +23,9 @@
 
 ## Status
 
-Currently, Aevora can recompile PLA with Static AoT, achieving an average of 25-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
+Currently, Aevora can recompile PLA with Static AoT, achieving an average of 20-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
 
-The next step is to change the approach so that `main` is built as a custom DLL image loaded by a static launcher, so that it fits within the 2GB limit of MSVC x64. In this case, `rtld`, `sdk`, `subsdk0`, and `subsdk1` will remain statically linked. This change allows for the implementation of an opt-in FMI inline fast path for Static AoT.
+Currently, it has become clear that the Suyu recompiler's code execution method is quite inefficient, so we are attempting to fix it. Additionally, we have improved usability by implementing ImGui.
 
 ## Development Approach
 
@@ -44,15 +44,16 @@ There will be no Patreon, Ko-fi, or other fundraising campaign, and the project 
 These planned features are not guaranteed to be implemented, and may change depending on the circumstances, potentially increasing or decreasing in the number of features
 
 - Ultrawide support
-- Native 4K
-- Stable 60FPS
-- Enhanced ambient occlusion
+- Native 4K and WQHD support, and no Dynamic resolution
+- 60FPS Mode
+- Implementation of anti-aging (TAA, FXAA, MSAA)
 - Increased shadow resolution and distance
 - Increased LoD and draw distance
+- Enhanced ambient occlusion
 
 ## Recompiler Scope
 
-Aevora is modified Suyu recompiler is focused on the changes needed to statically recompile Pokemon Legends: Arceus. Other games may work, but they are outside this project is intended support scope, and using Aevora to recompile them is not recommended.
+Aevora Recompiler v1 is an improved version of the Suyu Recompiler, specifically designed to make the necessary changes for statically recompiling Pokémon Legends: Arceus. It does not support recompiling any games other than Pokémon Legends: Arceus, and <strong>Aevora assumes no responsibility for any compatibility issues or data loss that may occur.</strong>
 
 For other games, consider [upstream Suyu v0.0.12](https://github.com/suyu-emu/suyu-main/releases/tag/v0.0.12) or [Drippu](https://github.com/suyu-emu/drippu). Compatibility must be evaluated per game.
 

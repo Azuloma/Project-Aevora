@@ -21,6 +21,7 @@
 #include "common/logging/log.h"
 #include "common/scm_rev.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2_vk.h"
+#include "suyu_cmd/overlay/debug_overlay.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 
 #include <SDL3/SDL.h>
@@ -28,6 +29,9 @@
 EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsystem_,
                                      Core::System& system_, bool fullscreen)
     : EmuWindow_SDL2{input_subsystem_, system_} {
+    if (SuyuCmd::IsDebugOverlayRequested()) {
+        debug_overlay = std::make_unique<SuyuCmd::DebugOverlay>();
+    }
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Standalone exports are named after the game already (game_export.cpp
     // renames the exe at packaging time), so use that instead of the
@@ -161,6 +165,10 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     SDL_PumpEvents();
     LOG_INFO(Frontend, "suyu Version: {} | {}-{} (Vulkan)", Common::g_build_name,
              Common::g_scm_branch, Common::g_scm_desc);
+}
+
+Core::Frontend::VulkanOverlay* EmuWindow_SDL2_VK::GetVulkanOverlay() {
+    return debug_overlay.get();
 }
 
 EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {

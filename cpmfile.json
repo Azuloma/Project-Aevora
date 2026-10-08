@@ -117,6 +117,11 @@
         "repo": "yhirose/cpp-httplib",
         "version": "v0.46.0"
     },
+    "imgui": {
+        "hash": "1a8fc7e4d7fe8926289ed9598f39dd5b601baffa3b2a7a0889ed0f9a8f252c85710f4ba65b2a6801bb5b46a17d1fd30b5542e11f67b8989c6640b498ef68bb2d",
+        "repo": "ocornut/imgui",
+        "version": "v1.92.9b"
+    },
     "lagoon": {
         "hash": "b9380f99c6effaeccc6d8f81d4942e852c11ad28613df637e155451556ae5826f93765bee57a5c87a9740d2bd1db463ad0f55a947772fe9d57eeabae3efa373e",
         "repo": "loongson-community/lagoon",

@@ -26,6 +26,8 @@ if (SUYU_CMD OR YUZU_CMD)
         controller_assign.h
         native_status.cpp
         native_status.h
+        overlay/debug_overlay.cpp
+        overlay/debug_overlay.h
         sdl_config.cpp
         sdl_config.h
         suyu.cpp
@@ -342,7 +344,7 @@ if (SUYU_CMD OR YUZU_CMD)
 
         target_include_directories(${_t} PRIVATE ${RESOURCES_DIR})
 
-        target_link_libraries(${_t} PRIVATE SDL3::SDL3 Vulkan::Headers VulkanMemoryAllocator)
+        target_link_libraries(${_t} PRIVATE SDL3::SDL3 Vulkan::Headers VulkanMemoryAllocator Aevora::imgui)
         # FFmpeg headers are not transitively exposed by core; add them explicitly
         target_include_directories(${_t} PRIVATE ${FFmpeg_INCLUDE_DIR})
 

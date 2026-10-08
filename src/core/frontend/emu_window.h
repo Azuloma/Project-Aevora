@@ -15,6 +15,7 @@
 namespace Core::Frontend {
 
 class GraphicsContext;
+class VulkanOverlay;
 
 /// @brief Information for the Graphics Backends signifying what type of screen pointer is in
 /// WindowInformation
@@ -75,6 +76,12 @@ public:
 
     /// Called from GPU thread when a frame is displayed.
     virtual void OnFrameDisplayed() {}
+
+    /// Overlay drawn on top of each presented frame by the Vulkan renderer, or nullptr for none.
+    /// The window keeps ownership and must outlive the renderer.
+    virtual VulkanOverlay* GetVulkanOverlay() {
+        return nullptr;
+    }
 
     /**
      * Returns a GraphicsContext that the frontend provides to be used for rendering.
