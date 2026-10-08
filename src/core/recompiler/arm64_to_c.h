@@ -366,6 +366,13 @@ inline bool g_emit_image_identity = false;
 // the emitted text is byte-identical to what it would be without it.
 inline bool g_emit_direct_chain = false;
 
+// The same for the computed targets of RET, BR and BLR: the target is looked up in
+// the module's own block index and, when it is a block of this module, tail-called.
+// A target outside the index is left to the run-slice loop, exactly as without it.
+// Independent of g_emit_direct_chain so each can be measured on its own. Off by
+// default, and while it is off the emitted text is byte-identical.
+inline bool g_emit_indirect_chain = false;
+
 // Strict static exports have no fallback to carry deliberately gated forms.
 inline bool TranslateAllForExport(bool strict_static, bool explicitly_requested) {
     return strict_static || explicitly_requested;
@@ -417,22 +424,19 @@ inline std::string ChainTo(u64 t) {
     return b;
 }
 
-// Not called by the current emitter (RET, BR and BLR still return to the
-// module's run-slice loop, which looks the target up); kept as the starting point
-// for chaining computed targets.
-// The note below was measured on an earlier emitter, before the run-slice loop
-// kept control flow inside the image: a chain of blocks ended at the first BR,
-// BLR or RET, and each of those was a round trip out to the host dispatcher:
-// RunThread plus the dispatch lambda were 24.7% of all cycles in a JIT-free image
-// against 17.7% in a hybrid one. recomp_lookup is this module's own flat block
-// index - one bounds check and one load - so resolving the target here keeps
-// execution inside the image whenever it stays in the module. A target in another
-// module misses the index and falls back to the dispatcher, which is where it
-// had to go anyway.
+// Chains a computed target (RET, BR, BLR) when g_emit_indirect_chain is on.
+// recomp_lookup is this module's own flat block index - one bounds check and one
+// load - so resolving the target here keeps execution inside the image whenever
+// it stays in the module; a target in another module misses the index and returns
+// to the run-slice loop and then the host dispatcher, which is where it had to go
+// anyway. A miss spends no budget. The index covers every translated instruction,
+// so the target may be the middle of a block; the block's own entry switch handles
+// that, as it does for the run-slice loop. The budget check stays ahead of the
+// call for the same reason as in ChainTo.
 inline std::string ChainIndirect(const std::string& target) {
     return "{ c->pc=" + target +
            "; { BlockFn _f=recomp_lookup(c->pc-g_module_base); "
-           "if (_f && --c->chain_budget > 0) { _f(c); return; } } return; }";
+           "if (_f && --c->chain_budget > 0) { RECOMP_TAIL_CALL(_f) } } return; }";
 }
 
 // The condition is a literal at every site, so the switch inside recomp_cond
@@ -1253,15 +1257,28 @@ inline bool Translate(u32 i, u64 pc, std::string& out, bool* unhandled = nullptr
         put(buf);
         return false;
     }
-    if ((i & 0xFFFFFC1F) == 0xD65F0000) { put("c->pc=c->x[30]; return; /* RET */"); return false; }
-    if ((i & 0xFFFFFC1F) == 0xD61F0000) { u32 rn = (i >> 5) & 31; put("c->pc=c->x[" + std::to_string(rn) + "]; return; /* BR */"); return false; }
+    if ((i & 0xFFFFFC1F) == 0xD65F0000) {
+        put(g_emit_indirect_chain ? ChainIndirect("c->x[30]") + " /* RET */"
+                                  : std::string("c->pc=c->x[30]; return; /* RET */"));
+        return false;
+    }
+    if ((i & 0xFFFFFC1F) == 0xD61F0000) {
+        u32 rn = (i >> 5) & 31;
+        const std::string target = "c->x[" + std::to_string(rn) + "]";
+        put(g_emit_indirect_chain ? ChainIndirect(target) + " /* BR */"
+                                  : "c->pc=" + target + "; return; /* BR */");
+        return false;
+    }
     if ((i & 0xFFFFFC1F) == 0xD63F0000) {
         u32 rn = (i >> 5) & 31;
+        // The target is read before x30 is overwritten: BLR x30 calls through it.
         snprintf(buf, sizeof buf,
-                 "{ uint64_t _target=c->x[%u]; c->x[30]=g_module_base+0x%llxULL; "
-                 "c->pc=_target; return; } /* BLR */",
+                 "{ uint64_t _target=c->x[%u]; c->x[30]=g_module_base+0x%llxULL; ",
                  rn, (unsigned long long)next);
-        put(buf);
+        std::string text = buf;
+        text += g_emit_indirect_chain ? ChainIndirect("_target") + " } /* BLR */"
+                                      : std::string("c->pc=_target; return; } /* BLR */");
+        put(text);
         return false;
     }
     if ((i & 0xFF000010) == 0x54000000) {
@@ -5238,8 +5255,12 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
                   "#include \"recomp_runtime.h\"\n#include <stdint.h>\n"
                   "#include <string.h>\n#include <math.h>\n"
                   "struct _recomp_ent{uint64_t lo,hi; BlockFn fn;};\n\n";
-        if (g_emit_direct_chain) {
-            output << "/* Direct B/BL chain. musttail makes the jump a guaranteed tail call,\n"
+        if (g_emit_direct_chain || g_emit_indirect_chain) {
+            output << (g_emit_indirect_chain
+                           ? "/* Direct and indirect chain (B/BL, RET/BR/BLR). musttail makes the jump a\n"
+                             "   guaranteed tail call,\n"
+                           : "/* Direct B/BL chain. musttail makes the jump a guaranteed tail call,\n")
+                   <<
                       "   so a chain does not grow the stack; other compilers get a plain\n"
                       "   call bounded by the chain budget. */\n"
                       "#if defined(__clang__) && defined(__has_attribute)\n"

@@ -19,10 +19,10 @@ if(LOOP_DIR)
     target_link_libraries(smoke_loop PRIVATE m)
   endif()
 elseif(BL_DIR)
-  # The direct B/BL chaining fixture (export.cpp --bl). BL_EXPECT_CHAIN says whether
-  # the module was exported with direct chaining.
-  if(NOT DEFINED BL_EXPECT_CHAIN)
-    message(FATAL_ERROR "the B/BL fixture needs BL_EXPECT_CHAIN (0 or 1)")
+  # The chaining fixture (export.cpp --bl). BL_EXPECT_CHAIN and BL_EXPECT_INDIRECT say
+  # whether the module was exported with direct (B/BL) and indirect (RET/BR/BLR) chaining.
+  if(NOT DEFINED BL_EXPECT_CHAIN OR NOT DEFINED BL_EXPECT_INDIRECT)
+    message(FATAL_ERROR "the chain fixture needs BL_EXPECT_CHAIN and BL_EXPECT_INDIRECT (0 or 1)")
   endif()
   file(GLOB bl_sources "${BL_DIR}/src/*.c")
   add_executable(smoke_bl bl_c.c ${bl_sources}
@@ -30,7 +30,7 @@ elseif(BL_DIR)
   target_compile_features(smoke_bl PRIVATE c_std_11)
   target_include_directories(smoke_bl PRIVATE "${BL_DIR}")
   target_compile_definitions(smoke_bl PRIVATE SUYU_HOSTED_RECOMP=1 RECOMP_SHARED_MODULE=1
-      BL_EXPECT_CHAIN=${BL_EXPECT_CHAIN})
+      BL_EXPECT_CHAIN=${BL_EXPECT_CHAIN} BL_EXPECT_INDIRECT=${BL_EXPECT_INDIRECT})
   if(NOT MSVC)
     target_link_libraries(smoke_bl PRIVATE m)
   endif()

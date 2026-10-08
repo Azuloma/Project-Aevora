@@ -701,6 +701,9 @@ class Run:
             ('direct chaining',
              lambda: edit_manifest(r'"direct_chain": false', '"direct_chain": true'),
              changed + 'direct_chain'),
+            ('indirect chaining',
+             lambda: edit_manifest(r'"indirect_chain": false', '"indirect_chain": true'),
+             changed + 'indirect_chain'),
             ('backend',
              lambda: edit_manifest(r'"effective_backend": "suyu-static"',
                                    '"effective_backend": "suyu-hybrid"'),
@@ -744,6 +747,43 @@ class Run:
                expect_log=entry_mismatch + 'producer.build_id')
         export('back to the original producer', expect_log=entry_mismatch + 'producer.build_id')
         export('after the matrix', expect_reused=True)
+
+        # The chain options are read from suyu's environment by the export itself, so the
+        # frontend is restarted with each one. Turning one on changes the generated code, the
+        # manifest field and the bundle id, so the entry built without it is not reused; the
+        # same setting then reuses its own entry; turning it off again is refused the same way.
+        def manifest_record():
+            return json.loads((split_entry() / layout['kManifestFileName']).read_text(
+                encoding='utf-8'))
+
+        def restart_with(variable, value):
+            self.stop_suyu()
+            if value is None:
+                self.env.pop(variable, None)
+            else:
+                self.env[variable] = value
+            self.start_suyu()
+
+        for variable, field in (('SUYU_AOT_DIRECT_CHAIN', 'direct_chain'),
+                                ('SUYU_AOT_INDIRECT_CHAIN', 'indirect_chain')):
+            before = manifest_record()
+            restart_with(variable, '1')
+            try:
+                export(field + ' switched on', expect_log=changed + field)
+                after = manifest_record()
+                self.record('matrix: %s switched on: the manifest and the bundle id record it' % field,
+                            after.get(field) is True and before.get(field) is False and
+                            after.get('bundle_id') != before.get('bundle_id'),
+                            '%s %s -> %s %s' % (before.get(field), before.get('bundle_id'),
+                                                after.get(field), after.get('bundle_id')))
+                export(field + ' switched on, again', expect_reused=True)
+            finally:
+                restart_with(variable, None)
+            export(field + ' switched off again', expect_log=changed + field)
+            self.record('matrix: %s switched off again: the original bundle id returns' % field,
+                        manifest_record().get('bundle_id') == before.get('bundle_id') and
+                        manifest_record().get(field) is False)
+            export(field + ' off, reused', expect_reused=True)
 
         # Real recorded coverage: a store file for this title with a code offset of the main
         # module changes the generated code, so the cached build no longer matches (the

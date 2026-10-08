@@ -170,9 +170,10 @@ static_assert(sizeof(std::atomic<u64>) == sizeof(u64) && std::atomic<u64>::is_al
 // SVC checks below getting a look in; and, if the generated calls are not tail
 // calls, how deep the host stack goes. Guest threads run on 2 MiB fibers
 // (512 * 4096 bytes, common/fiber.cpp) and a block frame carrying SIMD locals is
-// not small. Today only the opt-in direct B/BL chain (g_emit_direct_chain) calls
-// blocks from blocks; it is a guaranteed tail call under clang (musttail) and a
-// plain call, bounded by this budget, elsewhere.
+// not small. Today only the opt-in chains call blocks from blocks: the direct B/BL
+// chain (g_emit_direct_chain) and the indirect RET/BR/BLR chain
+// (g_emit_indirect_chain). Both are a guaranteed tail call under clang (musttail)
+// and a plain call, bounded by this budget, elsewhere.
 //
 // The measurements below were taken with an earlier emitter whose ChainTo chained
 // B, BL and the conditional forms; they do not describe the current emitter,

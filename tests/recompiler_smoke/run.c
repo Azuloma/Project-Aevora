@@ -21,10 +21,11 @@ extern uint32_t* recomp_image_guard_gen_v1(uint32_t, uint64_t*, uint64_t*, const
 extern unsigned recomp_image_fpx_v1(uint32_t, uint32_t, uint64_t);
 #endif
 
-/* Without direct chaining, and with it under a guaranteed tail call (clang musttail),
-   a long slice runs at constant stack depth. A compiler without the guarantee gets a
-   plain call whose depth is bounded by the chain budget instead, so the flat-stack
-   check does not apply to it; the run completing is the check there. */
+/* Without chaining, and with direct or indirect chaining under a guaranteed tail call
+   (clang musttail), a long slice runs at constant stack depth. A compiler without the
+   guarantee gets a plain call whose depth is bounded by the chain budget instead, so
+   the flat-stack check does not apply to it; the run completing is the check there.
+   SMOKE_DIRECT_CHAIN is set for a variant with either chain on. */
 #if !defined(SMOKE_DIRECT_CHAIN)
 #define SMOKE_FLAT_STACK 1
 #elif defined(__clang__) && defined(__has_attribute)

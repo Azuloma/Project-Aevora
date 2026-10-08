@@ -57,12 +57,17 @@ VARIANTS = (("abi5", {}),
             ("abi6dc", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_DIRECT_CHAIN": "1"}),
             ("ggdc", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                       "SUYU_RECOMP_AB_DIRECT_CHAIN": "1"}),
+            # Indirect (RET/BR/BLR) chaining alone, and with direct chaining and GG1.
+            ("abi6ic", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_INDIRECT_CHAIN": "1"}),
+            ("ggdcic", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
+                        "SUYU_RECOMP_AB_DIRECT_CHAIN": "1",
+                        "SUYU_RECOMP_AB_INDIRECT_CHAIN": "1"}),
             # Split-export identity on top of ggfpx; structural only, not golden-hashed.
             ("identity", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                           "SUYU_RECOMP_AB_FPX": "1", "SUYU_RECOMP_AB_IDENTITY": "1"}))
 AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
                "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY",
-               "SUYU_RECOMP_AB_DIRECT_CHAIN")
+               "SUYU_RECOMP_AB_DIRECT_CHAIN", "SUYU_RECOMP_AB_INDIRECT_CHAIN")
 # The identity export adds one export to each module's recomp_export.c and nothing else.
 IDENTITY_CHANGED = {"recomp_export.c"}
 # Shared-image names of the "second" module, per the generator's naming rule
@@ -587,9 +592,10 @@ def check_fm_inline(base, fmi, what):
             raise RuntimeError(f"{module}: recomp_runtime.c does not keep its helper names")
 
 
-def check_direct_chain(base, chained, what):
-    # Direct chaining changes the block units only, and only the unconditional B/BL
-    # whose target is a block of the same module.
+def check_direct_chain(base, chained, what, direct=True, indirect=False):
+    # Chaining changes the block units only. Direct chaining takes the unconditional
+    # B/BL whose target is a block of the same module; indirect chaining takes RET,
+    # BR and BLR through the module's block index. Conditional branches never chain.
     check_differences(base, chained, DIRECT_CHAIN_CHANGED, what)
     for module, plain_module, name in ((chained, base, "smoke"),
                                         (chained / "second", base / "second", "second")):
@@ -597,32 +603,49 @@ def check_direct_chain(base, chained, what):
         target = f"blk_{name}_0000000000001000"
         chain = (f"c->pc=g_module_base+0x1000ULL; if (--c->chain_budget <= 0) return; "
                  f"RECOMP_TAIL_CALL({target}) }}")
-        if chain not in unit or "#define RECOMP_TAIL_CALL(f)" not in unit:
-            raise RuntimeError(f"{module}: the 1000 self-branch is not a direct chain")
-        # RET and BLR stay indirect: the unit must still park the PC and return.
-        if unit.count("RECOMP_TAIL_CALL(blk_") != 1 or "/* RET */" not in unit or "/* BLR */" not in unit:
+        if (chain in unit) != direct:
+            raise RuntimeError(f"{module}: the 1000 self-branch is "
+                               f"{'not ' if direct else ''}a direct chain")
+        chained_calls = unit.count("RECOMP_TAIL_CALL(blk_")
+        if (chained_calls != 0) != direct or chained_calls > 1:
             raise RuntimeError(f"{module}: a branch other than the in-module B/BL was chained")
+        # The smoke code holds one RET and one BLR and no BR.
+        if unit.count("RECOMP_TAIL_CALL(_f)") != (2 if indirect else 0):
+            raise RuntimeError(f"{module}: RET/BLR indirect chaining is "
+                               f"{'missing' if indirect else 'present'}")
+        if "/* RET */" not in unit or "/* BLR */" not in unit:
+            raise RuntimeError(f"{module}: the RET/BLR markers are missing")
+        if "#define RECOMP_TAIL_CALL(f)" not in unit:
+            raise RuntimeError(f"{module}: RECOMP_TAIL_CALL is not defined")
         plain = (plain_module / "src" / f"recompiled_{name}_0.c").read_text(encoding="utf-8")
         if "RECOMP_TAIL_CALL" in plain:
-            raise RuntimeError(f"{base}: direct chaining leaked into the switched-off output")
+            raise RuntimeError(f"{base}: chaining leaked into the switched-off output")
 
 
 def check_direct_chain_bl(root, exporter, build):
-    """A chained BL, executed: with and without direct chaining (the control)."""
+    """Chained BL, RET, BR and BLR, executed: all four on/off combinations (the controls)."""
     env = dict(os.environ)
     for key in AB_SWITCHES:
         env.pop(key, None)
-    for name, chained in (("bl-plain", False), ("bl-chain", True)):
+    for name, direct, indirect in (("bl-plain", False, False), ("bl-direct", True, False),
+                                   ("bl-indirect", False, True), ("bl-both", True, True)):
         out = root / name
-        call([exporter, "--bl", out],
-             env=dict(env, **({"SUYU_RECOMP_AB_DIRECT_CHAIN": "1"} if chained else {})))
+        switches = {}
+        if direct:
+            switches["SUYU_RECOMP_AB_DIRECT_CHAIN"] = "1"
+        if indirect:
+            switches["SUYU_RECOMP_AB_INDIRECT_CHAIN"] = "1"
+        call([exporter, "--bl", out], env=dict(env, **switches))
         unit = (out / "src" / "recompiled_bl_0.c").read_text(encoding="utf-8")
-        if ("RECOMP_TAIL_CALL(blk_bl_000000000000100c)" in unit) != chained:
-            raise RuntimeError(f"{name}: the BL is not {'chained' if chained else 'plain'} in the text")
+        if ("RECOMP_TAIL_CALL(blk_bl_000000000000100c)" in unit) != direct:
+            raise RuntimeError(f"{name}: the BL is not {'chained' if direct else 'plain'} in the text")
+        if ("RECOMP_TAIL_CALL(_f)" in unit) != indirect:
+            raise RuntimeError(f"{name}: RET/BR/BLR are not "
+                               f"{'chained' if indirect else 'plain'} in the text")
         run = build(f"run-{name}", f"-DBL_DIR={out.as_posix()}",
-                    f"-DBL_EXPECT_CHAIN={1 if chained else 0}")
+                    f"-DBL_EXPECT_CHAIN={int(direct)}", f"-DBL_EXPECT_INDIRECT={int(indirect)}")
         call([executable(run, "smoke_bl")], timeout=15)
-    print("Direct B/BL chain execution checks passed.")
+    print("Chain execution checks passed.")
 
 
 def check_coverage_loop(root, exporter, build):
@@ -718,12 +741,17 @@ def main():
         check_fm_inline(generated["abi6gg"], generated["ggfmi"], "GG1+FMI")
         check_direct_chain(generated["abi6"], generated["abi6dc"], "direct chain")
         check_direct_chain(generated["abi6gg"], generated["ggdc"], "GG1+direct chain")
+        check_direct_chain(generated["abi6"], generated["abi6ic"], "indirect chain",
+                           direct=False, indirect=True)
+        check_direct_chain(generated["abi6gg"], generated["ggdcic"], "GG1+direct+indirect chain",
+                           direct=True, indirect=True)
         check_identity(generated["ggfpx"], generated["identity"])
 
         for name, switches in VARIANTS:
             guard_gen = "SUYU_RECOMP_AB_GUARD_GEN" in switches
             identity_options = []
-            if "SUYU_RECOMP_AB_DIRECT_CHAIN" in switches:
+            if ("SUYU_RECOMP_AB_DIRECT_CHAIN" in switches or
+                    "SUYU_RECOMP_AB_INDIRECT_CHAIN" in switches):
                 identity_options.append("-DSMOKE_DIRECT_CHAIN=1")
             if name == "identity":
                 topology_unit = executable(export_build, "smoke_topology_unit")

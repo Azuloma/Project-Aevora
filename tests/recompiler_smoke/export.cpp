@@ -65,10 +65,12 @@ static int ExportXmod(const std::string& out_dir) {
     return failed;
 }
 
-// --bl <dir>: the direct B/BL chaining fixture (bl_code.h). Honours
-// SUYU_RECOMP_AB_DIRECT_CHAIN so one fixture is exported both with and without it.
+// --bl <dir>: the chaining fixture (bl_code.h). Honours SUYU_RECOMP_AB_DIRECT_CHAIN
+// (B/BL) and SUYU_RECOMP_AB_INDIRECT_CHAIN (RET/BR/BLR) so one fixture is exported with
+// each combination of them.
 static int ExportBl(const char* out_dir) {
     suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
+    suyu::recomp::g_emit_indirect_chain = EnvOn("SUYU_RECOMP_AB_INDIRECT_CHAIN");
     const auto stats = suyu::recomp::EmitProject(
         "bl", reinterpret_cast<const uint8_t*>(bl_code), sizeof(bl_code), BL_BASE, out_dir, true);
     if (stats.unhandled != 0 || stats.emitted != sizeof(bl_code) / 4) {
@@ -98,6 +100,7 @@ int main(int argc, char** argv) {
     suyu::recomp::g_emit_fm_inline = EnvOn("SUYU_RECOMP_AB_FM_INLINE");
     suyu::recomp::g_emit_image_identity = EnvOn("SUYU_RECOMP_AB_IDENTITY");
     suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
+    suyu::recomp::g_emit_indirect_chain = EnvOn("SUYU_RECOMP_AB_INDIRECT_CHAIN");
     if (xmod) return ExportXmod(argv[2]);
     const auto stats = suyu::recomp::EmitProject(
         "smoke", reinterpret_cast<const uint8_t*>(smoke_code), sizeof(smoke_code),
