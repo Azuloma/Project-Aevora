@@ -10,6 +10,8 @@
 #include <fstream>
 #include <mutex>
 #include <map>
+#include <optional>
+#include <string_view>
 #include <thread>
 #include <string>
 #include <unordered_map>
@@ -24,6 +26,7 @@
 #include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
 #include "core/arm/recomp/recomp_diagnostic_sampler.h"
+#include "core/arm/recomp/recomp_thread_time.h"
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/kernel/k_thread.h"
@@ -270,6 +273,48 @@ const double kSampleAfterSec = [] {
 }();
 
 const std::chrono::steady_clock::time_point kRecompStart = std::chrono::steady_clock::now();
+
+// SUYU_RECOMP_THREAD_TIME=1: log how long each guest thread ran on each core. Off unless exactly
+// "1"; it adds two clock reads per RunThread call, so it is a measurement switch, not a default.
+const bool kThreadTime = [] {
+    const char* e = std::getenv("SUYU_RECOMP_THREAD_TIME");
+    return e && std::string_view{e} == "1";
+}();
+constexpr std::uint64_t kThreadTimeWindowNs = 10'000'000'000ULL;
+constexpr std::size_t kThreadTimeTopCount = 6;
+
+std::uint64_t SteadyNowNs() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
+// Times one RunThread call for the ledger, however the call returns.
+class ThreadTimeScope {
+public:
+    ThreadTimeScope(RecompThreadTimeLedger& ledger, std::size_t core, std::uint64_t thread_id,
+                    std::uint64_t entry_pc)
+        : ledger_{ledger}, core_{core}, thread_id_{thread_id}, entry_pc_{entry_pc},
+          start_ns_{SteadyNowNs()} {}
+    ~ThreadTimeScope() {
+        const std::uint64_t end_ns = SteadyNowNs();
+        ledger_.Record(thread_id_, start_ns_, end_ns, entry_pc_);
+        if (const auto report =
+                ledger_.TakeReport(end_ns, kThreadTimeWindowNs, core_, kThreadTimeTopCount)) {
+            LOG_INFO(Core_ARM, "{}", *report);
+        }
+    }
+    ThreadTimeScope(const ThreadTimeScope&) = delete;
+    ThreadTimeScope& operator=(const ThreadTimeScope&) = delete;
+
+private:
+    RecompThreadTimeLedger& ledger_;
+    std::size_t core_;
+    std::uint64_t thread_id_;
+    std::uint64_t entry_pc_;
+    std::uint64_t start_ns_;
+};
 
 // Naming the instruction that writes a guest field is not possible from the
 // store callback, because emitted code resolves mapped memory through the
@@ -1677,6 +1722,7 @@ struct ArmRecomp::Impl {
     }
 
     RecompDiagnosticSampler diagnostics;
+    RecompThreadTimeLedger thread_time;
     System& system;
     RecompLookupFn lookup{};
     GuestContextView ctx{};
@@ -1924,6 +1970,11 @@ HaltReason ArmRecomp::RunFallback(Kernel::KThread* thread) {
 }
 
 HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
+    std::optional<ThreadTimeScope> thread_time_scope;
+    if (kThreadTime) {
+        thread_time_scope.emplace(impl->thread_time, impl->core_index, thread->GetId(),
+                                  impl->ctx.pc);
+    }
     // A context switch voids any outstanding reservation. A thread preempted
     // between its LDXR and STXR would otherwise have the STXR succeed against a
     // word another thread changed on this core meanwhile, silently losing an
