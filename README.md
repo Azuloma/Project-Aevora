@@ -34,6 +34,7 @@ Currently, it has become clear that the Suyu recompiler's code execution method 
 
 These planned features are not guaranteed to be implemented, and may change depending on the circumstances, potentially increasing or decreasing in the number of features
 
+- Remove the GUI associated with Suyu and provide GUIs for the Aevora launcher and Awvora Recompiler
 - Ultrawide support
 - Native 4K and WQHD support, and no Dynamic resolution
 - 60FPS Mode
@@ -98,6 +99,16 @@ Bug reports, questions, and feature requests are welcome. Useful reports include
 Aevora is a personal project. It is not run for financial gain or recognition.
 
 There will be no Patreon, Ko-fi, or other fundraising campaign, and the project does not accept donations or other monetary support.
+
+## Legal Notice
+
+Project Aevora, along with the associated Aevora Launcher and Aevora Recompiler, are GPLv3 programs; they permit the complete and free redistribution of source code and as outlined in Sections 15 and 16 disclaim author liability regarding the software's use.
+
+The emulator program utilized for Aevora's static recompilation does not circumvent Nintendo's technological protection measures (TPM), as it requires the user to provide both the Nintendo Switch software and the corresponding game encryption keys. The emulator decrypts the software using modes of the Advanced Encryption Standard (AES) an open encryption standard established by the U.S. National Institute of Standards and Technology (NIST) and encryption keys that the user must legally obtain themselves. Because this standard is publicly available for use by anyone, its application does not constitute the "circumvention of a technological measure" as defined in Section 1201(a)(3) of the Digital Millennium Copyright Act (DMCA).
+
+The emulator also falls under the exemptions stipulated in Section 1201(f) of the DMCA. This software was created to reverse-engineer Nintendo Switch software (known as Horizon OS) and to achieve interoperability between Nintendo Switch games/software and Windows, macOS, and GNU/Linux operating systems. Furthermore, Project Aevora including Aevora Launcher and Aevora Recompiler is intended for lawful research, development, and use related to static recompilation and software interoperability.
+
+Aggressive DMCA claims or takedown notices filed against projects like Project Aevora which expressly disclaim assistance with copyright infringement, require user-provided keys, and limit functionality to interoperability may constitute an overreach or abuse of the DMCA. As derived from §512(f), Nintendo (or its affiliates) could be held liable for damages to Project Aevora if it made a material misrepresentation while knowing that a project like Project Aevora did not actually infringe (or circumvent TPMs) particularly if it failed to consider fair use, the interoperability exemption under §1201(f), or the fact that the emulator requires user-provided keys and contains no proprietary Nintendo code.
 
 ## License
 
