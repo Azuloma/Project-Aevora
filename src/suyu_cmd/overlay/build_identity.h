@@ -26,6 +26,7 @@ struct BuildIdentity {
     std::optional<std::uint64_t> image_abi;
     std::optional<std::uint64_t> image_features;
     std::optional<bool> fm_inline;
+    std::optional<bool> fp_shared;
     std::optional<bool> direct_chain;
     std::optional<bool> indirect_chain;
     std::optional<bool> fallback_enabled;

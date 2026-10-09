@@ -38,6 +38,9 @@ GG1_CHANGED = ABI6_CHANGED | {"recompiled_smoke_0.c", "recompiled_second_0.c"}
 FMI_CHANGED = {"recomp_runtime.c", "recomp_runtime.h"}
 # Direct B/BL chaining changes only the block units.
 DIRECT_CHAIN_CHANGED = {"recompiled_smoke_0.c", "recompiled_second_0.c"}
+# Shared exact FP bodies (FPE) add the prototypes to the header and the definitions to
+# recomp_runtime.c; the synthetic module has no FP site, so its block units stay put.
+FPE_CHANGED = {"recomp_runtime.c", "recomp_runtime.h"}
 
 # name -> SUYU_RECOMP_AB_* switches. abi6gg and ggfpx are GG1's on-top-of-FM1
 # and GG1+FPX1-together combinations; neither is golden-hashed (GG1 is not
@@ -49,6 +52,11 @@ VARIANTS = (("abi5", {}),
             ("ggfpx", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                        "SUYU_RECOMP_AB_FPX": "1"}),
             ("abi6fmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FM_INLINE": "1"}),
+            # Shared exact FP bodies need FPX1; structural, not golden-hashed.
+            ("fpxs", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FPX": "1",
+                      "SUYU_RECOMP_AB_FP_SHARED": "1"}),
+            # Asked for without FPX1, the option must change nothing.
+            ("abi6fps", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FP_SHARED": "1"}),
             ("ggfmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                        "SUYU_RECOMP_AB_FM_INLINE": "1"}),
             # Direct B/BL chaining on top of FM1, and of FM1 with GG1: it changes the block
@@ -67,7 +75,8 @@ VARIANTS = (("abi5", {}),
                           "SUYU_RECOMP_AB_FPX": "1", "SUYU_RECOMP_AB_IDENTITY": "1"}))
 AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
                "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY",
-               "SUYU_RECOMP_AB_DIRECT_CHAIN", "SUYU_RECOMP_AB_INDIRECT_CHAIN")
+               "SUYU_RECOMP_AB_DIRECT_CHAIN", "SUYU_RECOMP_AB_INDIRECT_CHAIN",
+               "SUYU_RECOMP_AB_FP_SHARED")
 # The identity export adds one export to each module's recomp_export.c and nothing else.
 IDENTITY_CHANGED = {"recomp_export.c"}
 # Shared-image names of the "second" module, per the generator's naming rule
@@ -592,6 +601,27 @@ def check_fm_inline(base, fmi, what):
             raise RuntimeError(f"{module}: recomp_runtime.c does not keep its helper names")
 
 
+def check_fp_shared(fpx, shared, without_fpx, abi6):
+    # FPE adds one definition and one prototype per op and width, and nothing else.
+    check_differences(fpx, shared, FPE_CHANGED, "FPE")
+    names = [f"recomp_fpe_{op}{width}" for op in ("add", "sub", "div", "fma", "recps", "rsqrts", "sqrt")
+             for width in (32, 64)]
+    for module, plain in ((shared, fpx), (shared / "second", fpx / "second")):
+        header = (module / "recomp_runtime.h").read_text(encoding="utf-8")
+        runtime = (module / "recomp_runtime.c").read_text(encoding="utf-8")
+        plain_text = (plain / "recomp_runtime.h").read_text(encoding="utf-8") + \
+            (plain / "recomp_runtime.c").read_text(encoding="utf-8")
+        for name in names:
+            if f"uint64_t {name}(GuestContext* c," not in header:
+                raise RuntimeError(f"{module}: no prototype for {name}")
+            if f"uint64_t {name}(GuestContext* c," not in runtime or f"{name}(" in plain_text:
+                raise RuntimeError(f"{module}: {name} is not defined exactly with FPE")
+    # Without FPX1 the exact body is the main path: FPE is requested but nothing changes.
+    for module in (without_fpx, without_fpx / "second"):
+        base = abi6 / module.relative_to(without_fpx)
+        check_differences(base, module, set(), "FPE without FPX1")
+
+
 def check_direct_chain(base, chained, what, direct=True, indirect=False):
     # Chaining changes the block units only. Direct chaining takes the unconditional
     # B/BL whose target is a block of the same module; indirect chaining takes RET,
@@ -766,6 +796,7 @@ def main():
         check_guard_gen(generated["abi6"], generated["abi6gg"])
         check_ggfpx(generated["abi6gg"], generated["ggfpx"])
         check_fm_inline(generated["abi6"], generated["abi6fmi"], "FMI")
+        check_fp_shared(generated["fpx"], generated["fpxs"], generated["abi6fps"], generated["abi6"])
         check_fm_inline(generated["abi6gg"], generated["ggfmi"], "GG1+FMI")
         check_direct_chain(generated["abi6"], generated["abi6dc"], "direct chain")
         check_direct_chain(generated["abi6gg"], generated["ggdc"], "GG1+direct chain")

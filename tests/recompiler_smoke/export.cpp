@@ -98,6 +98,7 @@ int main(int argc, char** argv) {
     suyu::recomp::g_emit_fpx = fpx && *fpx && *fpx != '0';
     suyu::recomp::g_emit_fpx_shadow = fpx && !std::strcmp(fpx, "shadow");
     suyu::recomp::g_emit_fm_inline = EnvOn("SUYU_RECOMP_AB_FM_INLINE");
+    suyu::recomp::g_emit_fp_shared = EnvOn("SUYU_RECOMP_AB_FP_SHARED");
     suyu::recomp::g_emit_image_identity = EnvOn("SUYU_RECOMP_AB_IDENTITY");
     suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
     suyu::recomp::g_emit_indirect_chain = EnvOn("SUYU_RECOMP_AB_INDIRECT_CHAIN");

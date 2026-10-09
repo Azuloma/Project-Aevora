@@ -3503,6 +3503,7 @@ struct BundleIdInputs {
     bool fm_inline{};
     bool direct_chain{};
     bool indirect_chain{};
+    bool fp_shared{};
     unsigned image_abi{};
     unsigned image_features{};
     QString coverage_fingerprint;
@@ -3538,6 +3539,7 @@ static std::string ComputeBundleId(const BundleIdInputs& inputs) {
     add("fm_inline", flag(inputs.fm_inline));
     add("direct_chain", flag(inputs.direct_chain));
     add("indirect_chain", flag(inputs.indirect_chain));
+    add("fp_shared", flag(inputs.fp_shared));
     add("image_abi", QByteArray::number(inputs.image_abi));
     add("image_features", QByteArray::number(inputs.image_features));
     add("coverage_fingerprint", inputs.coverage_fingerprint.toUtf8());
@@ -4212,6 +4214,19 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     // independent of the direct chain.
     suyu::recomp::g_emit_indirect_chain = enabled("SUYU_AOT_INDIRECT_CHAIN");
     const bool indirect_chain = suyu::recomp::g_emit_indirect_chain;
+    // Shared exact FP bodies (SUYU_AOT_FP_SHARED): with FPX1, the exact body behind each fast
+    // path is one function per module instead of a copy at every site. Like FMI it changes the
+    // generated code but not the image ABI or results, so the manifest and bundle id record it.
+    suyu::recomp::g_emit_fp_shared = enabled("SUYU_AOT_FP_SHARED");
+    if (suyu::recomp::g_emit_fp_shared && !suyu::recomp::g_emit_fpx) {
+        // Quiet when FPX=0 or FASTMEM=0 alone made this impossible; only an explicit request warns.
+        if (qEnvironmentVariable("SUYU_AOT_FP_SHARED") == QStringLiteral("1")) {
+            LOG_WARNING(Frontend, "Shared exact FP bodies (SUYU_AOT_FP_SHARED) need "
+                                  "SUYU_AOT_FPX; exporting without them");
+        }
+        suyu::recomp::g_emit_fp_shared = false;
+    }
+    const bool fp_shared = suyu::recomp::EmitFpShared();
     // What the images will report from recomp_image_features(), recorded in the
     // manifest so a cached export with other features is not reused.
     const unsigned image_features =
@@ -4273,7 +4288,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         bundle_id_hex = ComputeBundleId(BundleIdInputs{
             source_hash, effective_backend_name, full_scan, translate_all,
             suyu::recomp::g_emit_fastmem, suyu::recomp::EmitGuardGen(), suyu::recomp::g_emit_fpx,
-            fm_inline, direct_chain, indirect_chain, suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
+            fm_inline, direct_chain, indirect_chain, fp_shared,
+            suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
             coverage_fingerprint, fallback_enabled, dll_modules});
         LOG_INFO(Frontend, "Split export: main is built as a DLL, bundle id {}", bundle_id_hex);
     }
@@ -4389,6 +4405,13 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             // bundle id and bindings and its DLLs intact; an all-static export never reuses
             // a split cache (and a split export never reuses an all-static one).
             const QJsonObject manifest_object = QJsonDocument::fromJson(manifest_bytes).object();
+            // Read as a JSON value, not searched for as text, so formatting cannot matter. A
+            // cache from before this field existed carried the exact bodies inline; a field of
+            // another type is a mismatch.
+            const QJsonValue cached_fp_shared = manifest_object.value(QStringLiteral("fp_shared"));
+            const bool same_fp_shared = cached_fp_shared.isBool()
+                                            ? cached_fp_shared.toBool() == fp_shared
+                                            : cached_fp_shared.isUndefined() && !fp_shared;
             bool same_topology = false;
             QString split_detail;
             std::optional<SplitExportRecord> cached_split;
@@ -4428,6 +4451,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             require(same_fm_inline, "fm_inline");
             require(same_direct_chain, "direct_chain");
             require(same_indirect_chain, "indirect_chain");
+            require(same_fp_shared, "fp_shared");
             require(same_correctness_revision, "correctness_revision");
             require(same_coverage, "coverage_fingerprint");
             require(same_translate_all, "translate_all");
@@ -6230,6 +6254,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         if (suyu::recomp::g_emit_fastmem) {
             out << "  \"image_features\": " << image_features << ",\n";
             out << "  \"fm_inline\": " << (fm_inline ? "true" : "false") << ",\n";
+            out << "  \"fp_shared\": " << (fp_shared ? "true" : "false") << ",\n";
         }
         out << "  \"direct_chain\": " << (direct_chain ? "true" : "false") << ",\n";
         out << "  \"indirect_chain\": " << (indirect_chain ? "true" : "false") << ",\n";

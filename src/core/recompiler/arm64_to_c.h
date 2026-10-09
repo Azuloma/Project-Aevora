@@ -26,6 +26,7 @@
 #include <sstream>
 #include <unordered_set>
 #include <map>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -338,6 +339,16 @@ inline bool g_emit_fpx = false;
 // Instrumentation only, never timed: with g_emit_fpx, the exact body runs
 // after every fast path too, and recomp_fpx_shadow compares the two.
 inline bool g_emit_fpx_shadow = false;
+// Shared exact bodies ("FPE"): with g_emit_fpx, the exact body that backs each fast
+// path is defined once per module in recomp_runtime.c (recomp_fpe_<op><32|64>) and
+// each site calls it, instead of carrying its own copy. The body text comes from
+// the same generator the inline form uses, so the two cannot drift. Changes no ABI
+// or result; while it is off the emitted text is byte-identical. Without FPX1 the
+// exact body is the main path, so it stays inline there.
+inline bool g_emit_fp_shared = false;
+inline bool EmitFpShared() {
+    return g_emit_fpx && g_emit_fp_shared;
+}
 
 // FM1 inline ("FMI"): generated units run the FM1 fast path of the twelve
 // memory helpers inline at each access site and call the out-of-line helper
@@ -561,8 +572,33 @@ inline std::string EmitFPNativeSuffix(bool dbl, const char* op) {
     return "}while(0);";
 }
 
-inline std::string EmitFPAddSubValue(bool dbl, bool subtract) {
-    return EmitFPNativeValue(dbl, subtract ? "sub" : "add") +
+// Shared exact bodies (see g_emit_fp_shared). `op` is the FpxArgs name; a
+// multiply shares the FMA body because its caller supplies the addend in _z.
+inline std::string FpeName(const char* op, bool dbl) {
+    return std::string("recomp_fpe_") + (!std::strcmp(op, "mul") ? "fma" : op) + (dbl ? "64" : "32");
+}
+// The parameter list of the shared function, in the order sites pass them.
+inline std::string FpeParams(const char* op) {
+    if (!std::strcmp(op, "mul") || !std::strcmp(op, "fma")) return "uint64_t _a,uint64_t _b,uint64_t _z";
+    if (!std::strcmp(op, "recps") || !std::strcmp(op, "rsqrts")) return "uint64_t _aa,uint64_t _bb";
+    if (!std::strcmp(op, "sqrt")) return "uint64_t _a";
+    return "uint64_t _a,uint64_t _b";
+}
+inline std::string FpeCallArgs(const char* op) {
+    if (!std::strcmp(op, "mul")) return "_a,_b,_z";
+    return FpxArgs(op);
+}
+// One site: the FPX1 fast path, then the exact body inline or as a call.
+inline std::string EmitFPExact(bool dbl, const char* op, const std::string& inline_body) {
+    if (!EmitFpShared()) {
+        return EmitFPNativeValue(dbl, op) + inline_body + EmitFPNativeSuffix(dbl, op);
+    }
+    return EmitFPNativeValue(dbl, op) + "_v=" + FpeName(op, dbl) + "(c," + FpeCallArgs(op) + ");" +
+           EmitFPNativeSuffix(dbl, op);
+}
+
+inline std::string EmitFPAddSubBody(bool dbl, bool subtract) {
+    return
         "{ const unsigned _f=" + std::string(dbl?"52":"23") +
         ";const uint64_t _hidden=1ULL<<_f,_frac=_hidden-1,_quiet=_hidden>>1,_exp="+
         (dbl?"0x7ff0000000000000ULL":"0x7f800000ULL")+",_sign="+
@@ -597,14 +633,17 @@ inline std::string EmitFPAddSubValue(bool dbl, bool subtract) {
         "if(_rounded>=(_hidden<<1)){_rounded>>=1;++_ea;}"
         "if(_ea>=(unsigned)(_exp>>_f)){c->fpsr|=20;_v=(_mode==0||(_mode==1&&!_sa)||(_mode==2&&_sa))?_exp:_exp-1;}"
         "else _v=((_rounded>=_hidden?(uint64_t)_ea:0)<<_f)|(_rounded&_frac);}"
-        "if(_sa)_v|=_sign;}}}" + EmitFPNativeSuffix(dbl, subtract ? "sub" : "add");
+        "if(_sa)_v|=_sign;}}}";
+}
+inline std::string EmitFPAddSubValue(bool dbl, bool subtract) {
+    return EmitFPExact(dbl, subtract ? "sub" : "add", EmitFPAddSubBody(dbl, subtract));
 }
 
 // Generated exact product/addend lattice. Inputs _a,_b,_z and output _v are
 // IEEE bit patterns. A multiply supplies a same-sign zero addend so its zero
 // result has the product sign in every rounding mode.
-inline std::string EmitFPDivideValue(bool dbl) {
-    return EmitFPNativeValue(dbl, "div") +
+inline std::string EmitFPDivideBody(bool dbl) {
+    return
         "{ const unsigned _f="+std::string(dbl?"52":"23")+",_bias="+(dbl?"1023":"127")+R"C(;
 const uint64_t _hidden=1ULL<<_f,_frac=_hidden-1,_quiet=_hidden>>1;
 const uint64_t _exp=((uint64_t)(2*_bias+1))<<_f,_sign=1ULL<<(_f+(_f==52?11:8));
@@ -643,7 +682,10 @@ else {
  }
 }
 }
-)C" + EmitFPNativeSuffix(dbl, "div");
+)C";
+}
+inline std::string EmitFPDivideValue(bool dbl) {
+    return EmitFPExact(dbl, "div", EmitFPDivideBody(dbl));
 }
 
 // Architectural reciprocal estimate. The estimate is deliberately computed
@@ -716,9 +758,9 @@ else {
 
 // `mul` marks a multiply (FMUL/FNMUL), whose addend is the sign-matched zero
 // the caller supplies: the fast path then needs no fused multiply-add.
-inline std::string EmitFPMulAddValue(bool dbl, bool mul = false) {
-    std::string s=EmitFPNativeValue(dbl, mul ? "mul" : "fma")+
-        "{ const unsigned _f="+std::string(dbl?"52":"23")+
+inline std::string EmitFPMulAddBody(bool dbl) {
+    std::string s=
+        std::string("{ const unsigned _f=")+std::string(dbl?"52":"23")+
         ",_bias="+(dbl?"1023":"127")+",_count="+(dbl?"67":"9")+
         "; const int _base="+(dbl?"-2148":"-298")+"; uint64_t _p["+
         (dbl?"67":"9")+"]={0},_c["+(dbl?"67":"9")+"]={0};";
@@ -782,8 +824,10 @@ else {
 }
 }
 )C";
-    s += EmitFPNativeSuffix(dbl, mul ? "mul" : "fma");
     return s;
+}
+inline std::string EmitFPMulAddValue(bool dbl, bool mul = false) {
+    return EmitFPExact(dbl, mul ? "mul" : "fma", EmitFPMulAddBody(dbl));
 }
 
 // FRECPS/FRSQRTS S/D, evaluated exactly before one rounding: 2 - a*b, or
@@ -794,15 +838,18 @@ else {
 // halve can introduce double rounding. Baseline FP modes only: exception/
 // access trap delivery and FEAT_AFP remain unsupported. The line breaks match
 // what put() emits, so the scalar text is unchanged by sharing it.
-inline std::string EmitFPStepValue(bool dbl, bool half) {
-    std::string s = std::string("const unsigned _f=")+(dbl?"52":"23")+",_bias="+(dbl?"1023":"127")+
+inline std::string EmitFPStepDecl(bool dbl, bool half) {
+    return std::string("const unsigned _f=")+(dbl?"52":"23")+",_bias="+(dbl?"1023":"127")+
             ",_count="+(dbl?"67":"9")+";const int _base="+
             std::to_string((dbl?-2148:-298)-(half?1:0))+";"
             "const uint64_t _hidden=1ULL<<_f,_frac=_hidden-1,_quiet=_hidden>>1,_exp="+
             (dbl?"0x7ff0000000000000ULL":"0x7f800000ULL")+",_sign="+
             (dbl?"0x8000000000000000ULL":"0x80000000ULL")+";"
             // FPNeg precedes NaN processing in the architectural pseudocode.
-            "uint64_t _a=(uint64_t)_aa^_sign,_b=_bb,_v=0;"+EmitFPNativeValue(dbl,half?"rsqrts":"recps")+
+            "uint64_t _a=(uint64_t)_aa^_sign,_b=_bb,_v=0;";
+}
+inline std::string EmitFPStepBody(bool dbl, bool half) {
+    std::string s = std::string(
             "unsigned _mode=(unsigned)(c->fpcr>>22)&3;"
             "if(c->fpcr&(1ULL<<24)) {if(!(_a&_exp)&&(_a&_frac)) {_a&=_sign;c->fpsr|=128;}"
             "if(!(_b&_exp)&&(_b&_frac)) {_b&=_sign;c->fpsr|=128;}}"
@@ -811,7 +858,7 @@ inline std::string EmitFPStepValue(bool dbl, bool half) {
             "_v=(_as?_a:_bs?_b:_an?_a:_b)|_quiet;if(_as||_bs) {c->fpsr|=1;}"
             "if(c->fpcr&(1ULL<<25)) {_v=_exp|_quiet;}}"
             "else if(((_a&_exp)==_exp&&!(_b&~_sign))||((_b&_exp)==_exp&&!(_a&~_sign)))"
-            "_v="+(dbl?(half?"0x3ff8000000000000ULL":"0x4000000000000000ULL"):
+            "_v=")+(dbl?(half?"0x3ff8000000000000ULL":"0x4000000000000000ULL"):
                          (half?"0x3fc00000ULL":"0x40000000ULL"))+";"
             "else if((_a&_exp)==_exp||(_b&_exp)==_exp)_v=_exp|((_a^_b)&_sign);"
             "else {unsigned _ea=(unsigned)((_a&_exp)>>_f),_eb=(unsigned)((_b&_exp)>>_f);"
@@ -848,8 +895,92 @@ inline std::string EmitFPStepValue(bool dbl, bool half) {
             "if(_e<_emin)_e=_emin;if(_mant>=(_hidden<<1)) {_mant>>=1;++_e;}"
             "if(_e>(int)_bias) {c->fpsr|=20;_v=(_mode==0||(_mode==1&&!_negative)||(_mode==2&&_negative))?_exp:_exp-1;}"
             "else _v=(_mant>=_hidden?(uint64_t)(_e+(int)_bias)<<_f:0)|(_mant&_frac);"
-            "if(_negative)_v|=_sign;}}}"+EmitFPNativeSuffix(dbl,half?"rsqrts":"recps");
+            "if(_negative)_v|=_sign;}}}";
     return s;
+}
+inline std::string EmitFPStepValue(bool dbl, bool half) {
+    // Shared, the declarations move into the function; the site keeps only _v.
+    return (EmitFpShared() ? std::string("uint64_t _v=0;") : EmitFPStepDecl(dbl, half)) +
+           EmitFPExact(dbl, half ? "rsqrts" : "recps", EmitFPStepBody(dbl, half));
+}
+
+// FSQRT and FABD share this opening (denormal flush, NaN rules); `sqrt` adds
+// the rounding mode only FSQRT needs. The text begins with a space and ends
+// inside the NaN `if`, as put() splits it.
+inline std::string EmitFPSimdPreamble(bool dbl, bool sqrt) {
+    return std::string(" const unsigned _f=") + (dbl ? "52" : "23") + "; const uint64_t _hidden=1ULL<<_f,"
+           " _frac=_hidden-1,_exp=" + (dbl ? "0x7ff0000000000000ULL" : "0x7f800000ULL") +
+           ",_sign=" + (dbl ? "0x8000000000000000ULL" : "0x80000000ULL") +
+           ",_quiet=_hidden>>1; " + std::string(sqrt ? "unsigned _mode=(unsigned)(c->fpcr>>22)&3;" : "") +
+           " if(c->fpcr&(1ULL<<24)) {"
+           " if(!(_a&_exp)&&(_a&_frac)) { _a&=_sign;c->fpsr|=128; }"
+           " if(!(_b&_exp)&&(_b&_frac)) { _b&=_sign;c->fpsr|=128; } }"
+           " int _an=(_a&_exp)==_exp&&(_a&_frac),_bn=(_b&_exp)==_exp&&(_b&_frac);"
+           " int _as=_an&&!(_a&_quiet),_bs=_bn&&!(_b&_quiet);"
+           " if(_an||_bn) { _v=(_as?_a:_bs?_b:_an?_a:_b)|_quiet;"
+           " if(_as||_bs) { c->fpsr|=1; } if(c->fpcr&(1ULL<<25)) { _v=_exp|_quiet; } }";
+}
+// The FSQRT arm that follows EmitFPSimdPreamble(dbl, true).
+inline std::string EmitFPSqrtTail(bool dbl) {
+    return "else if(!(_a&~_sign))_v=_a;"
+           " else if(_a&_sign) { _v=_exp|_quiet;c->fpsr|=1; }"
+           " else if((_a&_exp)==_exp)_v=_a;"
+           " else { const int _bias=" + std::string(dbl ? "1023" : "127") +
+           "; uint64_t _magnitude=_a&_frac;"
+           " int _e=(int)((_a&_exp)>>_f)-(int)_bias;"
+           " if(_a&_exp)_magnitude|=_hidden; else { ++_e;"
+           " while(_magnitude<_hidden) { _magnitude<<=1;--_e; } }"
+           " if(_e%2) { _magnitude<<=1;--_e; }"
+           // Restoring square root of magnitude * 2^fraction_bits.
+           // The radicand can exceed 64 bits, but only two bits are
+           // consumed each step; root and remainder fit uint64_t.
+           " uint64_t _root=0,_rem=0;"
+           " for(int _k=(int)_f;_k>=0;--_k) { int _shift=2*_k-(int)_f;"
+           " uint64_t _pair=(_shift>=0?_magnitude>>_shift:_magnitude<<(-_shift))&3;"
+           " _rem=(_rem<<2)|_pair;uint64_t _trial=(_root<<2)|1;_root<<=1;"
+           " if(_rem>=_trial) { _rem-=_trial;_root|=1; } }"
+           " if(_rem) { c->fpsr|=16;"
+           " if(_mode==1||(_mode==0&&_rem>_root))++_root; }"
+           " _e=_e/2+(int)_bias;"
+           " if(_root>=(_hidden<<1)) { _root>>=1;++_e; }"
+           " _v=((uint64_t)_e<<_f)|(_root&_frac); }";
+}
+
+// The shared exact bodies (g_emit_fp_shared): one function per op and width,
+// built from the same body generators the inline sites use. kFpeOps is the only
+// list; the prototypes and the definitions both walk it.
+inline constexpr const char* kFpeOps[] = {"add", "sub", "div", "fma", "recps", "rsqrts", "sqrt"};
+
+inline std::string FpeSignature(const char* op, bool dbl) {
+    return "uint64_t " + FpeName(op, dbl) + "(GuestContext* c," + FpeParams(op) + ")";
+}
+inline std::string FpeBody(const char* op, bool dbl) {
+    if (!std::strcmp(op, "add")) return "uint64_t _v=0;" + EmitFPAddSubBody(dbl, false);
+    if (!std::strcmp(op, "sub")) return "uint64_t _v=0;" + EmitFPAddSubBody(dbl, true);
+    if (!std::strcmp(op, "div")) return "uint64_t _v=0;" + EmitFPDivideBody(dbl);
+    if (!std::strcmp(op, "fma")) return "uint64_t _v=0;" + EmitFPMulAddBody(dbl);
+    if (!std::strcmp(op, "recps") || !std::strcmp(op, "rsqrts")) {
+        const bool half = !std::strcmp(op, "rsqrts");
+        return EmitFPStepDecl(dbl, half) + EmitFPStepBody(dbl, half);
+    }
+    return "uint64_t _b=0,_v=0;" + EmitFPSimdPreamble(dbl, true) + EmitFPSqrtTail(dbl);
+}
+// Prototypes for recomp_runtime.h, added by RuntimeH only with g_emit_fp_shared.
+inline std::string FpeH() {
+    std::string text = "/* FPE: shared exact bodies (recomp_runtime.c). */\n";
+    for (const char* op : kFpeOps) {
+        for (const bool dbl : {false, true}) text += FpeSignature(op, dbl) + ";\n";
+    }
+    return text;
+}
+inline std::string FpeRuntimeC() {
+    std::string text = "\n/* FPE: shared exact bodies, one copy per module. */\n";
+    for (const char* op : kFpeOps) {
+        for (const bool dbl : {false, true}) {
+            text += FpeSignature(op, dbl) + "{" + FpeBody(op, dbl) + "return _v;}\n";
+        }
+    }
+    return text;
 }
 
 // Arm FPMin/FPMax/FPMinNum/FPMaxNum on raw S/D bits `a` and `b`, with bitwise
@@ -3501,44 +3632,20 @@ inline bool Translate(u32 i, u64 pc, std::string& out, bool* unhandled = nullptr
                 (dbl ? "2" : "4") + "],_r[" + (dbl ? "2" : "4") +
                 "]={0}; memcpy(_n,c->vreg[" + std::to_string(rn) +
                 "],16); memcpy(_m,c->vreg[" + std::to_string(rm) + "],16);");
+            if (sqrt_vec && EmitFpShared()) {
+                put("for(unsigned _lane=0;_lane<" + std::to_string(lanes) +
+                    ";++_lane) { uint64_t _a=_n[_lane],_v=0;" + EmitFPExact(dbl, "sqrt", {}) +
+                    "_r[_lane]=(" + ct + ")(_v); } memcpy(c->vreg[" + std::to_string(rd) +
+                    "],_r,16); }");
+                return true;
+            }
             put("for(unsigned _lane=0;_lane<" + std::to_string(lanes) +
                 ";++_lane) { uint64_t _a=_n[_lane],_b=" +
                 std::string(sqrt_vec ? "0" : "_m[_lane]") + ",_v=0;" +
                 (sqrt_vec ? EmitFPNativeValue(dbl, "sqrt") : std::string()) +
-                " const unsigned _f=" + (dbl ? "52" : "23") + "; const uint64_t _hidden=1ULL<<_f,"
-                " _frac=_hidden-1,_exp=" + (dbl ? "0x7ff0000000000000ULL" : "0x7f800000ULL") +
-                ",_sign=" + (dbl ? "0x8000000000000000ULL" : "0x80000000ULL") +
-                ",_quiet=_hidden>>1; " + std::string(sqrt_vec ? "unsigned _mode=(unsigned)(c->fpcr>>22)&3;" : "") +
-                " if(c->fpcr&(1ULL<<24)) {"
-                " if(!(_a&_exp)&&(_a&_frac)) { _a&=_sign;c->fpsr|=128; }"
-                " if(!(_b&_exp)&&(_b&_frac)) { _b&=_sign;c->fpsr|=128; } }"
-                " int _an=(_a&_exp)==_exp&&(_a&_frac),_bn=(_b&_exp)==_exp&&(_b&_frac);"
-                " int _as=_an&&!(_a&_quiet),_bs=_bn&&!(_b&_quiet);"
-                " if(_an||_bn) { _v=(_as?_a:_bs?_b:_an?_a:_b)|_quiet;"
-                " if(_as||_bs) { c->fpsr|=1; } if(c->fpcr&(1ULL<<25)) { _v=_exp|_quiet; } }");
+                EmitFPSimdPreamble(dbl, sqrt_vec));
             if (sqrt_vec) {
-                put("else if(!(_a&~_sign))_v=_a;"
-                    " else if(_a&_sign) { _v=_exp|_quiet;c->fpsr|=1; }"
-                    " else if((_a&_exp)==_exp)_v=_a;"
-                    " else { const int _bias=" + std::string(dbl ? "1023" : "127") +
-                    "; uint64_t _magnitude=_a&_frac;"
-                    " int _e=(int)((_a&_exp)>>_f)-(int)_bias;"
-                    " if(_a&_exp)_magnitude|=_hidden; else { ++_e;"
-                    " while(_magnitude<_hidden) { _magnitude<<=1;--_e; } }"
-                    " if(_e%2) { _magnitude<<=1;--_e; }"
-                    // Restoring square root of magnitude * 2^fraction_bits.
-                    // The radicand can exceed 64 bits, but only two bits are
-                    // consumed each step; root and remainder fit uint64_t.
-                    " uint64_t _root=0,_rem=0;"
-                    " for(int _k=(int)_f;_k>=0;--_k) { int _shift=2*_k-(int)_f;"
-                    " uint64_t _pair=(_shift>=0?_magnitude>>_shift:_magnitude<<(-_shift))&3;"
-                    " _rem=(_rem<<2)|_pair;uint64_t _trial=(_root<<2)|1;_root<<=1;"
-                    " if(_rem>=_trial) { _rem-=_trial;_root|=1; } }"
-                    " if(_rem) { c->fpsr|=16;"
-                    " if(_mode==1||(_mode==0&&_rem>_root))++_root; }"
-                    " _e=_e/2+(int)_bias;"
-                    " if(_root>=(_hidden<<1)) { _root>>=1;++_e; }"
-                    " _v=((uint64_t)_e<<_f)|(_root&_frac); }");
+                put(EmitFPSqrtTail(dbl));
             } else {
                 put("else " + EmitFPAddSubValue(dbl, true));
             }
@@ -7269,7 +7376,7 @@ int  recomp_load_segments(GuestContext* c, const char* data_dir);
 inline int FpxVariant() {
     return g_emit_fpx ? (g_emit_fpx_shadow ? 2 : 1) : 0;
 }
-inline const char* RuntimeH() {
+inline const char* RuntimeHBase() {
     // [fastmem][guard_gen][fpx variant: 0 off, 1 FPX1, 2 FPX1+shadow].
     static const std::string texts[2][2][3] = {
         {{BuildRuntimeH(false, false, 0), BuildRuntimeH(false, false, 1), BuildRuntimeH(false, false, 2)},
@@ -7286,6 +7393,26 @@ inline const char* RuntimeH() {
         return fm_inline_texts[EmitGuardGen() ? 1 : 0][FpxVariant()].c_str();
     }
     return texts[g_emit_fastmem ? 1 : 0][EmitGuardGen() ? 1 : 0][FpxVariant()].c_str();
+}
+
+// The variant header plus, with g_emit_fp_shared, the FPE prototypes (inserted
+// before the include guard closes). One cached text per base variant.
+inline const char* RuntimeH() {
+    const char* base = RuntimeHBase();
+    if (!EmitFpShared()) {
+        return base;
+    }
+    static std::mutex mutex;
+    static std::map<const char*, std::string> with_fpe;
+    const std::lock_guard<std::mutex> lock(mutex);
+    auto it = with_fpe.find(base);
+    if (it == with_fpe.end()) {
+        std::string text = base;
+        static constexpr std::string_view guard_end = "#endif\n";
+        text.insert(text.rfind(guard_end), FpeH());
+        it = with_fpe.emplace(base, std::move(text)).first;
+    }
+    return it->second.c_str();
 }
 
 inline const char* EstimateRuntimeC() {
@@ -8198,7 +8325,7 @@ inline std::string FmInlineRuntimeC(const std::string& runtime) {
            runtime;
 }
 
-inline const char* RuntimeC() {
+inline const char* RuntimeCBase() {
     static const std::string abi5 = BuildRuntimeC(false);
     static const std::string fastmem = BuildRuntimeC(true);
     static const std::string guard_gen = BuildRuntimeC(true, true);
@@ -8220,6 +8347,23 @@ inline const char* RuntimeC() {
             .c_str();
     }
     return (EmitGuardGen() ? guard_gen : g_emit_fastmem ? fastmem : abi5).c_str();
+}
+
+// The variant text plus, with g_emit_fp_shared, the shared exact bodies. One
+// cached text per base variant, as RuntimeH does.
+inline const char* RuntimeC() {
+    const char* base = RuntimeCBase();
+    if (!EmitFpShared()) {
+        return base;
+    }
+    static std::mutex mutex;
+    static std::map<const char*, std::string> with_fpe;
+    const std::lock_guard<std::mutex> lock(mutex);
+    auto it = with_fpe.find(base);
+    if (it == with_fpe.end()) {
+        it = with_fpe.emplace(base, std::string(base) + FpeRuntimeC()).first;
+    }
+    return it->second.c_str();
 }
 
 } // namespace suyu::recomp

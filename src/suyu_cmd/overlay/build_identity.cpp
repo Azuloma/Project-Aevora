@@ -49,6 +49,7 @@ bool ParseBuildIdentity(const nlohmann::json& manifest, BuildIdentity& out) {
     identity.image_abi = ReadUnsigned(manifest, "image_abi");
     identity.image_features = ReadUnsigned(manifest, "image_features");
     identity.fm_inline = ReadBool(manifest, "fm_inline");
+    identity.fp_shared = ReadBool(manifest, "fp_shared");
     identity.direct_chain = ReadBool(manifest, "direct_chain");
     identity.indirect_chain = ReadBool(manifest, "indirect_chain");
     identity.fallback_enabled = ReadBool(manifest, "fallback_enabled");

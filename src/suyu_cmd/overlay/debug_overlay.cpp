@@ -430,6 +430,7 @@ void DebugOverlay::BuildIdentitySection() {
         ImGui::TextUnformatted("Image features: (not recorded)");
     }
     ImGui::Text("Inline fast memory: %s", flag(identity.fm_inline));
+    ImGui::Text("Shared exact FP: %s", flag(identity.fp_shared));
     ImGui::Text("Direct chaining: %s", flag(identity.direct_chain));
     ImGui::Text("Indirect chaining: %s", flag(identity.indirect_chain));
     ImGui::Text("Fallback enabled: %s", flag(identity.fallback_enabled));

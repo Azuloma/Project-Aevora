@@ -150,7 +150,7 @@ def registry_dump():
 
 # On-by-default export options (see common/env_option.h) that the baseline environment pins off.
 OPTIONS_PINNED_OFF = ('SUYU_AOT_FM_INLINE', 'SUYU_AOT_DIRECT_CHAIN', 'SUYU_AOT_INDIRECT_CHAIN',
-                      'SUYU_AOT_SPLIT_MAIN')
+                      'SUYU_AOT_FP_SHARED', 'SUYU_AOT_SPLIT_MAIN')
 
 
 class Run:
@@ -411,6 +411,8 @@ class Run:
                             'fm_inline=%s direct_chain=%s indirect_chain=%s' % (
                                 recorded.get('fm_inline'), recorded.get('direct_chain'),
                                 recorded.get('indirect_chain')))
+                self.record('defaults: unset means shared exact FP bodies on',
+                            recorded.get('fp_shared') is True, 'fp_shared=%s' % recorded.get('fp_shared'))
                 self.record('defaults: unset means main is split into a DLL',
                             recorded.get('module_bindings', {}).get('main') == 'dll',
                             str(recorded.get('module_bindings')))
@@ -441,6 +443,8 @@ class Run:
                             'fm_inline=%s direct_chain=%s indirect_chain=%s' % (
                                 recorded.get('fm_inline'), recorded.get('direct_chain'),
                                 recorded.get('indirect_chain')))
+                self.record('defaults: 0 switches shared exact FP bodies off',
+                            recorded.get('fp_shared') is False, 'fp_shared=%s' % recorded.get('fp_shared'))
                 self.record('defaults: 0 keeps main in the launcher (no split)',
                             'dll' not in (recorded.get('module_bindings') or {}).values(),
                             str(recorded.get('module_bindings')))
@@ -788,6 +792,9 @@ class Run:
              changed + 'image_features'),
             ('inline fast memory', lambda: edit_manifest(r'"fm_inline": false', '"fm_inline": true'),
              changed + 'fm_inline'),
+            ('shared exact FP bodies',
+             lambda: edit_manifest(r'"fp_shared": false', '"fp_shared": true'),
+             changed + 'fp_shared'),
             ('direct chaining',
              lambda: edit_manifest(r'"direct_chain": false', '"direct_chain": true'),
              changed + 'direct_chain'),
@@ -855,7 +862,8 @@ class Run:
             self.start_suyu()
 
         for variable, field in (('SUYU_AOT_DIRECT_CHAIN', 'direct_chain'),
-                                ('SUYU_AOT_INDIRECT_CHAIN', 'indirect_chain')):
+                                ('SUYU_AOT_INDIRECT_CHAIN', 'indirect_chain'),
+                                ('SUYU_AOT_FP_SHARED', 'fp_shared')):
             before = manifest_record()
             restart_with(variable, '1')
             try:

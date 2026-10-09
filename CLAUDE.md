@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-09, HEAD is `585c886` on `main`; overlay stages A-E and default-on options are committed. Milestone 4a synthetic work is verified; host rebuild, smoke, negative controls, and final integration runs pass (`--only-multimodule` 76/0, `--only-defaults` 24/0, `--only-aot-cache` 308/0). A new default-on PLA export, its image size, and chain-run FPS remain unverified; successful generation, compilation, or startup alone does not establish compatibility.
+As of 2026-10-09, HEAD is `709dbd6` on `main`; the last code commit is `2bed3c6`, which adds the opt-in per-guest-thread runtime ledger. The standard all-default PLA export is verified without LNK1248 (main SizeOfImage 1,923,067,904; launcher 495,382,528) at 15-20 FPS in the usual scene; the FMI-off A/B reduced images but did not materially change FPS. The standalone ledger unit and host rebuild passed; the full smoke run and Code reviewer review of `2bed3c6` remain pending. Successful generation, compilation, or startup alone does not establish compatibility.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, then the seventeenth-session handoff in `WORK_PLAN.md`. Start with the full default-on PLA export/image measurement or the user-selected item; hot-RVA mapping and idle-core investigation remain open. Ask the user for FPS and hardware-check details after PLA runs, never fake cache producer identity, and consider U2 only with explicit approval. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
+Read `CLAUDE.md`, then the eighteenth-session handoff in `WORK_PLAN.md`. First handle the cleanup rebuild after the FMI-off export, then obtain Code reviewer review and run the full smoke suite; propose the generator-side opcode-size investigation before SVC attribution or chain A/B work. Ask the user for FPS and hardware details after PLA runs, never fake cache producer identity, and consider U2 only with explicit approval. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -48,6 +48,8 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `src/suyu/game_export.cpp` | Export dialog, package generation, and generated-code build orchestration (configure, compile, link, packaging). |
 | `src/core/recompiler/arm64_to_c.h` | ARM64-to-C emitter, unit splitting, and the generated module CMake (job pool sizing). |
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
+| `src/core/arm/recomp/recomp_thread_time.h` | Opt-in per-guest-thread, per-core `RecompThreadTimeLedger` diagnostic. |
+| `tests/recompiler_smoke/thread_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_thread_time_unit`. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
 | `src/core/` | Game loading, memory, and system-service runtime. |
 | `src/suyu_cmd/overlay/` | Dear ImGui Vulkan debug overlay, input/statistics logic, build identity, and diagnostics; acquired process-wide by `SuyuCmd::AcquireDebugOverlay`. |
@@ -111,6 +113,8 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - The user may also hand work to Codex directly; re-check `git status` and the diff before editing.
 
 ## Build and verification rules
+
+- The host embeds the git hash at CMake configure time. After the user commits, reconfigure and build before exporting; check `GIT_REV` in `msvc-release\src\common\scm_rev.cpp`, because `buildsuyu.cmd` alone can report no work and retain the old hash.
 
 - Standing export procedure: the AOT and overlay defaults are on. Set an option to `=0` to disable it; in particular, use `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` when comparing against an all-static or feature-disabled export. Chain experiments now mean switching a chain off to compare. The other procedure rules below are unchanged.
 

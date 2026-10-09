@@ -47,6 +47,7 @@ int FullManifestIsRead() {
         "image_abi": 6,
         "image_features": 7,
         "fm_inline": true,
+        "fp_shared": true,
         "direct_chain": false,
         "indirect_chain": true,
         "fallback_enabled": false,
@@ -61,6 +62,7 @@ int FullManifestIsRead() {
     CHECK(identity.image_abi && *identity.image_abi == 6);
     CHECK(identity.image_features && *identity.image_features == 7);
     CHECK(identity.fm_inline && *identity.fm_inline);
+    CHECK(identity.fp_shared && *identity.fp_shared);
     CHECK(identity.direct_chain && !*identity.direct_chain);
     CHECK(identity.indirect_chain && *identity.indirect_chain);
     CHECK(identity.fallback_enabled && !*identity.fallback_enabled);
@@ -79,8 +81,8 @@ int MissingFieldsStayUnrecorded() {
     CHECK(identity.effective_backend.empty() && identity.correctness_revision.empty() &&
           identity.bundle_id.empty());
     CHECK(!identity.image_abi && !identity.image_features);
-    CHECK(!identity.fm_inline && !identity.direct_chain && !identity.indirect_chain &&
-          !identity.fallback_enabled);
+    CHECK(!identity.fm_inline && !identity.fp_shared && !identity.direct_chain &&
+          !identity.indirect_chain && !identity.fallback_enabled);
     CHECK(identity.module_bindings.empty());
 
     // An older export that predates one flag: that flag alone is unrecorded, not "off".
@@ -88,6 +90,7 @@ int MissingFieldsStayUnrecorded() {
         Parse(json::parse(R"({"direct_chain": false, "image_abi": 6})"));
     CHECK(partial.direct_chain && !*partial.direct_chain);
     CHECK(!partial.indirect_chain);
+    CHECK(!partial.fp_shared);
     return 0;
 }
 

@@ -5,6 +5,8 @@
      fpx     the FPX1 text, ops_fpx.c                        (FPX_HAVE_FPX)
      nokeep  FPX1 without its keep test (negative control)   (FPX_HAVE_FPX)
      nomid   FPX1 without its midpoint test (negative control) (FPX_HAVE_FPX)
+     fpxs    FPX1 with the exact bodies shared out of line (FPE), ops_fpxs.c (FPX_HAVE_FPX)
+     fpxb    fpxs with the inexact flag dropped from one body (negative control) (FPX_HAVE_FPX)
      hw      the AArch64 host executing the word itself      (FPX_HAVE_HW)
 
    Every case compares the whole of q0, x0, NZCV and the final guest FPSR.
@@ -12,7 +14,7 @@
    usage: driver diff  [options]      compare every candidate with the reference
           driver hash  IMPL [options] print one FNV-1a hash per leg, word and FPCR
           driver check FILE [options] recompute hashes for soft (and fpx) and compare
-          driver control NAME [options]  nokeep | nomid | mxcsr: must find mismatches
+          driver control NAME [options]  nokeep | nomid | mxcsr | fpxb: must find mismatches
           driver env   [options]      poisoned host FP mode repaired by the host shim
           driver inhibit [options]    the host kill switch (fpcr bit 32) turns FPX1 off
           driver shadow [options]     the shadow instrumentation build against soft
@@ -36,6 +38,8 @@ extern const FpxOpFn g_ops_fpx[];
 extern const FpxOpFn g_ops_nokeep[];
 extern const FpxOpFn g_ops_nomid[];
 extern const FpxOpFn g_ops_shadow[];
+extern const FpxOpFn g_ops_fpxs[];
+extern const FpxOpFn g_ops_fpxb[];
 /* RECOMP_FPX_PROBE in ops_fpx.c: [1] fast path kept, [2] fell through. */
 unsigned long long g_fpx_probe[3];
 #endif
@@ -48,14 +52,15 @@ typedef uint64_t (*FpxHwFn)(const uint64_t*, uint64_t*, uint64_t);
 extern const FpxHwFn g_hw[];
 #endif
 
-enum { I_SOFT, I_FPX, I_NOKEEP, I_NOMID, I_SHADOW, I_HW, I_COUNT };
-static const char* const kImplNames[I_COUNT] = {"soft", "fpx", "nokeep", "nomid", "shadow", "hw"};
+enum { I_SOFT, I_FPX, I_NOKEEP, I_NOMID, I_SHADOW, I_FPXS, I_FPXB, I_HW, I_COUNT };
+static const char* const kImplNames[I_COUNT] = {"soft", "fpx", "nokeep", "nomid", "shadow", "fpxs",
+                                                "fpxb", "hw"};
 
 static int ImplAvailable(int impl) {
     switch (impl) {
     case I_SOFT: return 1;
 #ifdef FPX_HAVE_FPX
-    case I_FPX: case I_NOKEEP: case I_NOMID: case I_SHADOW: return 1;
+    case I_FPX: case I_NOKEEP: case I_NOMID: case I_SHADOW: case I_FPXS: case I_FPXB: return 1;
 #endif
 #ifdef FPX_HAVE_HW
     case I_HW: return 1;
@@ -89,6 +94,8 @@ static void Run(int impl, unsigned op, const In* in, uint64_t fpcr, uint64_t fs0
     if (impl == I_NOKEEP) fn = g_ops_nokeep[op];
     if (impl == I_NOMID) fn = g_ops_nomid[op];
     if (impl == I_SHADOW) fn = g_ops_shadow[op];
+    if (impl == I_FPXS) fn = g_ops_fpxs[op];
+    if (impl == I_FPXB) fn = g_ops_fpxb[op];
 #endif
     memcpy(c->vreg[0], &in->w[0], 64);
     c->x[0] = in->w[8];
@@ -560,11 +567,15 @@ typedef struct {
     unsigned long long cases[5], bad_v[I_COUNT][5], bad_s[I_COUNT][5];
     unsigned long long hit, miss;   /* fpx probe at FPCR 0 with IXC set, L1 */
     unsigned long long hit_fz, miss_fz; /* the same at FPCR FZ */
+    unsigned long long hit_s, hit_s_fz; /* the same two kept counts for fpxs (shared exact bodies) */
     unsigned shown;
     int poison;                     /* 1: poison the host FP mode around every fpx call */
 } DiffState;
 
 static void PoisonHostFp(int on);
+
+/* Kept fast-path results fpxs reached over the last Diff, at FPCR 0 and FZ (see "diff"). */
+static unsigned long long g_fpxs_hits, g_fpxs_hits_fz;
 
 static void DiffCase(unsigned op, uint64_t fpcr, unsigned leg, const In* in, uint64_t fs0, void* user) {
     DiffState* s = (DiffState*)user;
@@ -587,6 +598,10 @@ static void DiffCase(unsigned op, uint64_t fpcr, unsigned leg, const In* in, uin
         if (impl == I_FPX && leg == 1 && fpcr == FPCR_FZ && (fs0 & 0x10)) {
             s->hit_fz += g_fpx_probe[1] - h0;
             s->miss_fz += g_fpx_probe[2] - m0;
+        }
+        if (impl == I_FPXS && leg == 1 && (fs0 & 0x10)) {
+            if (fpcr == 0) s->hit_s += g_fpx_probe[1] - h0;
+            if (fpcr == FPCR_FZ) s->hit_s_fz += g_fpx_probe[1] - h0;
         }
 #endif
         const int bv = !SameValue(&ref, &got), bs = ref.fpsr != got.fpsr;
@@ -652,6 +667,7 @@ static unsigned long long Diff(const Opts* o, int ref, const int* cands, int nca
                    100.0 * (double)s.hit_fz / (double)(s.hit_fz + s.miss_fz), s.hit_fz, s.hit_fz + s.miss_fz);
         hits += s.hit; misses += s.miss;
         hits_fz += s.hit_fz; misses_fz += s.miss_fz;
+        g_fpxs_hits += s.hit_s; g_fpxs_hits_fz += s.hit_s_fz;
         fflush(stdout);
     }
     for (int k = 0; k < ncand; ++k)
@@ -780,9 +796,10 @@ int main(int argc, char** argv) {
     if (!strcmp(mode, "diff")) {
         ParseOpts(argc, argv, 2, &o);
         const int ref = ImplAvailable(I_HW) ? I_HW : I_SOFT;
-        int cands[2], n = 0;
+        int cands[3], n = 0;
         if (ref == I_HW) cands[n++] = I_SOFT;
         if (ImplAvailable(I_FPX)) cands[n++] = I_FPX;
+        if (ImplAvailable(I_FPXS)) cands[n++] = I_FPXS;
         if (!n) { printf("nothing to compare: soft is the only implementation here\n"); return 0; }
         unsigned long long hits = 0, misses = 0, hits_fz = 0, misses_fz = 0;
         const unsigned long long bad = Diff(&o, ref, cands, n, 0, &hits, &misses, &hits_fz, &misses_fz);
@@ -798,7 +815,18 @@ int main(int argc, char** argv) {
             printf("FPX fast path kept no result at FPCR FZ although it did at FPCR 0\n");
             fz_gate_closed = 1;
         }
-        return (bad || fz_gate_closed) ? 1 : 0;
+        // fpxs sees the same inputs as fpx and must keep the same results: a shared build
+        // whose fast path never fires still matches the exact body bit for bit.
+        int shared_hits_differ = 0;
+        if (ImplAvailable(I_FPXS)) {
+            printf("FPXS kept results: %llu at FPCR 0, %llu at FPCR FZ (fpx: %llu, %llu)\n",
+                   g_fpxs_hits, g_fpxs_hits_fz, hits, hits_fz);
+            if (g_fpxs_hits != hits || g_fpxs_hits_fz != hits_fz) {
+                printf("FPXS fast path kept a different number of results than FPX1\n");
+                shared_hits_differ = 1;
+            }
+        }
+        return (bad || fz_gate_closed || shared_hits_differ) ? 1 : 0;
     }
 #ifdef FPX_HAVE_FPX
     if (!strcmp(mode, "control")) {
@@ -808,6 +836,7 @@ int main(int argc, char** argv) {
         unsigned long long bad;
         if (!strcmp(name, "nokeep")) { const int c[] = {I_NOKEEP}; bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0, 0, 0); }
         else if (!strcmp(name, "nomid")) { const int c[] = {I_NOMID}; bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0, 0, 0); }
+        else if (!strcmp(name, "fpxb")) { const int c[] = {I_FPXB}; bad = Diff(&o, I_SOFT, c, 1, 0, 0, 0, 0, 0); }
         else if (!strcmp(name, "mxcsr")) { const int c[] = {I_FPX}; bad = Diff(&o, I_SOFT, c, 1, 1, 0, 0, 0, 0); }
         else { fprintf(stderr, "unknown control\n"); return 2; }
         /* The verdict needs every shard's count; run.py adds them up. */

@@ -10,6 +10,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - Added the Dear ImGui debug overlay for the Windows `suyu-cmd` launcher and the static launcher; it is created by default and can be disabled with `SUYU_DEBUG_OVERLAY=0`. It includes a command bar, input routing, Backend, Performance, CPU, Build identity, and GPU sections, plus standalone logic and build-identity smoke tests.
 - Added the shared `src/common/env_option.h` rule for default-on flags and three-way choices, plus the `smoke_env_option_unit` coverage and default-option integration scenarios.
 - Added ImGui v1.92.9b as the forced-bundled `Aevora::imgui` dependency, the Vulkan overlay extension point, recompiled-module and native-status diagnostics, and packaged AOT manifest display fields.
+- Added the opt-in `SUYU_RECOMP_THREAD_TIME=1` per-guest-thread, per-core `RunThread` wall-time ledger and `smoke_thread_time_unit`; unset or other values leave it off.
 
 ### Changed
 - Overlay-owned mouse input is routed through a bounded, mutex-protected queue with focus/minimize reset handling; keyboard input is not forwarded to ImGui yet. The overlay reports guest PCs and fallback activity as diagnostics and does not treat successful startup or zero hybrid fallback attempts as proof of static execution.
@@ -18,13 +19,13 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - The process-wide debug overlay is acquired by `SuyuCmd::AcquireDebugOverlay` and intentionally never destroyed because the renderer retains a raw pointer and shuts it down in its own destructor; this closes the overlay's early-exit lifetime issue without changing the pre-existing renderer/window-reference hazard.
 
 ### Verified
-- Commits `97e32dd`, `0ae08ea`, `575b796`, and `585c886` are present on `main`; the final host rebuild succeeded (`BUILD_EXIT=0`), clang-cl and MSVC `cl` synthetic smoke passed (`SMOKE_EXIT=0`), and negative controls caught the exercised mutations.
+- Commits `97e32dd`, `0ae08ea`, `575b796`, `585c886`, and `2bed3c6` are present on `main`; the host rebuild succeeded (`BUILD_EXIT=0`), the standalone thread-time unit passed, and its four deliberate weakening controls were caught. The full smoke run and Code reviewer review of `2bed3c6` are pending.
 - The user reported that, after a fresh full export with stages D and E of the `SUYU_DEBUG_OVERLAY=1` ImGui overlay (including the router redesign and reviewed stage-E fixes), the export completed successfully and the Debug window worked “perfectly” on PLA. This is a user observation; no itemized sections or inputs exercised and no performance result were provided.
 - The host rebuild was run with no AOT/overlay variables initially set; MSVC `cl` smoke included chain variants, and exporter-wiring weakening was caught and restored byte-identically.
 - Integration passed `--only-multimodule` 76/0, `--only-defaults` 24/0, and final `--only-aot-cache` 308/0. Default scenarios covered unset default-on FMI/direct/indirect options, supported split binding, quiet unsupported-default skips, and `=0` all-off/all-static output.
 
 ### Known limitations / held items
-- A new PLA export with all default-on features and split has not been measured for `SizeOfImage`; chain-run FPS, overlay-on-by-default behavior in headless/capture integration, performance impact, and MSVC `cl` for a real title remain unverified. The persistent cache requires a new producer revision and full export before these defaults reach a PLA launcher.
+- The standard 2bed3c6 export measured main/launcher `SizeOfImage` as 1,923,067,904/495,382,528 with no LNK1248 and 15-20 FPS in the usual scene; cache dialog status fields were not read. The FMI-off A/B measured 1,588,723,712/397,508,608 and about one FPS change with direction unrecorded. Per-thread measurements found no single saturated thread; lock contention as the cause of stalled time and idle cores is a hypothesis. The host-RIP profile was flat (4,242 functions; top 1.90%), and host bytes per guest instruction were mean 150 B, median 151 B, p90 313 B, p99 383 B; these are observations, not acceptance results.
 
 ## v0.0.1-dev17 - Unreleased
 

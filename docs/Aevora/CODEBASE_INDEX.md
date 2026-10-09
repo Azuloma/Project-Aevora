@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `585c886` (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `709dbd6` (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
@@ -107,6 +107,8 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 |---|---|
 | `arm_recomp.h/.cpp` (~2,400 lines) | `ArmRecomp : ArmInterface`. Block lookup/dispatch loop, context marshalling (`GuestContextView`, `RecompHostMem` with static_assert-locked offsets), registration hooks (`SetRecompLookup:52`, `SetRecompBindCallback:130`, `BindRecompProcess:135`, `SetRecompPrepareCallback`, `SetRecompBaseSetter`, `PrepareRecompProcess`). |
 | `src/core/arm/recomp/arm_recomp.h:176`, `arm_recomp.cpp:750` **(v)** | `Core::GetRecompModules()` returns a thread-safe copy of the recompiled module map for overlay diagnostics. |
+| `src/core/arm/recomp/recomp_thread_time.h:21` **(v)** | `RecompThreadTimeLedger` records per-guest-thread `RunThread` wall time for the opt-in diagnostic. |
+| `src/core/arm/recomp/arm_recomp.cpp:279-305`, `:1725`, `:1972-1976` **(v)** | `kThreadTime`, `ThreadTimeScope`, one ledger per `Impl`, and the scope at the top of `ArmRecomp::RunThread`; enabled only by `SUYU_RECOMP_THREAD_TIME=1`. |
 | `src/core/arm/dynarmic/dynarmic_exclusive_access.h` | Lock-scoped reservation read/compare-and-swap wrappers (`ReadMarked<T>`, `WriteCompared<T>`) with optional attempted reporting. |
 | `src/core/arm/dynarmic/dynarmic_exclusive_monitor.h/.cpp` | Dynarmic exclusive-monitor fast path: resolves plain-page host pointers before the monitor lock, retains the locked Memory path for special/cross-page accesses, and conditionally reports writes. |
 | `src/core/memory.h/.cpp` | `Memory::GetPlainExclusivePointer` (`memory.h:353`, `memory.cpp:1001`) and `Memory::NoteExclusiveWrite` (`memory.h:360`, `memory.cpp:1005`) support the lock-light U1 path. |
@@ -231,6 +233,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
 | `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, production bundle-loading and mixed-image checks, the three-module xmod fixture, loader stub and lookup-boundary cases, `check_prebuild` split consumer checks, and `smoke_env_option_unit`; MSVC golden hashes require `/utf-8`, matching the real build. |
 | `tests/recompiler_smoke/overlay_logic_unit.cpp`, `build_identity_unit.cpp` | Standalone tests for overlay command/input/statistics logic and AOT manifest build-identity parsing. |
+| `tests/recompiler_smoke/thread_time_unit.cpp` **(v)** | Standalone `RecompThreadTimeLedger` unit; registered as `smoke_thread_time_unit` and invoked by `run.py`. |
 | `tests/recompiler_smoke/run.py` | The build-identity test requires `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or use a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`. |
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_exec.c` | Cross-image reservation, counter, FPX, guard, bridge-null, and lookup-boundary fixture execution (v, 2026-10-07). |
