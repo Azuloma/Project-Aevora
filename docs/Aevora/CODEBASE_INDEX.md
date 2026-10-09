@@ -60,6 +60,8 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | AdvSIMD shift-by-immediate emitters | ~`arm64_to_c.h:1719-1830` (v, 2026-10-05) | `SSHR`/`USHR`/`SHRN` at ~`:1795`. `SHL` (vector, immediate) is implemented in the non-saturating and dedicated emitters but gated by `g_translate_all` for Hybrid exports (see `OLD_HISTORY.md`). |
 | FPX1 runtime text and emitters | `arm64_to_c.h:FpxH()` / `FpxH64()` ~`:6416` / `:6627`; `EmitFPNativeValue` / `EmitFPNativeSuffix` ~`:492` / `:505` (v) | `RECOMP_FPX_OPEN` uses `RECOMP_FPX_FPCR_MASK 0x06C8FF07`; `RECOMP_FPX_FZ` passes guest FZ to `recomp_fpx_<op>{32,64}(..., int fz, ...)` and applies the FZ-safe keep rules. |
 | Shared exact FP body generators | `arm64_to_c.h:600`, `:645`, `:761`, `:841-924`, `:952-978`, `:7400-7412`, `:8354-8364` (v, 2026-10-09) | `EmitFPAddSubBody`, `EmitFPDivideBody`, `EmitFPMulAddBody`, step/SIMD/sqrt helpers, `kFpeOps`, `FpeH`/`FpeRuntimeC`, and `RuntimeH`/`RuntimeC` produce one exact FPX1 body per module when `SUYU_AOT_FP_SHARED` is enabled. |
+| `g_emit_fpx_vec` / `EmitFpxVec()` and vector FADD/FSUB emitter | `arm64_to_c.h:359-361`, `:2399-2403` | FPXV is enabled only with FPX1 and outside shadow mode; 4S/2S vector FADD/FSUB first try `recomp_fpx_vaddsub32`. |
+| `FpxVecH()` / `RuntimeH()` cache key | `arm64_to_c.h:7425-7486` | Inserts the SSE2 all-lane helper into generated runtime text; the runtime variant is selected by base, FP_SHARED, and FPXV. |
 
 ### 2.2 Exporter (Qt)
 
@@ -72,6 +74,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | Symbol | Location | Purpose |
 |---|---|---|
 | `GameExportDialog` | `game_export.h:44` | Export dialog and state. |
+| FPXV option, manifest, and bundle identity | `game_export.cpp:3507-3546`, `:4235-4247`, `:4434-4478`, `:6282` | Parses `SUYU_AOT_FPX_VEC`, records `fpx_vec`, checks it on cache reuse, and adds it to split bundle identity only when enabled. |
 | `TargetPlatform`, `RecompileBackend` enums | `game_export.h:134`, `:140` | Windows/Linux/macOS; `SuyuStatic` / `Hybrid` / `Dynarmic`. |
 | `FindBestCmakeExecutable()` | `game_export.cpp:2931` (v) | Finds CMake on PATH, then in VS-bundled locations. |
 | `WantsCompiledOutput()` | `game_export.cpp:3139` (v) | Build (compile) versus Source-only output. |
@@ -242,10 +245,11 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/bundle_stub_image.c` | Shared-image test stub without the required bundle entry points (v, 2026-10-07). |
 | `tests/recompiler_smoke/export.cpp --xmod` | Emits the synthetic static/DLL/static xmod images (v, 2026-10-07). |
 | `tests/recompiler_smoke/run.py --only-xmod` | Runs only the xmod export and host scenarios (v, 2026-10-07). |
-| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings, and its `fpxs` implementation checks shared exact bodies against soft/hardware plus kept-path counts while `fpxb` is the weakened-body negative control; partitioning is relevant to the `C1002` investigation. |
+| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings; `fpxs` checks shared exact bodies, and `fpxv`/`fpxvb`/`fpxvz` cover FPXV plus non-finite/FZ negative controls (`driver.c:10-12, 46-48, 105-107`). Partitioning is relevant to the `C1002` investigation. |
 | `tests/exclusive_access/run.py`, `exclusive_access_test.cpp` | Standalone reservation/CAS test; covers exact u8/u16/u32/u64/u128 counters, reservation semantics, isolation, upper-half comparison, attempted reporting, and a race-free negative control (v, 2026-10-08). |
 | `tests/recompiler_smoke/bl_code.h`, `bl_c.c`, `export.cpp --bl` | Direct/indirect chain execution fixture, including RET/BR middle-block targets, non-zero module bases, budget exhaustion, and BLR x30 ordering. |
 | `tests/recompiler_smoke/run.py` | `check_direct_chain:595`, `check_direct_chain_bl:625`, and variants `abi6dc`/`ggdc`/`abi6ic`/`ggdcic` (`:57-64`, `:742-746`). |
+| `tests/recompiler_smoke/run.py` | `fpxv`/`abi6fv` variants (`:63-65`), `check_fpx_vec:631`, and invocation of the structural check (`:819`). |
 | `tests/export_integration/make_multimodule_fixture.py` | `write_multimodule_fixture()` (v, 2026-10-06) | Generates sparse canonical multi-module ExeFS fixtures with cross-module calls, markers, unreadable paths, and code-less options. |
 | `tests/export_integration/run_export_integration.py` | `multimodule_split_scenarios()`, `split_source_failure_scenarios()`, `split_failure_injection_scenarios()`, `split_option_scenarios()` (v, 2026-10-06) | Exercises real split static/Hybrid exports, source/analysis refusals, injected build/package failures, per-export option handling, and retries. |
 | `tests/export_integration/run_export_integration.py` | `default_option_scenarios()` and `--only-defaults` (v, 2026-10-09) | Verifies unset default-on FMI/direct/indirect options, default supported split binding, quiet unsupported-default skips, and `=0` all-off/all-static output. |

@@ -2,6 +2,27 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev19 - Unreleased
+
+*Development entry 19 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added `SUYU_AOT_FPX_VEC` (`FPXV`), on unless exactly `0`, for the FPX1 all-lane vector FADD/FSUB fast path on 4S and 2S vectors. It is ignored without FPX1 and never active in the FPX shadow build.
+- Added `fpx_vec` to the AOT cache manifest and split bundle identity, with old manifests matching only exports without FPXV. Added `fpxv`, `fpxvb`, and `fpxvz` FPX harness implementations and the `fpxv`/`abi6fv` smoke variants.
+
+### Changed
+- The FPXV helper tries one SSE2 add/sub across all lanes and keeps the result only when every lane passes the existing FPX1 keep rules; otherwise the unchanged per-lane path runs. On hosts without SSE2 it always declines.
+- FPXV changes generated code and cache identity only; it does not change the image ABI, feature bit, or results. With FPXV off, emitted text remains byte-identical.
+
+### Verified
+- The FPX harness passed with 74,815,904 FPXV-versus-soft cases and 0 value or FPSR mismatches; the negative controls failed as designed. The MSVC smoke suite passed all variants, including `fpxv` and `abi6fv`, with unchanged ABI5/ABI6 golden hashes.
+- Code review of `544dad2` found one AArch64 negative-control exemption issue, fixed afterwards in `tests/recompiler_fpx/run.py`; no other findings were reported. The host rebuild exited 0 with `GIT_REV` set to `544dad26944b3c5913b12be0e47b159d6ea59c42`.
+- The user observed no FPS gain after a fresh FPXV-on export in the usual PLA scene; this was not measured by an agent.
+
+### Known limitations / held items
+- FMUL/FMLA, D-lane, and FADDP vector forms, PLA sampler attribution, `RECOMP_FPX_PROBE` keep-rate measurement, an AArch64/NEON path, and the export integration run remain undone. The user has not provided the export's `fpx_vec` manifest value, image sizes, cache status fields, FPS, hardware, or an `SUYU_AOT_FPX_VEC=0` A/B.
+- The reason for the unchanged observed FPS is unknown. Possible explanations are hypotheses: vector FADD/FSUB is not the bottleneck, uncovered FP operations dominate, the all-lane keep rate is low, or prologue register saves offset the benefit.
+
 ## v0.0.1-dev18 - Unreleased
 
 *Development entry 18 toward v0.0.1. Not a release; no build artifacts are published.*

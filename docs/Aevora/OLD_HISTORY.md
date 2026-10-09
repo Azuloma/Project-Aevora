@@ -1293,6 +1293,48 @@ The user starts the new session by checking `git status`/`git log`, then chooses
 - Use `D:\HisuiWakeBuild\diag\buildsuyu.cmd` through `cmd.exe /c`; clear the three export variables after export runs. Keep builds, exports, logs, caches, and game-derived outputs outside the repository.
 - For PLA, use the local samplers, confirm `aot_manifest.json`, and report user FPS. Use cache status fields (`aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`), not the lost log tail, as cache evidence.
 
+## Archived on 2026-10-09 from WORK_PLAN.md (twentieth-session cleanup)
+
+## Session handoff (2026-10-09, twentieth session)
+
+### State
+
+Current HEAD was `a67035d` (`v0.0.1-dev18: Optimization of the compilation process`). The shared-FP change and nineteenth-session user observation were recorded above; the next session was to reconcile the checkout and the recorded `c821526` host revision.
+
+### Contracts to preserve
+
+- Preserve FP_SHARED's exact per-module bodies, option/cache identity, and shared generator source of truth.
+- Preserve overlay architecture, honest `near`/fallback wording, and process/input ownership contracts.
+- Default-on options are exactly-`0` off; split is unset=>default where supported, `0` off, `1` explicit request, other values error.
+- `SUYU_RECOMP_THREAD_TIME` is opt-in and must not change execution; never fake cache producer identity.
+- Attempts are not handoffs, and zero Hybrid attempts is not proof of static execution.
+
+### Open issues, in priority order
+
+0. Obtain exact image sizes, `aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`, FPS, hardware, and optional `SUYU_AOT_FP_SHARED=0` A/B from the user.
+1. Investigate generator-side per-opcode-class host-size totals with a synthetic test and negative control; then consider SVC attribution by thread/address and one-variable chain exports.
+2. Carry over Stage F, automatic all-static re-plan, Step 6/held items, MSVC `cl` real-title support, and U2 only with explicit approval.
+
+### Immediate next action
+
+Ask for the pending PLA data, then propose the per-opcode-class host-size investigation and let the user choose the next investigation.
+
+## How to proceed
+
+1. Read `CLAUDE.md` and this handoff; check `git status`/ `git log` and verify `GIT_REV` matches HEAD.
+2. Ask for exact image sizes, the three cache fields, FPS and hardware, and optionally an `SUYU_AOT_FP_SHARED=0` A/B.
+3. Propose per-opcode-class host-size totals with a synthetic test and negative control, then SVC attribution by thread/address, then one-variable chain exports; run one investigation at a time with the user choosing.
+4. Use the standard cycle: design, implement, run the required FPX harness/smoke/integration tests, Code reviewer review, fix findings, one full suite run, host rebuild, Markdown batch, then give the user the commit file list and message.
+5. After export-running tests, run the cleanup rebuild. After the user commits, reconfigure and verify `GIT_REV` before exporting.
+
+## How to work / procedures
+
+- Run `.cmd` scripts from PowerShell with `cmd.exe /c script *> log`; Bash `cmd.exe` invocation is ineffective here. Do not feed quoted Python/Markdown through shell heredocs.
+- Exports are user-started in the GUI; environment experiments use a new empty output folder and clean up with `suyu.exe` closed.
+- The game log is written only after normal game exit. Use a non-elevated shell and convert sampler `+0xN` offsets to real RVA by subtracting the module base.
+- Never run concurrent builds; keep builds, exports, logs, caches, and game-derived outputs outside the repository. Use cache status fields rather than the lost log tail.
+- FPX harness, smoke, and integration commands and verified logs are recorded in the archived nineteenth-session procedures.
+
 ## Archived on 2026-10-09 from WORK_PLAN.md (nineteenth-session cleanup)
 
 ## Evidence so far (observations)

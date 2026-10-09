@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-09. Current HEAD is `a67035d` on `main`; the nineteenth-session detail is archived in [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-09-from-work_planmd-nineteenth-session-cleanup).
+Handoff prepared: 2026-10-09. Current HEAD is `544dad2` on `main`; the twentieth-session detail is archived in [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-09-from-work_planmd-twentieth-session-cleanup).
 
 ## Objective
 
@@ -8,7 +8,7 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 
 ## Status
 
-Milestone 4a topology, registry, loader, split exporter, persistent cache, and covered U1-U4 synthetic work are complete. PLA static AOT + FMI + split runs at 15-20 FPS versus about 30 FPS JIT, with the standard all-default image below the 2 GiB limit. The shared-FP change is recorded as `c821526`; the user observed considerably smaller generated files and about 1-2 FPS higher FPS after a fresh default-on export. Exact new sizes, FPS, hardware, and cache fields remain unrecorded.
+Milestone 4a topology, registry, loader, split exporter, persistent cache, and covered U1-U4 synthetic work are complete. Commit `544dad2` adds FPXV on top of dev18; the FPX harness, smoke suite, and host rebuild passed. A fresh FPXV-on PLA export produced no user-observed FPS gain; exact export identity, image sizes, cache fields, FPS, hardware, and attribution remain unrecorded.
 
 ## Evidence so far
 
@@ -56,12 +56,15 @@ Held: two-lifetime seam; real loader/refusal paths; `tests/export_regression` Qt
 - Session 19: three reviewer P2 findings were fixed and the documentation batch was completed.
 - Session 19: the host was rebuilt with `GIT_REV c821526d36db0427e44be438c682afb8fa8cf905`.
 - Session 19: the user observed smaller generated files and about 1-2 FPS higher FPS; exact values remain pending.
+- Session 20: `544dad2` added the FPXV all-lane vector FADD/FSUB fast path, with FPX harness and smoke evidence recorded in the dev19 changelog.
+- Session 20: code review reported one AArch64 negative-control issue, fixed in `tests/recompiler_fpx/run.py` (included in the dev19 commit); no other findings were reported.
+- Session 20: the host was rebuilt with `GIT_REV 544dad26944b3c5913b12be0e47b159d6ea59c42`; the user observed no FPS gain after a fresh FPXV-on export.
 
-## Session handoff (2026-10-09, twentieth session)
+## Session handoff (2026-10-09, twenty-first session)
 
 ### State
 
-Current HEAD is `a67035d` (`v0.0.1-dev18: Optimization of the compilation process`). The shared-FP change and nineteenth-session user observation are recorded above; start by reconciling the current checkout and the recorded `c821526` host revision.
+Current HEAD is `544dad2` (`recomp: Add all-lane vector FADD/FSUB fast path (SUYU_AOT_FPX_VEC)`), on top of `a67035d` dev18 and `c821526`. FPXV is default-on unless exactly `0`, requires FPX1, is absent from shadow builds, records `fpx_vec` in manifests, and changes split bundle identity only when enabled. The helper covers S-lane FADD/FSUB only and declines on hosts without SSE2; results and ABI are unchanged.
 
 ### Contracts to preserve
 
@@ -70,16 +73,17 @@ Current HEAD is `a67035d` (`v0.0.1-dev18: Optimization of the compilation proces
 - Default-on options are exactly-`0` off; split is unset=>default where supported, `0` off, `1` explicit request, other values error.
 - `SUYU_RECOMP_THREAD_TIME` is opt-in and must not change execution; never fake cache producer identity.
 - Attempts are not handoffs, and zero Hybrid attempts is not proof of static execution.
+- Do not extend FPXV to FMUL/FMLA/D/FADDP without PLA sampler and `RECOMP_FPX_PROBE` keep-rate evidence.
 
 ### Open issues, in priority order
 
-0. Obtain exact image sizes, `aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`, FPS, hardware, and optional `SUYU_AOT_FP_SHARED=0` A/B from the user.
-1. Investigate generator-side per-opcode-class host-size totals with a synthetic test and negative control; then consider SVC attribution by thread/address and one-variable chain exports.
-2. Carry over Stage F, automatic all-static re-plan, Step 6/held items, MSVC `cl` real-title support, and U2 only with explicit approval.
+0. Obtain from the user the FPXV export's manifest `fpx_vec`, exact image sizes, `aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`, FPS, hardware, and optional `SUYU_AOT_FPX_VEC=0` A/B.
+1. Measure with the PLA sampler and `RECOMP_FPX_PROBE` whether vector FP operations are hot and what the all-lane keep rate is; do not extend FPXV without that evidence.
+2. Carry over per-opcode-class host-size totals, SVC attribution, one-variable chain exports, Stage F, automatic all-static re-plan, Step 6/held items, MSVC `cl` real-title support, and U2 only with explicit approval.
 
 ### Immediate next action
 
-Ask for the pending PLA data, then propose the per-opcode-class host-size investigation and let the user choose the next investigation.
+Ask for the pending FPXV PLA export data, then measure vector-FP hotness and all-lane keep rate before considering any broader FPXV coverage.
 
 ## How to proceed
 
@@ -96,3 +100,6 @@ Ask for the pending PLA data, then propose the per-opcode-class host-size invest
 - The game log is written only after normal game exit. Use a non-elevated shell and convert sampler `+0xN` offsets to real RVA by subtracting the module base.
 - Never run concurrent builds; keep builds, exports, logs, caches, and game-derived outputs outside the repository. Use cache status fields rather than the lost log tail.
 - FPX harness, smoke, and integration commands and verified logs are recorded in the archived nineteenth-session procedures.
+- FPXV harness: `python tests/recompiler_fpx/run.py --cases 3000 --adv 3000 --legs 123 --controls --hits` (clang-cl; AArch64 exempts the SSE2-only `fpxvb`/`fpxvz` negative controls).
+- FPXV smoke: `python tests/recompiler_smoke/run.py` (the `fpxv` and `abi6fv` variants run with the other smoke variants; ABI5/ABI6 golden hashes must remain unchanged).
+- Export integration: `python tests/export_integration/run_export_integration.py` includes the FPXV default-on, manifest-edit, switched-on, and pinned-off cases; it was extended for dev19 but not run.

@@ -129,8 +129,10 @@ def main():
                 found = sum(int(line.split()[2]) for line in text.splitlines()
                             if line.startswith("CONTROL"))
                 # AArch64 fast paths use the hardware FMA, so there is no
-                # midpoint test for the nomid control to take away.
-                exempt = name == "nomid" and platform.machine().lower() in ("arm64", "aarch64")
+                # midpoint test for the nomid control to take away. The vector FADD/FSUB
+                # helper (fpxvb, fpxvz) exists only for SSE2 and always declines there.
+                exempt = (name in ("nomid", "fpxvb", "fpxvz") and
+                          platform.machine().lower() in ("arm64", "aarch64"))
                 print(f"CONTROL {name}: {found} mismatches",
                       "(fails as designed)" if found else
                       "(not applicable on AArch64)" if exempt else "(DID NOT FAIL)")
