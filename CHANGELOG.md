@@ -7,6 +7,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 *Development entry 18 toward v0.0.1. Not a release; no build artifacts are published.*
 
 ### Added
+- Added `SUYU_AOT_FP_SHARED`, which emits each FPX1 exact floating-point body once per generated module and calls it from the existing FPX1 fast paths. The option is on unless exactly `0`, is ignored without FPX1, and warns only when explicitly set to `1` without FPX1; it preserves the inline output when off.
 - Added the Dear ImGui debug overlay for the Windows `suyu-cmd` launcher and the static launcher; it is created by default and can be disabled with `SUYU_DEBUG_OVERLAY=0`. It includes a command bar, input routing, Backend, Performance, CPU, Build identity, and GPU sections, plus standalone logic and build-identity smoke tests.
 - Added the shared `src/common/env_option.h` rule for default-on flags and three-way choices, plus the `smoke_env_option_unit` coverage and default-option integration scenarios.
 - Added ImGui v1.92.9b as the forced-bundled `Aevora::imgui` dependency, the Vulkan overlay extension point, recompiled-module and native-status diagnostics, and packaged AOT manifest display fields.
@@ -19,7 +20,9 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - The process-wide debug overlay is acquired by `SuyuCmd::AcquireDebugOverlay` and intentionally never destroyed because the renderer retains a raw pointer and shuts it down in its own destructor; this closes the overlay's early-exit lifetime issue without changing the pre-existing renderer/window-reference hazard.
 
 ### Verified
-- Commits `97e32dd`, `0ae08ea`, `575b796`, `585c886`, and `2bed3c6` are present on `main`; the host rebuild succeeded (`BUILD_EXIT=0`), the standalone thread-time unit passed, and its four deliberate weakening controls were caught. The full smoke run and Code reviewer review of `2bed3c6` are pending.
+- Verified the shared FPX1 bodies with the MSVC FPX harness: `fpxs` had 0 mismatches against soft over 76,041,704 L1-L3 cases, while the `fpxb` weakened-body control had 61,560 mismatches as designed. The smoke suite, export integration defaults/cache matrices, and host rebuild passed.
+- The user observed that a fresh default-on PLA export produced considerably smaller generated files and raised FPS by about 1-2 FPS in the usual scene, previously 15-20 FPS. Exact image sizes, `aot_cache_outcome`/`aot_cache_publish`/`aot_cache_reused` values, hardware details, and an `SUYU_AOT_FP_SHARED=0` A/B remain unrecorded.
+- Commits `97e32dd`, `0ae08ea`, `575b796`, `585c886`, `2bed3c6`, and `c821526` are present on `main`; the host rebuild succeeded (`BUILD_EXIT=0`), the standalone thread-time unit passed, and its four deliberate weakening controls were caught. The full smoke run passed; the earlier `2bed3c6` review was not separately requested.
 - The user reported that, after a fresh full export with stages D and E of the `SUYU_DEBUG_OVERLAY=1` ImGui overlay (including the router redesign and reviewed stage-E fixes), the export completed successfully and the Debug window worked “perfectly” on PLA. This is a user observation; no itemized sections or inputs exercised and no performance result were provided.
 - The host rebuild was run with no AOT/overlay variables initially set; MSVC `cl` smoke included chain variants, and exporter-wiring weakening was caught and restored byte-identically.
 - Integration passed `--only-multimodule` 76/0, `--only-defaults` 24/0, and final `--only-aot-cache` 308/0. Default scenarios covered unset default-on FMI/direct/indirect options, supported split binding, quiet unsupported-default skips, and `=0` all-off/all-static output.

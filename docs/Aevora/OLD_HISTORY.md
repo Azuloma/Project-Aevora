@@ -1175,6 +1175,33 @@ The user must commit this change before the persistent cache can produce a launc
 Repository hygiene: six `.pyc` files are tracked and `.gitignore` has no `pycache` entry; the user must decide whether to untrack them. The displaced handoff is archived under [the sixteenth-session replacement](OLD_HISTORY.md#archived-on-2026-10-08-from-work_planmd-sixteenth-session-replacement).
 ## Archived on 2026-10-09 from WORK_PLAN.md (eighteenth-session cleanup)
 
+## Session handoff (2026-10-09, eighteenth session)
+
+### State and completed work
+
+The user commit `709dbd6` updates README only; `2bed3c6` adds the opt-in per-guest-thread ledger. Hot sampler offsets `+0x20B0/+0x20D2/+0x211A/+0x21AE` are real RVAs `0x32C0/0x32E2/0x332A/0x33BE`, all in the guest-to-host lookup helper. Same-build PDB stack attribution identifies 21-33% idle samples as `PhysicalCore::Idle -> Cnd_wait` because no guest thread is runnable, not GPU/fence wait.
+
+The fresh all-default export succeeded without LNK1248: main SizeOfImage 1,923,067,904 and launcher 495,382,528; FPS stayed 15-20. The `FM_INLINE=0` A/B reduced main/launcher images by about 17%/20% but changed FPS by about one FPS with direction unrecorded, so code size alone is not the limiting explanation. The host-RIP profile was flat as recorded above. The ledger measurements and coverage show no single saturated thread; lock contention remains only a hypothesis. Local diagnostic scripts and full result files remain outside the repository under `D:\HisuiWakeBuild\diag\hotrva`.
+
+### Contracts to preserve
+
+- Preserve overlay architecture and honesty: Vulkan present pass, scheduler-worker frame, process-wide lifetime seam, error disable; say `near`, not `inside`; PC 0 means no recorded recompiled dispatch; attempts include lookup misses and unhandled/refused paths.
+- Preserve input ownership through release, queue only overlay-owned events, reset on focus loss/minimize, and apply the same rule to keyboard/text when added.
+- Default-on options are exactly-`0` off; split is unset=>default where supported, `0` off, `1` explicit request, other values error. Do not claim unsupported default split occurred.
+- `SUYU_RECOMP_THREAD_TIME` is an opt-in measurement switch, off by default, and must not change execution. Never fake cache producer identity. Attempts are not handoffs, and zero Hybrid attempts is not proof of static execution.
+
+### Open issues, in priority order
+
+0. Cleanup rebuild after the FMI-off export: user closes game and `suyu.exe`; verify `SUYU_AOT_FM_INLINE`, `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` are unset; run `buildsuyu.cmd` through PowerShell.
+1. Obtain the Orca Code reviewer review of `2bed3c6`, then run `tests/recompiler_smoke/run.py` including `smoke_thread_time_unit`.
+2. Recommended next investigation: generator-side host-size totals per guest opcode class, with a synthetic test, to identify the apparent condition/flag expansion. Alternatives are SVC attribution by thread/address, then one-variable direct/indirect chain exports only after (a) or (b).
+3. Read `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` from the next export dialog, never the log tail.
+4. Stage F, automatic all-static re-plan, Step 6/held items, MSVC `cl` real-title support, and U2 approval remain as above.
+
+### Immediate next action
+
+The new session first reads `CLAUDE.md` and this handoff, checks `git status`/`git log`, asks the user to close the game and `suyu.exe` for item 0, then proposes investigation 2(a) and asks which investigation to run.
+
 # Aevora Work Plan
 
 Handoff prepared: 2026-10-09. HEAD is `585c886` on `main`; start at the seventeenth-session handoff below. Historical text moved from the prior handoff and procedures is archived in [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-09-from-work_planmd-sixteenth-session-cleanup).

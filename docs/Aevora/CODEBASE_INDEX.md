@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `709dbd6` (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `c821526` (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
@@ -59,6 +59,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | Generated module CMake job pool | ~`arm64_to_c.h:5574-5615` (v, 2026-10-05) | `RECOMP_JOBS` from RAM minus 4 GB, 8 GB per cl.exe or 1.5 GB per clang compile; `SUYU_RECOMP_JOBS`, `SUYU_RECOMP_JOB_MEMORY_MB`, `-DRECOMP_JOBS` overrides; Ninja pool `recomp_compile`. |
 | AdvSIMD shift-by-immediate emitters | ~`arm64_to_c.h:1719-1830` (v, 2026-10-05) | `SSHR`/`USHR`/`SHRN` at ~`:1795`. `SHL` (vector, immediate) is implemented in the non-saturating and dedicated emitters but gated by `g_translate_all` for Hybrid exports (see `OLD_HISTORY.md`). |
 | FPX1 runtime text and emitters | `arm64_to_c.h:FpxH()` / `FpxH64()` ~`:6416` / `:6627`; `EmitFPNativeValue` / `EmitFPNativeSuffix` ~`:492` / `:505` (v) | `RECOMP_FPX_OPEN` uses `RECOMP_FPX_FPCR_MASK 0x06C8FF07`; `RECOMP_FPX_FZ` passes guest FZ to `recomp_fpx_<op>{32,64}(..., int fz, ...)` and applies the FZ-safe keep rules. |
+| Shared exact FP body generators | `arm64_to_c.h:600`, `:645`, `:761`, `:841-924`, `:952-978`, `:7400-7412`, `:8354-8364` (v, 2026-10-09) | `EmitFPAddSubBody`, `EmitFPDivideBody`, `EmitFPMulAddBody`, step/SIMD/sqrt helpers, `kFpeOps`, `FpeH`/`FpeRuntimeC`, and `RuntimeH`/`RuntimeC` produce one exact FPX1 body per module when `SUYU_AOT_FP_SHARED` is enabled. |
 
 ### 2.2 Exporter (Qt)
 
@@ -241,7 +242,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/bundle_stub_image.c` | Shared-image test stub without the required bundle entry points (v, 2026-10-07). |
 | `tests/recompiler_smoke/export.cpp --xmod` | Emits the synthetic static/DLL/static xmod images (v, 2026-10-07). |
 | `tests/recompiler_smoke/run.py --only-xmod` | Runs only the xmod export and host scenarios (v, 2026-10-07). |
-| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings and asserts the FZ hit rate; partitioning is relevant to the `C1002` investigation. |
+| `tests/recompiler_fastmem`, `recompiler_fpx`, `recompiler_partition` | ABI 6 feature and translation-unit partitioning tests. Fastmem covers FM1 and FMI legs plus the GG1 watched-page differential executable. `recompiler_fpx` differentially checks FPX1 against the exact body over seven FPCR settings, and its `fpxs` implementation checks shared exact bodies against soft/hardware plus kept-path counts while `fpxb` is the weakened-body negative control; partitioning is relevant to the `C1002` investigation. |
 | `tests/exclusive_access/run.py`, `exclusive_access_test.cpp` | Standalone reservation/CAS test; covers exact u8/u16/u32/u64/u128 counters, reservation semantics, isolation, upper-half comparison, attempted reporting, and a race-free negative control (v, 2026-10-08). |
 | `tests/recompiler_smoke/bl_code.h`, `bl_c.c`, `export.cpp --bl` | Direct/indirect chain execution fixture, including RET/BR middle-block targets, non-zero module bases, budget exhaustion, and BLR x30 ordering. |
 | `tests/recompiler_smoke/run.py` | `check_direct_chain:595`, `check_direct_chain_bl:625`, and variants `abi6dc`/`ggdc`/`abi6ic`/`ggdcic` (`:57-64`, `:742-746`). |

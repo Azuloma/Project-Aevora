@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-09. HEAD is `709dbd6` on `main`; the last code commit is `2bed3c6`. Superseded text is archived in [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-09-from-work_planmd-eighteenth-session-cleanup).
+Handoff prepared: 2026-10-09. HEAD is `c821526` on `main`; the last code commit is `c821526`. Superseded text is archived in [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-09-from-work_planmd-eighteenth-session-cleanup).
 
 ## Objective
 
@@ -8,7 +8,7 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 
 ## Status
 
-Milestone 4a topology, registry, loader, split exporter, persistent cache, and covered U1-U4 synthetic work are complete. Static AOT + FMI + main-DLL split runs in the usual scene at 15-20 FPS versus about 30 FPS JIT; the standard all-default 2bed3c6 export is verified below the 2 GiB image limit, but cache dialog fields were not read. Host rebuild and the standalone thread-time unit passed; the full smoke run and required Code reviewer review of 2bed3c6 remain open.
+Milestone 4a topology, registry, loader, split exporter, persistent cache, and covered U1-U4 synthetic work are complete. Static AOT + FMI + main-DLL split runs in the usual scene at 15-20 FPS versus about 30 FPS JIT; the standard all-default 2bed3c6 export is verified below the 2 GiB image limit, but cache dialog fields were not read. The shared-FP change is committed as c821526, the host was reconfigured and rebuilt with GIT_REV c821526d36db0427e44be438c682afb8fa8cf905, and the user observed considerably smaller generated files and about 1-2 FPS higher FPS after a fresh default-on PLA export.
 
 ## Evidence so far (observations)
 
@@ -26,6 +26,7 @@ Per-thread ledger, steady state from log time 62 s: core 0 busy 71% (thread 77 5
 ## What the code now contains
 
 - Overlay/UI diagnostics, honest `near`/fallback wording, ownership-based mouse routing, default-on option parsing, split topology, cache publish/reuse, and their synthetic/integration tests remain as previously documented.
+- `SUYU_AOT_FP_SHARED` shares the exact FPX1 add/sub/div/fma-mul/recps/rsqrts/sqrt bodies once per generated module through `recomp_runtime.c`/`.h`; its option, manifest, bundle-id, cache-reuse, changed-items, and build-identity paths are covered by the recorded tests.
 - `src/core/arm/recomp/recomp_thread_time.h` defines `RecompThreadTimeLedger`; `arm_recomp.cpp` enables `ThreadTimeScope` only when `SUYU_RECOMP_THREAD_TIME=1`, one ledger per implementation, and logs a ten-second top-six report. It measures `RunThread` wall time (guest plus in-call host callbacks), excludes idle waits and post-return SVC service, and must not alter execution when unset or any other value.
 - `tests/recompiler_smoke/thread_time_unit.cpp` is registered and invoked by the smoke runner. Its standalone test passed; deliberate weakening controls caught sorting, clock clamp, reset, and wait regressions.
 
@@ -48,32 +49,31 @@ The user-data cache producer is git revision plus branch and build id; the launc
 
 Held: two-lifetime seam; real loader/refusal paths; `tests/export_regression` Qt-root lookup; MSVC `cl` chain route (synthetic smoke only); old-manifest-without-chain-fields reuse; six tracked `.pyc` files. Stage F (Controller/Graphics windows, keyboard/text routing, horizontal wheel sign), automatic all-static re-plan, and U2 (explicit approval only) remain. PLA results are user-run and scene-specific; the recompiled image has no PDB, so DLL samples are RVA attribution only.
 
-## Session handoff (2026-10-09, eighteenth session)
+## Session handoff (2026-10-09, nineteenth session)
 
 ### State and completed work
 
-The user commit `709dbd6` updates README only; `2bed3c6` adds the opt-in per-guest-thread ledger. Hot sampler offsets `+0x20B0/+0x20D2/+0x211A/+0x21AE` are real RVAs `0x32C0/0x32E2/0x332A/0x33BE`, all in the guest-to-host lookup helper. Same-build PDB stack attribution identifies 21-33% idle samples as `PhysicalCore::Idle -> Cnd_wait` because no guest thread is runnable, not GPU/fence wait.
+HEAD is `c821526` on `main`; the last code commit is `c821526`. The committed change adds `SUYU_AOT_FP_SHARED`: with FPX1 enabled and the option not exactly `0`, each module emits one exact body for add, sub, div, fma/mul, recps, rsqrts, and sqrt, while the existing FPX1 sites make one-line calls; without FPX1 the option is ignored, and an explicit `1` produces a warning. The inline and out-of-line bodies come from the same generator functions, and disabling the option preserves byte-identical emitted text for the verified units and variants.
 
-The fresh all-default export succeeded without LNK1248: main SizeOfImage 1,923,067,904 and launcher 495,382,528; FPS stayed 15-20. The `FM_INLINE=0` A/B reduced main/launcher images by about 17%/20% but changed FPS by about one FPS with direction unrecorded, so code size alone is not the limiting explanation. The host-RIP profile was flat as recorded above. The ledger measurements and coverage show no single saturated thread; lock contention remains only a hypothesis. Local diagnostic scripts and full result files remain outside the repository under `D:\HisuiWakeBuild\diag\hotrva`.
+The MSVC FPX harness passed: `fpxs` had 0 mismatches versus soft over 76,041,704 L1-L3 cases; `fpxb` had 61,560 mismatches as the weakened negative control; the kept fast-path count check also catches a closed shared path. Smoke passed with goldens unchanged, export integration passed `--only-defaults` 26/0 and `--only-aot-cache-matrix` 213/0, and the host rebuild exited 0. The code reviewer reported three P2 findings, all fixed; shared plus FPX shadow was not exercised. Cleanup after the FMI-off export also exited 0 with the four environment variables unset and no `suyu` process running.
 
 ### Contracts to preserve
 
 - Preserve overlay architecture and honesty: Vulkan present pass, scheduler-worker frame, process-wide lifetime seam, error disable; say `near`, not `inside`; PC 0 means no recorded recompiled dispatch; attempts include lookup misses and unhandled/refused paths.
 - Preserve input ownership through release, queue only overlay-owned events, reset on focus loss/minimize, and apply the same rule to keyboard/text when added.
 - Default-on options are exactly-`0` off; split is unset=>default where supported, `0` off, `1` explicit request, other values error. Do not claim unsupported default split occurred.
+- `SUYU_AOT_FP_SHARED` is on unless exactly `0`, is ignored without FPX1, and warns only for an explicit `1` without FPX1. With FPX1 and sharing on, preserve one exact per-module body for each of add/sub/div/fma-mul/recps/rsqrts/sqrt, the one-line calls inside the existing do-while fast paths, and the shared generator source of truth. The option is part of the bundle identity, manifest, cache reuse comparison, changed-items list, and build-identity display; a missing manifest field means inline and a non-boolean field mismatches.
 - `SUYU_RECOMP_THREAD_TIME` is an opt-in measurement switch, off by default, and must not change execution. Never fake cache producer identity. Attempts are not handoffs, and zero Hybrid attempts is not proof of static execution.
 
 ### Open issues, in priority order
 
-0. Cleanup rebuild after the FMI-off export: user closes game and `suyu.exe`; verify `SUYU_AOT_FM_INLINE`, `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` are unset; run `buildsuyu.cmd` through PowerShell.
-1. Obtain the Orca Code reviewer review of `2bed3c6`, then run `tests/recompiler_smoke/run.py` including `smoke_thread_time_unit`.
-2. Recommended next investigation: generator-side host-size totals per guest opcode class, with a synthetic test, to identify the apparent condition/flag expansion. Alternatives are SVC attribution by thread/address, then one-variable direct/indirect chain exports only after (a) or (b).
-3. Read `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` from the next export dialog, never the log tail.
-4. Stage F, automatic all-static re-plan, Step 6/held items, MSVC `cl` real-title support, and U2 approval remain as above.
+0. Obtain from the user the exact image sizes, `aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`, FPS and hardware details for the fresh default-on PLA export; optionally obtain an `SUYU_AOT_FP_SHARED=0` A/B. The user observation so far is considerably smaller generated files and about 1-2 FPS higher FPS than the previously reported 15-20 FPS.
+1. Recommended next investigation: generator-side host-size totals per guest opcode class, because the FP share of the PLA image remains unmeasured; keep this ahead of SVC attribution or chain A/B work.
+2. Carry over Stage F, the automatic all-static re-plan, Step 6 and held items, MSVC `cl` real-title support, and U2 only with explicit approval.
 
 ### Immediate next action
 
-The new session first reads `CLAUDE.md` and this handoff, checks `git status`/`git log`, asks the user to close the game and `suyu.exe` for item 0, then proposes investigation 2(a) and asks which investigation to run.
+Ask the user for the exact image sizes, the three cache status fields, FPS and hardware details from the fresh default-on PLA export, and optionally an `SUYU_AOT_FP_SHARED=0` A/B; then proceed with the generator-side per-opcode-class size investigation.
 
 ## How to work / procedures
 
@@ -82,3 +82,4 @@ The new session first reads `CLAUDE.md` and this handoff, checks `git status`/`g
 - Exports are user-started in the GUI; environment experiments start `suyu.exe` from a shell, use a new empty output folder, copy `suyu-cmd-static.pdb` immediately after export, then clean up with `suyu.exe` closed.
 - The game log is written only after normal game exit. The user must use a non-elevated shell and stand in the measured scene. Convert sampler `+0xN` offsets to real RVA by subtracting the module base.
 - Never run concurrent builds; keep builds, exports, logs, caches, and game-derived outputs outside the repository. Use cache status fields rather than the lost log tail. The user commits, tags, and pushes; the Code reviewer must review code changes.
+- FPX harness: `python tests/recompiler_fpx/run.py --cases 300 --controls` with MSVC; smoke: `python tests/recompiler_smoke/run.py --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include --cc cl --cxx cl`; integration: `python tests/export_integration/run_export_integration.py --suyu-dir <build>/bin --work <new short folder> --only-defaults` and `--only-aot-cache-matrix`. The verified logs are outside the repository under `D:\HisuiWakeBuild\diag`.
