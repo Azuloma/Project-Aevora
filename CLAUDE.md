@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-09, HEAD is `c821526` on `main`; the last code commit is `c821526`, which commits the shared exact FP-body change. The standard all-default PLA export is verified without LNK1248 (main SizeOfImage 1,923,067,904; launcher 495,382,528) at 15-20 FPS in the usual scene; the FMI-off A/B reduced images but did not materially change FPS. The user observed that a fresh default-on PLA export produced considerably smaller generated files and raised FPS by about 1-2 FPS in the usual scene. Successful generation, compilation, or startup alone does not establish compatibility.
+As of 2026-10-09, HEAD is `a67035d` on `main`; `c821526` records the shared exact FP-body change, followed by the current optimization commit. The standard all-default PLA export is verified without LNK1248 and below the 2 GiB image limit; the FMI-off A/B reduced images but did not materially change FPS. The user observed that a fresh default-on PLA export produced considerably smaller generated files and raised FPS by about 1-2 FPS in the usual scene. Successful generation, compilation, or startup alone does not establish compatibility.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, then the nineteenth-session handoff in `WORK_PLAN.md`. HEAD and the last code commit are `c821526`; the host was reconfigured and rebuilt with the new `GIT_REV`, and the user observed considerably smaller generated files and about 1-2 FPS higher FPS after a fresh default-on PLA export. Ask the user for exact image sizes, the three cache status fields, FPS and hardware details, and optionally an `SUYU_AOT_FP_SHARED=0` A/B, never fake cache producer identity, and consider U2 only with explicit approval. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
+Read `CLAUDE.md`, then the twentieth-session handoff in `WORK_PLAN.md`. HEAD is `a67035d`; reconcile it with the recorded `c821526` host revision and the twentieth-session handoff. Ask the user for exact image sizes, the three cache status fields, FPS and hardware details, and optionally an `SUYU_AOT_FP_SHARED=0` A/B, never fake cache producer identity, and consider U2 only with explicit approval. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -125,6 +125,8 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - When a long test is re-run, delete or truncate its log first; a monitor waiting for the `exit` line otherwise reads the previous run's line and reports a stale result.
 - `orca orchestration check --wait` redelivers the previous message unless the last `delivery_*` id is passed with `--ack`; a message with only `heartbeat` content is not a result.
 - Do not generate Python or Markdown through shell heredocs with `\\n` escapes (they become literal newlines); use Edit/Write tools, and syntax-check Python edits with `ast.parse`.
+- Python edit scripts that contain `\n` must use raw strings or files, because tool-passed escapes become real newlines.
+- Scripts in Bash must be run through PowerShell with `cmd.exe /c`, since `vcvars` fails under Bash (`vswhere` not found).
 - A negative control (deliberately breaking the model or production list) is required before trusting a new test that passed on the first run.
 - The persistent AOT cache identifies its producer by git commit hash plus branch and stores the launcher: an uncommitted runtime-only change reuses the old launcher, while a new commit makes the cache unusable and requires a full rebuild/export. Plan relink-only or commit plus full export before exporting.
 - `(JIT-capable)` in the title bar is a strict-static qualifier, not Hybrid.

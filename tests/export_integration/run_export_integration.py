@@ -150,7 +150,7 @@ def registry_dump():
 
 # On-by-default export options (see common/env_option.h) that the baseline environment pins off.
 OPTIONS_PINNED_OFF = ('SUYU_AOT_FM_INLINE', 'SUYU_AOT_DIRECT_CHAIN', 'SUYU_AOT_INDIRECT_CHAIN',
-                      'SUYU_AOT_FP_SHARED', 'SUYU_AOT_SPLIT_MAIN')
+                      'SUYU_AOT_FP_SHARED', 'SUYU_AOT_FPX_VEC', 'SUYU_AOT_SPLIT_MAIN')
 
 
 class Run:
@@ -413,6 +413,8 @@ class Run:
                                 recorded.get('indirect_chain')))
                 self.record('defaults: unset means shared exact FP bodies on',
                             recorded.get('fp_shared') is True, 'fp_shared=%s' % recorded.get('fp_shared'))
+                self.record('defaults: unset means vector FPX1 on',
+                            recorded.get('fpx_vec') is True, 'fpx_vec=%s' % recorded.get('fpx_vec'))
                 self.record('defaults: unset means main is split into a DLL',
                             recorded.get('module_bindings', {}).get('main') == 'dll',
                             str(recorded.get('module_bindings')))
@@ -795,6 +797,9 @@ class Run:
             ('shared exact FP bodies',
              lambda: edit_manifest(r'"fp_shared": false', '"fp_shared": true'),
              changed + 'fp_shared'),
+            ('vector FPX1',
+             lambda: edit_manifest(r'"fpx_vec": false', '"fpx_vec": true'),
+             changed + 'fpx_vec'),
             ('direct chaining',
              lambda: edit_manifest(r'"direct_chain": false', '"direct_chain": true'),
              changed + 'direct_chain'),
@@ -863,7 +868,8 @@ class Run:
 
         for variable, field in (('SUYU_AOT_DIRECT_CHAIN', 'direct_chain'),
                                 ('SUYU_AOT_INDIRECT_CHAIN', 'indirect_chain'),
-                                ('SUYU_AOT_FP_SHARED', 'fp_shared')):
+                                ('SUYU_AOT_FP_SHARED', 'fp_shared'),
+                                ('SUYU_AOT_FPX_VEC', 'fpx_vec')):
             before = manifest_record()
             restart_with(variable, '1')
             try:

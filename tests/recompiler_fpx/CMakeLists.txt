@@ -14,7 +14,9 @@ set(gen_files "${gen}/rt_soft.h" "${gen}/rt_soft.c" "${gen}/ops_soft.c" "${gen}/
     "${gen}/rt_nomid.h" "${gen}/ops_nomid.c" "${gen}/rt_shadow.h" "${gen}/ops_shadow.c"
     "${gen}/shadow_rt.c"
     "${gen}/rt_fpxs.h" "${gen}/ops_fpxs.c" "${gen}/fpxs_rt.c"
-    "${gen}/rt_fpxb.h" "${gen}/ops_fpxb.c" "${gen}/fpxb_rt.c")
+    "${gen}/rt_fpxb.h" "${gen}/ops_fpxb.c" "${gen}/fpxb_rt.c"
+    "${gen}/rt_fpxv.h" "${gen}/ops_fpxv.c" "${gen}/rt_fpxvb.h" "${gen}/ops_fpxvb.c"
+    "${gen}/rt_fpxvz.h" "${gen}/ops_fpxvz.c")
 add_custom_command(OUTPUT ${gen_files} COMMAND fpx_gen "${gen}" DEPENDS fpx_gen VERBATIM)
 
 # The runtime as the static host builds it, for recomp_fp_estimate.
@@ -24,7 +26,8 @@ target_compile_definitions(fpx_runtime PRIVATE SUYU_HOSTED_RECOMP=1 RECOMP_STATI
 
 set(driver_sources driver.c fpx_env.cpp "${gen}/ops_soft.c" "${gen}/ops_fpx.c"
     "${gen}/ops_nokeep.c" "${gen}/ops_nomid.c" "${gen}/ops_shadow.c" "${gen}/shadow_rt.c"
-    "${gen}/ops_fpxs.c" "${gen}/fpxs_rt.c" "${gen}/ops_fpxb.c" "${gen}/fpxb_rt.c")
+    "${gen}/ops_fpxs.c" "${gen}/fpxs_rt.c" "${gen}/ops_fpxb.c" "${gen}/fpxb_rt.c"
+    "${gen}/ops_fpxv.c" "${gen}/ops_fpxvb.c" "${gen}/ops_fpxvz.c")
 # fpx_env.cpp: the host's own FP-mode check (core/arm/recomp/guest_fp_env.h).
 set(driver_defs FPX_HAVE_FPX=1 FPX_HAVE_ENV=1)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64)$" AND NOT MSVC)

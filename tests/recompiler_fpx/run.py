@@ -121,7 +121,7 @@ def main():
                           if line.startswith(("CHECK", "MISMATCH"))), end="")
             status |= failed
         if args.controls:
-            for name in ("nokeep", "nomid", "mxcsr", "fpxb"):
+            for name in ("nokeep", "nomid", "mxcsr", "fpxb", "fpxvb", "fpxvz"):
                 failed, text = sharded(driver, ["control", name, "--legs", "13", *common], args.jobs,
                                        logs, name)
                 print("".join(line + "\n" for line in summarize(text, False).splitlines()

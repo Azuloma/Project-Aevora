@@ -29,6 +29,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 #include "recomp_topology.h"
@@ -348,6 +349,16 @@ inline bool g_emit_fpx_shadow = false;
 inline bool g_emit_fp_shared = false;
 inline bool EmitFpShared() {
     return g_emit_fpx && g_emit_fp_shared;
+}
+
+// Vector FPX1 ("FPXV"): a vector FADD/FSUB tries one all-lane native add/sub with the
+// same keep rules as the per-lane fast path, and runs the unchanged per-lane code
+// when any lane is declined. Changes no ABI, feature bit or result. Takes effect only
+// with g_emit_fpx and not with the shadow build (which compares per lane); while off
+// the emitted text is byte-identical.
+inline bool g_emit_fpx_vec = false;
+inline bool EmitFpxVec() {
+    return g_emit_fpx && g_emit_fpx_vec && !g_emit_fpx_shadow;
 }
 
 // FM1 inline ("FMI"): generated units run the FM1 fast path of the twelve
@@ -2383,6 +2394,16 @@ inline bool Translate(u32 i, u64 pc, std::string& out, bool* unhandled = nullptr
             const std::string ct=dbl?"uint64_t":"uint32_t",count=dbl?"2":"4";
             put("{ "+ct+" _n["+count+"],_m["+count+"],_r["+count+"]={0};"
                 "memcpy(_n,c->vreg["+std::to_string(rn)+"],16);memcpy(_m,c->vreg["+std::to_string(rm)+"],16);");
+            // FPXV: all lanes natively at once; any declined lane runs the per-lane code
+            // below on the untouched inputs (the helper writes _r only on success).
+            const bool all_lanes = EmitFpxVec() && vector && !dbl;
+            if (all_lanes) {
+                std::string kept_probes;
+                for (unsigned e = 0; e < lanes; ++e) kept_probes += "RECOMP_FPX_PROBE(1);";
+                put("if(RECOMP_FPX_OPEN(c)&&RECOMP_LIKELY(recomp_fpx_vaddsub32(_n,_m,_r," +
+                    std::to_string(lanes) + "," + (sub ? "1" : "0") + ",RECOMP_FPX_FZ(c)))){" +
+                    kept_probes + "}else{");
+            }
             for(unsigned e=0;e<lanes;++e) {
                 const std::string src=vector_pair&&e>=lanes/2?"_m":"_n";
                 const unsigned a=scalar_pair?0:vector_pair?2*(e%(lanes/2)):e;
@@ -2391,6 +2412,7 @@ inline bool Translate(u32 i, u64 pc, std::string& out, bool* unhandled = nullptr
                     (scalar_pair||vector_pair?src:"_m")+"["+std::to_string(b)+"],_v=0;"+
                     EmitFPAddSubValue(dbl,sub)+"_r["+std::to_string(e)+"]=("+ct+")_v;}");
             }
+            if (all_lanes) put("}");
             put("memcpy(c->vreg["+std::to_string(rd)+"],_r,16);}");
             return true;
         }
@@ -7395,22 +7417,75 @@ inline const char* RuntimeHBase() {
     return texts[g_emit_fastmem ? 1 : 0][EmitGuardGen() ? 1 : 0][FpxVariant()].c_str();
 }
 
-// The variant header plus, with g_emit_fp_shared, the FPE prototypes (inserted
-// before the include guard closes). One cached text per base variant.
+// The all-lane helper behind g_emit_fpx_vec (inserted after the FPX1 block). It applies
+// the keep rules of recomp_fpx_add32/sub32 to every lane at once: a lane is kept when
+// its result is finite (or, under FZ, large or exactly zero) and, under FZ, neither
+// input is subnormal. Declines (0, r untouched) unless every lane is kept; on hosts
+// without SSE2 it always declines.
+inline const char* FpxVecH() {
+    return R"RT(/* FPXV: all-lane FADD/FSUB (S lanes), same keep rules as recomp_fpx_add32/sub32. */
+#if RECOMP_FPX_HOST == 2
+static RECOMP_INLINE int recomp_fpx_vaddsub32(const uint32_t* n, const uint32_t* m, uint32_t* r,
+                                              int lanes, int sub, int fz) {
+    __m128i a, b;
+    if (lanes == 2) {
+        a = _mm_loadl_epi64((const __m128i*)n);
+        b = _mm_loadl_epi64((const __m128i*)m);
+    } else {
+        a = _mm_loadu_si128((const __m128i*)n);
+        b = _mm_loadu_si128((const __m128i*)m);
+    }
+    const __m128i abs_mask = _mm_set1_epi32(0x7fffffff), exp_mask = _mm_set1_epi32(0x7f800000);
+    const __m128i min_normal = _mm_set1_epi32(0x00800000), zero = _mm_setzero_si128();
+    const __m128 fa = _mm_castsi128_ps(a), fb = _mm_castsi128_ps(b);
+    const __m128i t = _mm_castps_si128(sub ? _mm_sub_ps(fa, fb) : _mm_add_ps(fa, fb));
+    __m128i declined;
+    if (fz) {
+        const __m128i abs_a = _mm_and_si128(a, abs_mask), abs_b = _mm_and_si128(b, abs_mask);
+        const __m128i abs_t = _mm_and_si128(t, abs_mask);
+        const __m128i sub_a = _mm_andnot_si128(_mm_cmpeq_epi32(abs_a, zero), _mm_cmpgt_epi32(min_normal, abs_a));
+        const __m128i sub_b = _mm_andnot_si128(_mm_cmpeq_epi32(abs_b, zero), _mm_cmpgt_epi32(min_normal, abs_b));
+        const __m128i keep = _mm_or_si128(
+            _mm_and_si128(_mm_cmpgt_epi32(abs_t, min_normal), _mm_cmpgt_epi32(exp_mask, abs_t)),
+            _mm_cmpeq_epi32(abs_t, zero));
+        declined = _mm_or_si128(_mm_or_si128(sub_a, sub_b), _mm_andnot_si128(keep, _mm_set1_epi32(-1)));
+    } else {
+        declined = _mm_cmpeq_epi32(_mm_and_si128(t, exp_mask), exp_mask);
+    }
+    if (_mm_movemask_epi8(declined)) return 0;
+    if (lanes == 2) _mm_storel_epi64((__m128i*)r, t);
+    else _mm_storeu_si128((__m128i*)r, t);
+    return 1;
+}
+#else
+static RECOMP_INLINE int recomp_fpx_vaddsub32(const uint32_t* n, const uint32_t* m, uint32_t* r,
+                                              int lanes, int sub, int fz) {
+    (void)n; (void)m; (void)r; (void)lanes; (void)sub; (void)fz; return 0;
+}
+#endif
+)RT";
+}
+
+// The variant header plus, with g_emit_fp_shared, the FPE prototypes and, with
+// g_emit_fpx_vec, the all-lane helper (each inserted before the include guard
+// closes). One cached text per base variant and option pair.
 inline const char* RuntimeH() {
     const char* base = RuntimeHBase();
-    if (!EmitFpShared()) {
+    const bool shared = EmitFpShared(), vec = EmitFpxVec();
+    if (!shared && !vec) {
         return base;
     }
     static std::mutex mutex;
-    static std::map<const char*, std::string> with_fpe;
+    static std::map<std::tuple<const char*, bool, bool>, std::string> with_extras;
     const std::lock_guard<std::mutex> lock(mutex);
-    auto it = with_fpe.find(base);
-    if (it == with_fpe.end()) {
+    const auto key = std::make_tuple(base, shared, vec);
+    auto it = with_extras.find(key);
+    if (it == with_extras.end()) {
         std::string text = base;
         static constexpr std::string_view guard_end = "#endif\n";
-        text.insert(text.rfind(guard_end), FpeH());
-        it = with_fpe.emplace(base, std::move(text)).first;
+        if (vec) text.insert(text.rfind(guard_end), FpxVecH());
+        if (shared) text.insert(text.rfind(guard_end), FpeH());
+        it = with_extras.emplace(key, std::move(text)).first;
     }
     return it->second.c_str();
 }

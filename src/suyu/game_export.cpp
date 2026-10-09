@@ -3504,6 +3504,7 @@ struct BundleIdInputs {
     bool direct_chain{};
     bool indirect_chain{};
     bool fp_shared{};
+    bool fpx_vec{};
     unsigned image_abi{};
     unsigned image_features{};
     QString coverage_fingerprint;
@@ -3540,6 +3541,10 @@ static std::string ComputeBundleId(const BundleIdInputs& inputs) {
     add("direct_chain", flag(inputs.direct_chain));
     add("indirect_chain", flag(inputs.indirect_chain));
     add("fp_shared", flag(inputs.fp_shared));
+    if (inputs.fpx_vec) {
+        // Only when on, so the id of an export without it stays what it was.
+        add("fpx_vec", flag(inputs.fpx_vec));
+    }
     add("image_abi", QByteArray::number(inputs.image_abi));
     add("image_features", QByteArray::number(inputs.image_features));
     add("coverage_fingerprint", inputs.coverage_fingerprint.toUtf8());
@@ -4227,6 +4232,19 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         suyu::recomp::g_emit_fp_shared = false;
     }
     const bool fp_shared = suyu::recomp::EmitFpShared();
+    // All-lane vector FADD/FSUB (SUYU_AOT_FPX_VEC): with FPX1, one native add/sub across the
+    // lanes before the per-lane fast path. Changes the generated code but not the image ABI or
+    // results, so the manifest and bundle id record it.
+    suyu::recomp::g_emit_fpx_vec = enabled("SUYU_AOT_FPX_VEC");
+    if (suyu::recomp::g_emit_fpx_vec && !suyu::recomp::g_emit_fpx) {
+        // Quiet when FPX=0 or FASTMEM=0 alone made this impossible; only an explicit request warns.
+        if (qEnvironmentVariable("SUYU_AOT_FPX_VEC") == QStringLiteral("1")) {
+            LOG_WARNING(Frontend, "Vector FPX1 (SUYU_AOT_FPX_VEC) needs SUYU_AOT_FPX; "
+                                  "exporting without it");
+        }
+        suyu::recomp::g_emit_fpx_vec = false;
+    }
+    const bool fpx_vec = suyu::recomp::EmitFpxVec();
     // What the images will report from recomp_image_features(), recorded in the
     // manifest so a cached export with other features is not reused.
     const unsigned image_features =
@@ -4288,7 +4306,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         bundle_id_hex = ComputeBundleId(BundleIdInputs{
             source_hash, effective_backend_name, full_scan, translate_all,
             suyu::recomp::g_emit_fastmem, suyu::recomp::EmitGuardGen(), suyu::recomp::g_emit_fpx,
-            fm_inline, direct_chain, indirect_chain, fp_shared,
+            fm_inline, direct_chain, indirect_chain, fp_shared, fpx_vec,
             suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
             coverage_fingerprint, fallback_enabled, dll_modules});
         LOG_INFO(Frontend, "Split export: main is built as a DLL, bundle id {}", bundle_id_hex);
@@ -4412,6 +4430,11 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const bool same_fp_shared = cached_fp_shared.isBool()
                                             ? cached_fp_shared.toBool() == fp_shared
                                             : cached_fp_shared.isUndefined() && !fp_shared;
+            // Absent in a cache from before the option: that cache has no vector path.
+            const QJsonValue cached_fpx_vec = manifest_object.value(QStringLiteral("fpx_vec"));
+            const bool same_fpx_vec = cached_fpx_vec.isBool()
+                                          ? cached_fpx_vec.toBool() == fpx_vec
+                                          : cached_fpx_vec.isUndefined() && !fpx_vec;
             bool same_topology = false;
             QString split_detail;
             std::optional<SplitExportRecord> cached_split;
@@ -4452,6 +4475,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             require(same_direct_chain, "direct_chain");
             require(same_indirect_chain, "indirect_chain");
             require(same_fp_shared, "fp_shared");
+            require(same_fpx_vec, "fpx_vec");
             require(same_correctness_revision, "correctness_revision");
             require(same_coverage, "coverage_fingerprint");
             require(same_translate_all, "translate_all");
@@ -6255,6 +6279,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             out << "  \"image_features\": " << image_features << ",\n";
             out << "  \"fm_inline\": " << (fm_inline ? "true" : "false") << ",\n";
             out << "  \"fp_shared\": " << (fp_shared ? "true" : "false") << ",\n";
+            out << "  \"fpx_vec\": " << (fpx_vec ? "true" : "false") << ",\n";
         }
         out << "  \"direct_chain\": " << (direct_chain ? "true" : "false") << ",\n";
         out << "  \"indirect_chain\": " << (indirect_chain ? "true" : "false") << ",\n";

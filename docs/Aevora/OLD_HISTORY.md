@@ -1292,3 +1292,31 @@ The user starts the new session by checking `git status`/`git log`, then chooses
 - Long builds/tests over ten minutes move to the background; wait for the completion notification instead of polling. Throwaway negative-control runners and logs live under `D:\HisuiWakeBuild\ovl` and `D:\HisuiWakeBuild\diag`, outside the repo.
 - Use `D:\HisuiWakeBuild\diag\buildsuyu.cmd` through `cmd.exe /c`; clear the three export variables after export runs. Keep builds, exports, logs, caches, and game-derived outputs outside the repository.
 - For PLA, use the local samplers, confirm `aot_manifest.json`, and report user FPS. Use cache status fields (`aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`), not the lost log tail, as cache evidence.
+
+## Archived on 2026-10-09 from WORK_PLAN.md (nineteenth-session cleanup)
+
+## Evidence so far (observations)
+
+| Run | Core0/Core1/Core2 CPU % | FPS | Image size |
+|---|---:|---:|---:|
+| JIT | 76.8/78.7/77.2 | 30 | not measured |
+| Static AOT + FMI + split, earlier | 76.3/80.4/81.4 | 17-20 | Main DLL 1,857,218,560 bytes |
+| 2bed3c6 standard, all defaults | 71/76/76 busy | 15-20 | Main SizeOfImage 1,923,067,904; launcher 495,382,528 |
+| 2bed3c6 `SUYU_AOT_FM_INLINE=0` | not recorded | about 1 FPS change, direction unrecorded | Main 1,588,723,712; launcher 397,508,608 |
+
+The standard main image is about 214 MiB below LNK1248. Host-RIP samples: 46.9% recompiled functions, 49.4% outside the DLL; 4,242 functions sampled, top 1/10/50/200/1000 = 1.90%/7.2%/13.2%/20.4%/31.9%, so the profile is flat. Host bytes per guest instruction: mean 150 B, median 151 B, p90 313 B, p99 383 B; sample-weighted mean 636 B and about 34% of in-DLL samples in functions at least 900 B per guest instruction. Lookup/run-slice dispatch is about 5% of samples. These are observations, not acceptance criteria; function grouping can overstate the size ratio.
+
+Per-thread ledger, steady state from log time 62 s: core 0 busy 71% (thread 77 57%, 88 11%); core 1 busy 76% (80 54%, 89 9%, 100 7%, 93 2%); core 2 busy 76% (81 53%, 90 9%, 100 8-9%). Threads 77/80/81 and 88/89/90 resume at SDK SVC stubs; thread 100 enters main code. Coverage in the roughly three-minute run: 10,589,833 SVCs, including GetCurrentProcessorNumber 5,117,171, ArbitrateUnlock 2,063,210, ArbitrateLock 1,961,915, WaitProcessWideKeyAtomic 343,495, SignalToAddress 322,484, SignalProcessWideKey 316,923, WaitForAddress 307,213, and SendSyncRequest 133,884; static-to-JIT transitions 0. The lock-contention explanation for stalled time and idle cores is a hypothesis, not verified.
+
+## What the code now contains
+
+- Overlay/UI diagnostics, honest `near`/fallback wording, ownership-based mouse routing, default-on option parsing, split topology, cache publish/reuse, and their synthetic/integration tests remain as previously documented.
+- `SUYU_AOT_FP_SHARED` shares the exact FPX1 add/sub/div/fma-mul/recps/rsqrts/sqrt bodies once per generated module through `recomp_runtime.c`/`.h`; its option, manifest, bundle-id, cache-reuse, changed-items, and build-identity paths are covered by the recorded tests.
+- `src/core/arm/recomp/recomp_thread_time.h` defines `RecompThreadTimeLedger`; `arm_recomp.cpp` enables `ThreadTimeScope` only when `SUYU_RECOMP_THREAD_TIME=1`, one ledger per implementation, and logs a ten-second top-six report. It measures `RunThread` wall time (guest plus in-call host callbacks), excludes idle waits and post-return SVC service, and must not alter execution when unset or any other value.
+- `tests/recompiler_smoke/thread_time_unit.cpp` is registered and invoked by the smoke runner. Its standalone test passed; deliberate weakening controls caught sorting, clock clamp, reset, and wait regressions.
+
+## State and completed work
+
+HEAD is `c821526` on `main`; the last code commit is `c821526`. The committed change adds `SUYU_AOT_FP_SHARED`: with FPX1 enabled and the option not exactly `0`, each module emits one exact body for add, sub, div, fma/mul, recps, rsqrts, and sqrt, while the existing FPX1 sites make one-line calls; without FPX1 the option is ignored, and an explicit `1` produces a warning. The inline and out-of-line bodies come from the same generator functions, and disabling the option preserves byte-identical emitted text for the verified units and variants.
+
+The MSVC FPX harness passed: `fpxs` had 0 mismatches versus soft over 76,041,704 L1-L3 cases; `fpxb` had 61,560 mismatches as the weakened negative control; the kept fast-path count check also catches a closed shared path. Smoke passed with goldens unchanged, export integration passed `--only-defaults` 26/0 and `--only-aot-cache-matrix` 213/0, and the host rebuild exited 0. The code reviewer reported three P2 findings, all fixed; shared plus FPX shadow was not exercised. Cleanup after the FMI-off export also exited 0 with the four environment variables unset and no `suyu` process running.

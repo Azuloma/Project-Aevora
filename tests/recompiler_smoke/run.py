@@ -41,6 +41,8 @@ DIRECT_CHAIN_CHANGED = {"recompiled_smoke_0.c", "recompiled_second_0.c"}
 # Shared exact FP bodies (FPE) add the prototypes to the header and the definitions to
 # recomp_runtime.c; the synthetic module has no FP site, so its block units stay put.
 FPE_CHANGED = {"recomp_runtime.c", "recomp_runtime.h"}
+# Vector FPX1 (FPXV) adds one helper to the header; the synthetic module has no vector FADD/FSUB site.
+FPXV_CHANGED = {"recomp_runtime.h"}
 
 # name -> SUYU_RECOMP_AB_* switches. abi6gg and ggfpx are GG1's on-top-of-FM1
 # and GG1+FPX1-together combinations; neither is golden-hashed (GG1 is not
@@ -57,6 +59,10 @@ VARIANTS = (("abi5", {}),
                       "SUYU_RECOMP_AB_FP_SHARED": "1"}),
             # Asked for without FPX1, the option must change nothing.
             ("abi6fps", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FP_SHARED": "1"}),
+            # Vector FPX1 needs FPX1 too; structural, not golden-hashed.
+            ("fpxv", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FPX": "1",
+                      "SUYU_RECOMP_AB_FPX_VEC": "1"}),
+            ("abi6fv", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_FPX_VEC": "1"}),
             ("ggfmi", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                        "SUYU_RECOMP_AB_FM_INLINE": "1"}),
             # Direct B/BL chaining on top of FM1, and of FM1 with GG1: it changes the block
@@ -76,7 +82,7 @@ VARIANTS = (("abi5", {}),
 AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
                "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY",
                "SUYU_RECOMP_AB_DIRECT_CHAIN", "SUYU_RECOMP_AB_INDIRECT_CHAIN",
-               "SUYU_RECOMP_AB_FP_SHARED")
+               "SUYU_RECOMP_AB_FP_SHARED", "SUYU_RECOMP_AB_FPX_VEC")
 # The identity export adds one export to each module's recomp_export.c and nothing else.
 IDENTITY_CHANGED = {"recomp_export.c"}
 # Shared-image names of the "second" module, per the generator's naming rule
@@ -622,6 +628,19 @@ def check_fp_shared(fpx, shared, without_fpx, abi6):
         check_differences(base, module, set(), "FPE without FPX1")
 
 
+def check_fpx_vec(fpx, vec, without_fpx, abi6):
+    # FPXV adds the all-lane helper to the header and nothing else.
+    check_differences(fpx, vec, FPXV_CHANGED, "FPXV")
+    for module, plain in ((vec, fpx), (vec / "second", fpx / "second")):
+        header = (module / "recomp_runtime.h").read_text(encoding="utf-8")
+        plain_header = (plain / "recomp_runtime.h").read_text(encoding="utf-8")
+        if "recomp_fpx_vaddsub32" not in header or "recomp_fpx_vaddsub32" in plain_header:
+            raise RuntimeError(f"{module}: the FPXV helper is not present exactly with FPXV")
+    # Without FPX1 the option is requested but nothing changes.
+    for module in (without_fpx, without_fpx / "second"):
+        check_differences(abi6 / module.relative_to(without_fpx), module, set(), "FPXV without FPX1")
+
+
 def check_direct_chain(base, chained, what, direct=True, indirect=False):
     # Chaining changes the block units only. Direct chaining takes the unconditional
     # B/BL whose target is a block of the same module; indirect chaining takes RET,
@@ -797,6 +816,7 @@ def main():
         check_ggfpx(generated["abi6gg"], generated["ggfpx"])
         check_fm_inline(generated["abi6"], generated["abi6fmi"], "FMI")
         check_fp_shared(generated["fpx"], generated["fpxs"], generated["abi6fps"], generated["abi6"])
+        check_fpx_vec(generated["fpx"], generated["fpxv"], generated["abi6fv"], generated["abi6"])
         check_fm_inline(generated["abi6gg"], generated["ggfmi"], "GG1+FMI")
         check_direct_chain(generated["abi6"], generated["abi6dc"], "direct chain")
         check_direct_chain(generated["abi6gg"], generated["ggdc"], "GG1+direct chain")

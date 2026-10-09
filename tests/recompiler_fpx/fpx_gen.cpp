@@ -154,6 +154,22 @@ int main(int argc, char** argv) {
         !Ops(dir, "fpxb", "rt_fpxb.h", true)) {
         return 1;
     }
+    // FPXV: the all-lane vector FADD/FSUB on top of the shared build (it reuses fpxs_rt.c's
+    // bodies). ops_fpxvb.c is the negative control: its helper keeps a lane whose result is
+    // not finite, so it must differ from the exact body wherever a lane overflows or is NaN.
+    suyu::recomp::g_emit_fpx_vec = true;
+    const std::string fpxv = suyu::recomp::RuntimeH();
+    std::string fpxvb = fpxv, fpxvz = fpxv;
+    if (!Replace(fpxvb, "declined = _mm_cmpeq_epi32(_mm_and_si128(t, exp_mask), exp_mask);",
+                 "declined = zero;") ||
+        !Write(dir / "rt_fpxv.h", probe + fpxv) || !Ops(dir, "fpxv", "rt_fpxv.h") ||
+        // And one that forgets that FZ flushes subnormal inputs.
+        !Replace(fpxvz, "declined = _mm_or_si128(_mm_or_si128(sub_a, sub_b), ", "declined = _mm_or_si128(zero, ") ||
+        !Write(dir / "rt_fpxvb.h", probe + fpxvb) || !Ops(dir, "fpxvb", "rt_fpxvb.h") ||
+        !Write(dir / "rt_fpxvz.h", probe + fpxvz) || !Ops(dir, "fpxvz", "rt_fpxvz.h")) {
+        return 1;
+    }
+    suyu::recomp::g_emit_fpx_vec = false;
     suyu::recomp::g_emit_fp_shared = false;
     // The shadow instrumentation build: exact results always, with the fast
     // path compared behind them (recomp_fpx_shadow, from the runtime C).
