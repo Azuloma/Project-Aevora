@@ -67,6 +67,7 @@
 #endif
 
 #include "common/assert.h"
+#include "common/env_option.h"
 #include "common/logging/log.h"
 #include "common/settings.h"
 #ifndef SUYU_NO_JIT
@@ -3440,16 +3441,27 @@ static constexpr char kSplitMainEnvironmentVariable[] = "SUYU_AOT_SPLIT_MAIN";
 // does not fit the launcher's 2 GiB image on PLA.
 static constexpr char kSplitDllModuleName[] = "main";
 
-// Parses a SUYU_AOT_SPLIT_MAIN value: empty or 0 = off, 1 = bind main as a DLL. Any other
-// value is an error naming the variable and the value.
-static bool ParseSplitMainOption(const QString& value, bool* split_main, QString* error) {
-    if (value.isEmpty() || value == QStringLiteral("0")) {
-        *split_main = false;
-        return true;
-    }
-    if (value == QStringLiteral("1")) {
+// Parses a SUYU_AOT_SPLIT_MAIN value: unset or empty = the default (bind main as a DLL wherever
+// that is supported), 0 = off, 1 = an explicit request for it. Any other value is an error
+// naming the variable and the value. *explicit_request tells the caller whether a split that
+// cannot be built should be refused (explicit) or quietly skipped (default).
+static bool ParseSplitMainOption(const QString& value, bool* split_main, bool* explicit_request,
+                                 QString* error) {
+    switch (Common::ParseEnvChoice(value.toStdString())) {
+    case Common::EnvChoice::Default:
         *split_main = true;
+        *explicit_request = false;
         return true;
+    case Common::EnvChoice::Off:
+        *split_main = false;
+        *explicit_request = true;
+        return true;
+    case Common::EnvChoice::On:
+        *split_main = true;
+        *explicit_request = true;
+        return true;
+    case Common::EnvChoice::Invalid:
+        break;
     }
     *error = QStringLiteral("%1 has the value '%2'; it must be unset, 0 or 1.")
                  .arg(QLatin1String(kSplitMainEnvironmentVariable), value);
@@ -4023,9 +4035,11 @@ bool GameExportDialog::ResolveSplitMainOption(RecompileBackend backend, bool* sp
         return false;
     };
     QString option_error;
-    if (!ParseSplitMainOption(value, split_main, &option_error)) {
+    bool explicit_request = false;
+    if (!ParseSplitMainOption(value, split_main, &explicit_request, &option_error)) {
         return reject(option_error);
     }
+    split_main_is_default_ = *split_main && !explicit_request;
     if (!*split_main) {
         return true;
     }
@@ -4047,10 +4061,27 @@ bool GameExportDialog::ResolveSplitMainOption(RecompileBackend backend, bool* sp
                      "DLLs.")
                       .arg(variable);
     }
-    if (!refusal.isEmpty()) {
+    if (refusal.isEmpty()) {
+        return true;
+    }
+    if (explicit_request) {
         return reject(refusal);
     }
+    // Only the default asked for a split, so an export that cannot have one is built without
+    // it. The reason is logged so the package is not a surprise.
+    LOG_INFO(Frontend, "Not splitting main into a DLL by default: {}", refusal.toStdString());
+    *split_main = false;
+    split_main_is_default_ = false;
     return true;
+}
+
+QString GameExportDialog::SplitDefaultHint() const {
+    if (!split_main_is_default_) {
+        return {};
+    }
+    return tr(" This export is split because that is the default; set %1=0 for an all-static "
+              "export, where Hybrid can run the failing module through the JIT.")
+        .arg(QLatin1String(kSplitMainEnvironmentVariable));
 }
 
 // Names of the canonical modules present in the source ExeFS: the loader's inventory, which a
@@ -4137,8 +4168,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     // than doubled the MK8D race on Windows (clang-cl: 34.6 -> 56.3 fps) with
     // identical results. Setting one to 0 leaves it out; SUYU_AOT_FASTMEM=0
     // gives ABI 5 output, byte-identical to earlier releases.
+    // On unless the variable is "0" (Common::EnvFlagDefaultOn): the same rule for every
+    // option below, including the ones that used to need an explicit "1".
     const auto enabled = [](const char* name) {
-        return qEnvironmentVariable(name) != QStringLiteral("0");
+        return Common::EnvFlagDefaultOn(qEnvironmentVariable(name).toStdString());
     };
     // No standalone runner and no bundled segments: the translated code runs only inside
     // suyu, against the user's own game file.
@@ -4157,27 +4190,27 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                               "without it");
         suyu::recomp::g_emit_fpx = false;
     }
-    // FMI (FM1 fast path inline at each access site) is opt-in until measured:
-    // SUYU_AOT_FM_INLINE=1. It changes the generated code but not the image ABI
+    // FMI (FM1 fast path inline at each access site) is on by default;
+    // SUYU_AOT_FM_INLINE=0 turns it off. It changes the generated code but not the image ABI
     // or features, so the manifest records it separately.
-    suyu::recomp::g_emit_fm_inline =
-        qEnvironmentVariable("SUYU_AOT_FM_INLINE") == QStringLiteral("1");
+    suyu::recomp::g_emit_fm_inline = enabled("SUYU_AOT_FM_INLINE");
     if (suyu::recomp::g_emit_fm_inline && !suyu::recomp::g_emit_fastmem) {
-        LOG_WARNING(Frontend, "Inline FM1 access (SUYU_AOT_FM_INLINE) needs SUYU_AOT_FASTMEM; "
-                              "exporting without it");
+        // Quiet when FASTMEM=0 alone made this impossible; only an explicit request is a warning.
+        if (qEnvironmentVariable("SUYU_AOT_FM_INLINE") == QStringLiteral("1")) {
+            LOG_WARNING(Frontend, "Inline FM1 access (SUYU_AOT_FM_INLINE) needs "
+                                  "SUYU_AOT_FASTMEM; exporting without it");
+        }
         suyu::recomp::g_emit_fm_inline = false;
     }
     const bool fm_inline = suyu::recomp::EmitFmInline();
-    // Direct chaining of unconditional B/BL is opt-in until measured:
-    // SUYU_AOT_DIRECT_CHAIN=1. Like FMI it changes the generated code but not the
-    // image ABI or features, so the manifest and bundle id record it separately.
-    suyu::recomp::g_emit_direct_chain =
-        qEnvironmentVariable("SUYU_AOT_DIRECT_CHAIN") == QStringLiteral("1");
+    // Direct chaining of unconditional B/BL is on by default; SUYU_AOT_DIRECT_CHAIN=0 turns
+    // it off. Like FMI it changes the generated code but not the image ABI or features, so
+    // the manifest and bundle id record it separately.
+    suyu::recomp::g_emit_direct_chain = enabled("SUYU_AOT_DIRECT_CHAIN");
     const bool direct_chain = suyu::recomp::g_emit_direct_chain;
-    // The same for RET/BR/BLR through the module's block index:
-    // SUYU_AOT_INDIRECT_CHAIN=1, independent of the direct chain.
-    suyu::recomp::g_emit_indirect_chain =
-        qEnvironmentVariable("SUYU_AOT_INDIRECT_CHAIN") == QStringLiteral("1");
+    // The same for RET/BR/BLR through the module's block index (SUYU_AOT_INDIRECT_CHAIN),
+    // independent of the direct chain.
+    suyu::recomp::g_emit_indirect_chain = enabled("SUYU_AOT_INDIRECT_CHAIN");
     const bool indirect_chain = suyu::recomp::g_emit_indirect_chain;
     // What the images will report from recomp_image_features(), recorded in the
     // manifest so a cached export with other features is not reused.
@@ -4706,7 +4739,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 // code cannot be left out of a split export.
                 reject_export(tr("Module '%1' has no code to recompile, and a split export (%2) "
                                  "describes every module of the game; the export stopped.")
-                                  .arg(mod.name, QLatin1String(kSplitMainEnvironmentVariable)));
+                                  .arg(mod.name, QLatin1String(kSplitMainEnvironmentVariable)) +
+                              SplitDefaultHint());
                 return {};
             }
             continue;
@@ -4844,7 +4878,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 reject_export(tr("Module '%1' could not be recompiled (stage: lift to C; see the "
                                  "suyu log). A split export (%2) describes every module of the "
                                  "game and never drops one to the JIT, so the export stopped.")
-                                  .arg(mod.name, QLatin1String(kSplitMainEnvironmentVariable)));
+                                  .arg(mod.name, QLatin1String(kSplitMainEnvironmentVariable)) +
+                              SplitDefaultHint());
                 return {};
             }
             if (!fallback_enabled) {
@@ -5755,10 +5790,12 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                        "image size limit (LNK1248), so it cannot be linked.\n\n"
                                        "Recompiling the modules with MSVC takes many hours and "
                                        "does not remove this limit, so the export stopped. "
-                                       "Turn off options "
-                                       "that grow the generated code (for example "
-                                       "SUYU_AOT_FM_INLINE), or choose suyu Hybrid JIT + AOT "
-                                       "so oversized modules can run through JIT.\n\n"
+                                       "Turn off options that grow the generated code "
+                                       "(SUYU_AOT_FM_INLINE=0, SUYU_AOT_DIRECT_CHAIN=0, "
+                                       "SUYU_AOT_INDIRECT_CHAIN=0), or choose suyu Hybrid JIT + "
+                                       "AOT with SUYU_AOT_SPLIT_MAIN=0 so oversized modules can "
+                                       "run through JIT (a split export never drops a module to "
+                                       "the JIT).\n\n"
                                        "Linker output: %1")
                                         .arg(saved_log.isEmpty()
                                                  ? tr("see the suyu log")

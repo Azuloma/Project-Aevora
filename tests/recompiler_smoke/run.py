@@ -745,6 +745,7 @@ def main():
                      identity_switches, source)
             return
         call([executable(export_build, "smoke_gaps_unit")])
+        call([executable(export_build, "smoke_env_option_unit")])
         call([executable(export_build, "smoke_overlay_logic_unit")])
         call([executable(export_build, "smoke_build_identity_unit")])
         call([executable(export_build, "smoke_topology_unit")])

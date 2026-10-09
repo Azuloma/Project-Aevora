@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-08. HEAD is `0ae08ea` on `main`; overlay stages D and E are uncommitted and not hardware-verified beyond the first stage-D build. The user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-08-sixteenth-session); historical detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
+Handoff prepared: 2026-10-09. HEAD is `575b796` on `main`; overlay stages D and E are committed, and the user reported the Debug window working “perfectly” on PLA after a fresh full export. The user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-08-sixteenth-session); historical detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
 
 ## Objective
 
@@ -11,9 +11,9 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 | Area | Current status |
 |---|---|
 | Milestone 4a | Topology, registry, loader, split exporter, persistent cache, and U1-U4 synthetic work are complete for covered cases. |
-| Step 6 PLA | Static AOT + FMI + main-DLL split runs; Kotobuki remains 17-21 FPS versus 30 FPS under JIT. |
-| U1 and chaining | U1, opt-in direct B/BL chaining, and indirect RET/BR/BLR chaining are implemented, reviewed, and synthetic-fixture verified. |
-| Verification | Smoke, cache matrix (194 passed/0 failed), negative controls, and host build passed; chain-run FPS is unreported. |
+| Step 6 PLA | Static AOT + FMI + main-DLL split runs; Kotobuki remains 17-21 FPS versus 30 FPS under JIT. The all-default PLA image size is not yet measured. |
+| U1 and chaining | U1, default-on direct B/BL chaining, and default-on indirect RET/BR/BLR chaining are implemented, reviewed, and synthetic-fixture verified. |
+| Verification | Smoke, cache matrix (308 passed/0 failed), negative controls, and host build passed; chain-run FPS is unreported. |
 
 ## Evidence so far (observations)
 
@@ -30,9 +30,9 @@ The last image is about 214 MiB below the 2 GiB LNK1248 limit. Block transfer (`
 ## What the code now contains
 
 - U1: lock-light exclusive-monitor host-pointer and reservation paths, page-aware fallback, conditional notification, and the redundant unlock fence removal; see `CHANGELOG.md` dev17 and [CODEBASE_INDEX.md](CODEBASE_INDEX.md).
-- Direct chaining: `g_emit_direct_chain` emits opt-in same-module B/BL tail calls through `RECOMP_TAIL_CALL`; conditional branches remain unchained.
-- Indirect chaining: `g_emit_indirect_chain` handles opt-in same-module RET/BR/BLR targets through `recomp_lookup`; misses return to `run_slice`.
-- Both chain flags are off by default, preserve output when off, and affect manifest/bundle-id inputs; fixtures and cache matrix are verified.
+- Direct chaining: `g_emit_direct_chain` emits default-on same-module B/BL tail calls through `RECOMP_TAIL_CALL`; conditional branches remain unchained.
+- Indirect chaining: `g_emit_indirect_chain` handles default-on same-module RET/BR/BLR targets through `recomp_lookup`; misses return to `run_slice`.
+- FMI and both chain flags are on unless exactly `0`; each changes generated output or its manifest identity. The split default binds `main` as a DLL wherever supported and can be disabled with `SUYU_AOT_SPLIT_MAIN=0`; fixtures and cache matrix are verified.
 
 ## Milestones
 
@@ -58,28 +58,30 @@ Held items are the two-lifetime seam, real loader/refusal paths, `tests/export_r
 
 ### State and completed work
 
-HEAD is `0ae08ea`. Overlay stages D and E are uncommitted; the first stage-D build was checked on PLA, but the redesigned router and stage-E window have not been hardware-verified. The host build and smoke run pass, including the new overlay logic and build-identity tests.
+HEAD is `575b796`. Overlay stages D and E are committed; after a fresh full export, the user reported that the Debug window worked “perfectly” on PLA. This is a user observation with no itemized detail or performance numbers; the host build and smoke run pass, including the new overlay logic and build-identity tests.
+
+The default-on environment change is implemented through `src/common/env_option.h`: unset/empty/other text keeps the flag options on, exactly `0` turns them off, and split uses a validated default/0/1 choice. The host rebuild passed with no AOT/overlay variables initially set; clang-cl and MSVC `cl` smoke passed, eight env-option negative controls were caught, exporter-wiring negative controls were caught and restored byte-identically, and the final integration runs passed 24/0 default scenarios and 308/0 AOT-cache scenarios. A real PLA export with the new defaults has not yet been run.
 
 ### Open issues, in priority order
 
-1. User to run `SUYU_DEBUG_OVERLAY=1` on PLA and check the redesigned bar/Debug window input (click/drag/focus loss) and stage-E sections, then commit.
+1. The user must commit this change, then run a new full export to see the defaults in a PLA launcher and measure its `SizeOfImage` (including LNK1248 risk); ask the user for FPS and the detail of the hardware check if wanted.
 2. Map hot main-DLL RVAs and investigate the idle-core wait from the previous handoff; these remain open and unchanged, and the overlay's guest PCs do not replace them.
-3. Resolve the deferred A-C finding: early-exit paths can destroy the window before the renderer.
-4. Implement planned Settings -> Controller / Graphics ImGui windows and keyboard forwarding.
+3. Implement planned Settings -> Controller / Graphics ImGui windows and keyboard forwarding.
+4. A Hybrid default-split export loses module-level JIT fallback until `SUYU_AOT_SPLIT_MAIN=0`; consider an automatic all-static re-plan.
 5. Finish the Step 6 checklist above.
 6. Consider U2 only with explicit user approval.
 
 ### Immediate next action
 
-Wait for the user's hardware check of stages D/E and their commit.
+The user must commit this change before the persistent cache can produce a launcher with the new defaults; then run a new full PLA export and measure its image size.
 
 ## How to work / procedures
 
 - Run `.cmd` helpers through PowerShell's `cmd.exe /c "D:\HisuiWakeBuild\diag\buildsuyu.cmd > D:\HisuiWakeBuild\diag\<log> 2>&1"`; read logs for ASCII `error C` and `BUILD_EXIT`. Run `runsmoke.cmd` once per finished fix set and require both smoke pass markers; a first-pass new test needs a deliberately weakened negative control.
 - The overlay smoke tests need `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or provide a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`.
-- Set `SUYU_DEBUG_OVERLAY=1` to enable the overlay; empty or `0` keeps the default behavior off.
+- The overlay is on by default; set `SUYU_DEBUG_OVERLAY=0` to disable it. Empty and other values keep it on.
 - For cache integration, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`, use a fresh short work directory, run `--only-aot-cache-matrix`, then rebuild. Keep logs/builds/exports outside the repository.
-- For PLA, find the largest-working-set `Pokemon Legends_ Arceus` PID, run `sample_raw_kotobuki4.ps1` and `sample_stacks.ps1`, and confirm flags in `aot_manifest.json`. Use `SUYU_AOT_FASTMEM=1`, `SUYU_AOT_FM_INLINE=1`, `SUYU_AOT_SPLIT_MAIN=1`; add chain flags only for chain experiments.
+- For PLA, find the largest-working-set `Pokemon Legends_ Arceus` PID, run `sample_raw_kotobuki4.ps1` and `sample_stacks.ps1`, and confirm flags in `aot_manifest.json`. Defaults are on; set `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` to disable an option. Chain experiments now switch a chain off to compare.
 - For Orca workers, write the specification with the Write tool, start the requested model/effort, submit an unobserved turn through its terminal handle, wait once for `worker_done`/`escalation`, verify the diff, release the worker, and acknowledge the delivery. See `CLAUDE.md` for role rules.
 
 Repository hygiene: six `.pyc` files are tracked and `.gitignore` has no `pycache` entry; the user must decide whether to untrack them. The displaced handoff is archived under [the sixteenth-session replacement](OLD_HISTORY.md#archived-on-2026-10-08-from-work_planmd-sixteenth-session-replacement).

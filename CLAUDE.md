@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-08, HEAD is `0ae08ea` on `main`; dev18 overlay work (stages D and E) is uncommitted. Milestone 4a synthetic work and covered Step 5 cases are verified; U1, direct B/BL chaining, and indirect RET/BR/BLR chaining are implemented behind opt-in flags and off by default. Smoke, the AOT cache matrix (194/0), negative controls, and the host build pass; PLA observations cover U1 and both chain configurations, but chain-run FPS is unreported. Successful generation, compilation, or startup alone does not establish compatibility; keep public descriptions evidence-aligned.
+As of 2026-10-09, HEAD is `575b796` on `main`; dev18 overlay work (stages D and E) is user-reported working on PLA; committed. Milestone 4a synthetic work and covered Step 5 cases are verified; U1, direct B/BL chaining, and indirect RET/BR/BLR chaining are implemented, with the chain options now on by default. Smoke, the final AOT cache matrix (308/0), negative controls, and the host build pass; PLA observations cover U1 and both chain configurations, but chain-run FPS is unreported. Successful generation, compilation, or startup alone does not establish compatibility; keep public descriptions evidence-aligned.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is `0ae08ea`; dev18 overlay work is uncommitted. First wait for the user's hardware check of stages D/E and their commit, then disassemble and map the hot main-DLL RVAs and investigate the unexplained idle core wait; ask the user for FPS after each PLA run, including the chain builds. Never fake cache producer identity. Consider U2 only with explicit approval and low priority; the remaining Step 6 checklist and held items stay open. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
+Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is `575b796`; dev18 overlay work is user-reported working on PLA; committed. Then disassemble and map the hot main-DLL RVAs and investigate the unexplained idle core wait; ask the user for FPS after each PLA run, including the chain builds. Never fake cache producer identity. Consider U2 only with explicit approval and low priority; the remaining Step 6 checklist and held items stay open. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -109,7 +109,7 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 
 ## Build and verification rules
 
-- Standing export procedure: set `SUYU_AOT_FASTMEM=1`, `SUYU_AOT_FM_INLINE=1`, and `SUYU_AOT_SPLIT_MAIN=1` in the `suyu` process environment for the standard export; add `SUYU_AOT_DIRECT_CHAIN=1` and/or `SUYU_AOT_INDIRECT_CHAIN=1` only for the corresponding chain experiments. These are procedure settings; code defaults remain unchanged.
+- Standing export procedure: the AOT and overlay defaults are on. Set an option to `=0` to disable it; in particular, use `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` when comparing against an all-static or feature-disabled export. Chain experiments now mean switching a chain off to compare. The other procedure rules below are unchanged.
 
 - Suyu's log tail is lost at export exit; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` status fields, never the log tail, as cache evidence.
 - Never run two `rebuild-suyu.bat` or ninja invocations on one build tree concurrently.

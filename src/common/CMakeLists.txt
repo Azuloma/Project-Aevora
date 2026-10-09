@@ -47,6 +47,7 @@ add_library(
     div_ceil.h
     dynamic_library.cpp
     dynamic_library.h
+    env_option.h
     nvidia_flags.cpp
     nvidia_flags.h
     elf.h

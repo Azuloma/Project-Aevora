@@ -7,17 +7,24 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 *Development entry 18 toward v0.0.1. Not a release; no build artifacts are published.*
 
 ### Added
-- Added an opt-in Dear ImGui debug overlay for the Windows `suyu-cmd` launcher and the static launcher, enabled by `SUYU_DEBUG_OVERLAY=1` and disabled by default. It includes a command bar, input routing, Backend, Performance, CPU, Build identity, and GPU sections, plus standalone logic and build-identity smoke tests.
+- Added the Dear ImGui debug overlay for the Windows `suyu-cmd` launcher and the static launcher; it is created by default and can be disabled with `SUYU_DEBUG_OVERLAY=0`. It includes a command bar, input routing, Backend, Performance, CPU, Build identity, and GPU sections, plus standalone logic and build-identity smoke tests.
+- Added the shared `src/common/env_option.h` rule for default-on flags and three-way choices, plus the `smoke_env_option_unit` coverage and default-option integration scenarios.
 - Added ImGui v1.92.9b as the forced-bundled `Aevora::imgui` dependency, the Vulkan overlay extension point, recompiled-module and native-status diagnostics, and packaged AOT manifest display fields.
 
 ### Changed
 - Overlay-owned mouse input is routed through a bounded, mutex-protected queue with focus/minimize reset handling; keyboard input is not forwarded to ImGui yet. The overlay reports guest PCs and fallback activity as diagnostics and does not treat successful startup or zero hybrid fallback attempts as proof of static execution.
+- `SUYU_AOT_FM_INLINE`, `SUYU_AOT_DIRECT_CHAIN`, and `SUYU_AOT_INDIRECT_CHAIN` are now on unless exactly `0`; `SUYU_AOT_SPLIT_MAIN` defaults to binding `main` as a DLL wherever supported, while unsupported default splits are skipped with a log line. `=0` disables each option; explicit `=1` split requests retain their prior refusal reasons, and other split values are errors.
+- The chain defaults change generated code and the bundle id for everyone, making the earlier “opt-in until measured” wording obsolete. Split-only failures name `SUYU_AOT_SPLIT_MAIN=0`, and LNK1248 advice names the three feature opt-outs and `Hybrid with SUYU_AOT_SPLIT_MAIN=0`.
+- The process-wide debug overlay is acquired by `SuyuCmd::AcquireDebugOverlay` and intentionally never destroyed because the renderer retains a raw pointer and shuts it down in its own destructor; this closes the overlay's early-exit lifetime issue without changing the pre-existing renderer/window-reference hazard.
 
 ### Verified
-- The current uncommitted tree built successfully (`BUILD_EXIT=0`) and the smoke run passed (`SMOKE_EXIT=0`), including the two new standalone tests. Negative controls caught the exercised mutations, and a real AOT-cache manifest was parsed as expected; the smoke runner requires `nlohmann/json.hpp` via `--nlohmann-include`, `NLOHMANN_INCLUDE_DIR`, or `CPM_SOURCE_CACHE`.
+- Commit `575b796` built successfully (`BUILD_EXIT=0`) and the smoke run passed (`SMOKE_EXIT=0`), including the two new standalone tests. Negative controls caught the exercised mutations, and a real AOT-cache manifest was parsed as expected; the smoke runner requires `nlohmann/json.hpp` via `--nlohmann-include`, `NLOHMANN_INCLUDE_DIR`, or `CPM_SOURCE_CACHE`.
+- The user reported that, after a fresh full export with stages D and E of the `SUYU_DEBUG_OVERLAY=1` ImGui overlay (including the router redesign and reviewed stage-E fixes), the export completed successfully and the Debug window worked “perfectly” on PLA. This is a user observation; no itemized sections or inputs exercised and no performance result were provided.
+- The host rebuild passed with no AOT/overlay variables set initially; clang-cl smoke passed (`SMOKE_EXIT=0`), MSVC `cl` smoke passed with chain variants, eight env-option negative-control mutations were caught, and exporter-wiring negative controls were caught and restored byte-identically.
+- Integration passed `--only-multimodule` 76/0, `--only-defaults` 24/0, and final `--only-aot-cache` 308/0. Default scenarios verified unset default-on FMI/direct/indirect options, image ABI 6/features 7, default main DLL binding, supported split packaging and guest-chain execution without JIT fallback, quiet unsupported-default skips, and `=0` all-off/all-static output.
 
 ### Known limitations / held items
-- Stages D and E are uncommitted and have not been hardware-verified beyond the first stage-D build. Rendering/input after the redesigned router, the complete stage-E window, MSVC `cl` and non-Windows compilers, Vulkan failure injection, early-exit teardown ordering, and performance impact remain unverified. The user must hardware-check PLA, then commit; suggested commit message: `Add opt-in suyu-cmd ImGui debug overlay`.
+- A real PLA export with all default-on features and split has not been measured for `SizeOfImage`; overlay-on-by-default behavior in headless/capture integration, performance impact, and MSVC `cl` for a real title remain unverified. The persistent cache caveat remains: an entry at the same revision can reuse its old launcher, so these defaults reach a PLA launcher only after a new commit and full export.
 
 ## v0.0.1-dev17 - Unreleased
 

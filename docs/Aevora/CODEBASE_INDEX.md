@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `0ae08ea` plus uncommitted dev18 overlay files (2026-10-08), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `575b796` plus uncommitted default-option files (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
@@ -44,14 +44,14 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `struct Block` | `arm64_to_c.h:60` (v) | Discovered code block (vaddr, size, count, entry flag). |
 | `g_translate_all` | `arm64_to_c.h:303` (v) | Translate forms normally left to the JIT. |
 | `g_emit_standalone_runner` | `arm64_to_c.h:310` (v) | Defaults to `true` for synthetic tests. The comment says the game exporter turns it off so game code runs only inside suyu against the user's files. |
-| `g_emit_fastmem` / `g_emit_guard_gen` / `g_emit_fpx` / `g_emit_fpx_shadow` | `arm64_to_c.h:316-337` (v) | ABI 6 feature switches (FM1 page-table fastmem, GG1 generation guard, FPX1 exact native FP, FPX shadow instrumentation). All are off by default, which keeps the emitted text byte-identical to ABI 5 (golden hashes in `tests/recompiler_smoke`). |
-| `g_emit_fm_inline` / `EmitFmInline()` | `arm64_to_c.h:346-348` (v) | Opt-in FMI switch; true only when FM1 is also enabled. |
+| `g_emit_fastmem` / `g_emit_guard_gen` / `g_emit_fpx` / `g_emit_fpx_shadow` | `arm64_to_c.h:316-337` (v) | ABI 6 feature switches (FM1 page-table fastmem, GG1 generation guard, FPX1 exact native FP, FPX shadow instrumentation). FM1 remains on unless `SUYU_AOT_FASTMEM=0`; the other emitter switches retain their existing defaults. |
+| `g_emit_fm_inline` / `EmitFmInline()` | `arm64_to_c.h:346-348` (v) | FMI is on unless `SUYU_AOT_FM_INLINE=0`; it is emitted only when FM1 is also enabled. |
 | `FastmemInlineH()` / `RuntimeH()` | `arm64_to_c.h:6341`, `:7187-7201` (v) | Appends the FMI static inline fast paths, including the GG1 watch-word store entry, to generated `recomp_runtime.h`; variants are selected with FM1, GG1, and FPX settings. |
 | `FmInlineRuntimeC()` / `RuntimeC()` | `arm64_to_c.h:8111`, `:8116-8131` (v) | Renames generated-unit fastmem calls to FMI functions while keeping `recomp_runtime.c` definitions under their original names. |
 | `TranslateAllForExport()` | `arm64_to_c.h:340` (v) | Strict static exports translate everything. |
 | `kChainBudget` | `arm64_to_c.h:351` (v) | Blocks run before control returns to the dispatcher. |
-| `ChainTo` / `ChainIndirect` | `arm64_to_c.h:299-302`, `:409-440` (v) | Opt-in direct B/BL and independent indirect RET/BR/BLR tail-chain emitters; indirect lookup subtracts the module base and preserves budget on misses. |
-| `g_emit_direct_chain` / `g_emit_indirect_chain` | `arm64_to_c.h:367-374` (v) | Independent off-by-default chain switches. |
+| `ChainTo` / `ChainIndirect` | `arm64_to_c.h:299-302`, `:409-440` (v) | Default-on direct B/BL and independent indirect RET/BR/BLR tail-chain emitters; set the corresponding environment option to `0` to disable; indirect lookup subtracts the module base and preserves budget on misses. |
+| `g_emit_direct_chain` / `g_emit_indirect_chain` | `arm64_to_c.h:367-374` (v) | Independent default-on chain switches controlled by `SUYU_AOT_DIRECT_CHAIN=0` and `SUYU_AOT_INDIRECT_CHAIN=0`. |
 | `RECOMP_TAIL_CALL` | `arm64_to_c.h:5258-5273` (v) | Generated-unit macro: clang uses `musttail`; other compilers use a bounded plain call/return; emitted only when a chain flag is enabled. |
 | `EmitProject()` | `arm64_to_c.h:5084` (v) | Per-module entry point. Emits C sources, `GuestContext`, the module `CMakeLists.txt`, and returns `RecompileStats`. |
 | `SUYU_RECOMP_STRICT` read in emitted code | `arm64_to_c.h:7374` (v) | Generated runtime honours strict mode. |
@@ -79,7 +79,8 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `CopyCacheArtifacts()` / `PublishAotCacheEntry()` | `game_export.cpp:3877`, `:3906` (v, 2026-10-07) | Define the single artifact list used for publish and reuse; publish a valid entry after AOT precompile and before packaging. |
 | `VerifyCachedLauncher()` | `game_export.cpp:3799` (v, 2026-10-07) | Require and verify manifest launcher SHA-256 and size before reuse. |
 | `recomp_modules.cmake` / `recomp_registration.c` generation | `game_export.cpp:3950-4030` (v: `:3991`, `:4019`) | Module list in NSO load order and `suyu_recomp_static_modules_v4()` registration table. **The object involved in the earlier `LNK1181` failure is built from this file.** |
-| Split option and bundle identity | `game_export.cpp:3416-3551`, `:4632`, `:6886-6890` (v, 2026-10-06) | Resolves `SUYU_AOT_SPLIT_MAIN` once per export, computes the versioned canonical bundle id, emits registry-v1/topology data, and logs each image's PE `SizeOfImage`; split cache and package records include topology, bindings, DLL hashes, and launcher size. |
+| `Common::EnvFlagDefaultOn`, `Common::ParseEnvChoice` / `EnvChoice` | `src/common/env_option.h:16-39` (v, 2026-10-09) | Single definition for default-on flags and validated default/0/1 environment choices. |
+| Split option and bundle identity | `game_export.cpp:3416-3551`, `:4632`, `:6886-6890` (v, 2026-10-09) | Resolves `SUYU_AOT_SPLIT_MAIN` once per export; unset/empty defaults to binding `main` as a DLL wherever supported, `0` disables it, `1` requests it explicitly, and other values are errors. Computes the versioned canonical bundle id, emits registry-v1/topology data, and logs each image's PE `SizeOfImage`; split cache and package records include topology, bindings, DLL hashes, and launcher size. |
 | Prebuild DLL-bound module validation | `src/suyu_cmd/recomp_modules/CMakeLists.txt:26-126` (v, 2026-10-06) | Reads topology DLL bindings, checks version, bundle ID/bytes, module membership, target existence/type, and effective file name, then builds the shared image with identity definitions. |
 | Shared DLL target helper | `src/suyu_cmd/recomp_modules/RecompDllTarget.cmake:4-17` (v, 2026-10-06) | Shared verification/setup helper used by prebuild and in-tree CMake; checks topology-bound target identity and writes DLLs to the launcher-side `recomp_dll/` directory. |
 | Generated-tree CMake configure/build | around `game_export.cpp:4229` (v) | Invokes CMake on the generated tree. |
@@ -91,8 +92,8 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | Gap-seeded discovery | around `game_export.cpp:220`, `3220-3330` | Reads `<user dir>/recomp/gaps/<title>.json` to seed blocks at Hybrid gap addresses. |
 | Runtime DLL list | around `game_export.cpp:193-200` | FFmpeg, DXC, OpenSSL, and Discord RPC copied into packages. |
 | Unit-limit environment overrides | `ReadPositiveSizeFromEnv()` ~`game_export.cpp:124`; read before `EmitProject()` ~`:3828` (v, 2026-10-05) | `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`. |
-| FMI export switch and manifest/cache rule | `game_export.cpp:3460-3469`, `:3548-3570`, `:4977` (v, 2026-10-05) | `SUYU_AOT_FM_INLINE=1` enables FMI only with FM1; manifests record `fm_inline`, and cache reuse requires a matching value (missing field means FMI off). |
-| Direct/indirect chain flags and manifest/cache identity | `game_export.cpp:3492-3528`, `:4172-4181`, `:4243`, `:4330-4335`, `:4396-4397`, `:6197-6198` (v) | Reads `SUYU_AOT_DIRECT_CHAIN`/`SUYU_AOT_INDIRECT_CHAIN` only when `=1`; includes both fields in `ComputeBundleId` inputs, manifest output, and reuse checks. |
+| FMI export switch and manifest/cache rule | `game_export.cpp:3460-3469`, `:3548-3570`, `:4977` (v, 2026-10-09) | `SUYU_AOT_FM_INLINE` is on unless exactly `0`; manifests record `fm_inline`, and cache reuse requires a matching value (missing field means FMI off). |
+| Direct/indirect chain flags and manifest/cache identity | `game_export.cpp:3492-3528`, `:4172-4181`, `:4243`, `:4330-4335`, `:4396-4397`, `:6197-6198` (v, 2026-10-09) | `SUYU_AOT_DIRECT_CHAIN`/`SUYU_AOT_INDIRECT_CHAIN` are on unless exactly `0`; both fields affect generated code, `ComputeBundleId` inputs, manifest output, and reuse checks. |
 | clang-cl module build and launcher link | ~`game_export.cpp:4400-4560` (v, 2026-10-05) | Configures `<build-dir>/recomp_clang`, builds `recomp_static_<module>`, then reconfigures the source build tree with `SUYU_CMD_RECOMP_DIR` etc. and links `suyu-cmd-static` at `--parallel 2`. Running from a source build therefore rebuilds and pollutes that tree. |
 | Recorded compiler name | `last_recomp_compiler`, ~`game_export.cpp:4560`, `:4790`, `:4985`, `:5370` | Known defect: reports record `O2` instead of the compiler. |
 
@@ -197,7 +198,8 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `src/suyu` (Qt) | `GMainWindow` (`main.h:170`, `main.cpp` ~8,500 lines), `BootGame`/`LoadROM`, `bootmanager.h` (`EmuThread`, `GRenderWindow`), `game_list.h`, `configuration/`. Recompiled-image actions: `OnLoadRecompiledImage`, `LoadRecompiledImagesFrom`, `OnLaunchRecompiledBuild`, `OnLaunchStaticBuild`. |
 | MCP server in Qt app | `src/suyu/mcp_server.{h,cpp}`, created at `main.cpp:5346-5445` (v). Port comes from `SUYU_MCP_PORT`. There are also "Hacker"/"Gamer" modes (`main.cpp:585-590` (v), `gamer_environment.*`). Fork-specific; purpose and security exposure not yet reviewed. |
 | `src/suyu_cmd` | SDL command-line frontend (`suyu.cpp`). Also used as the static launcher host (export build kit). The launcher's window title comes from the executable name in `emu_window/emu_window_sdl2_vk.cpp` (~`:35-62`); convert paths with `Common::FS::PathToUTF8String`, never `path::string()`, on Windows. |
-| `src/suyu_cmd/overlay/debug_overlay.{h,cpp}` | Dear ImGui Vulkan overlay UI: command bar, Debug window sections, build identity, native status, recompiled CPU, and GPU diagnostics. |
+| `src/suyu_cmd/overlay/debug_overlay.{h,cpp}` | Dear ImGui Vulkan overlay UI: command bar, Debug window sections, build identity, native status, recompiled CPU, and GPU diagnostics; created by default unless `SUYU_DEBUG_OVERLAY=0`. |
+| `SuyuCmd::AcquireDebugOverlay` | `src/suyu_cmd/overlay/debug_overlay.cpp:57` (v, 2026-10-09) | Process-wide overlay acquisition; intentionally never destroys the object because the renderer retains a raw pointer and owns shutdown. |
 | `src/suyu_cmd/overlay/overlay_logic.h` | ImGui-free command-bar visibility and bounded cross-thread mouse-input router. |
 | `src/suyu_cmd/overlay/overlay_stats.h` | Frame-time history, guest-PC/module placement, fallback counters/verdict, execution-mode text, and timing helpers. |
 | `src/suyu_cmd/overlay/build_identity.{h,cpp}` | Parses packaged `aot_manifest.json` display fields and stores the launcher build identity. |
@@ -227,7 +229,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | Location | Content |
 |---|---|
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
-| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, production bundle-loading and mixed-image checks, the three-module xmod fixture, loader stub and lookup-boundary cases, and `check_prebuild` split consumer checks; MSVC golden hashes require `/utf-8`, matching the real build. |
+| `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, production bundle-loading and mixed-image checks, the three-module xmod fixture, loader stub and lookup-boundary cases, `check_prebuild` split consumer checks, and `smoke_env_option_unit`; MSVC golden hashes require `/utf-8`, matching the real build. |
 | `tests/recompiler_smoke/overlay_logic_unit.cpp`, `build_identity_unit.cpp` | Standalone tests for overlay command/input/statistics logic and AOT manifest build-identity parsing. |
 | `tests/recompiler_smoke/run.py` | The build-identity test requires `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or use a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`. |
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
@@ -242,6 +244,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/run.py` | `check_direct_chain:595`, `check_direct_chain_bl:625`, and variants `abi6dc`/`ggdc`/`abi6ic`/`ggdcic` (`:57-64`, `:742-746`). |
 | `tests/export_integration/make_multimodule_fixture.py` | `write_multimodule_fixture()` (v, 2026-10-06) | Generates sparse canonical multi-module ExeFS fixtures with cross-module calls, markers, unreadable paths, and code-less options. |
 | `tests/export_integration/run_export_integration.py` | `multimodule_split_scenarios()`, `split_source_failure_scenarios()`, `split_failure_injection_scenarios()`, `split_option_scenarios()` (v, 2026-10-06) | Exercises real split static/Hybrid exports, source/analysis refusals, injected build/package failures, per-export option handling, and retries. |
+| `tests/export_integration/run_export_integration.py` | `default_option_scenarios()` and `--only-defaults` (v, 2026-10-09) | Verifies unset default-on FMI/direct/indirect options, default supported split binding, quiet unsupported-default skips, and `=0` all-off/all-static output. |
 | `src/suyu/main.cpp` RPC export options | `main.cpp:6173-6179` (v, 2026-10-07) | Test-driven export RPC accepts `aot_cache_root`, `aot_producer_revision`, and `aot_producer_build_id`; status fields are returned around `:5789-5795`. |
 | `tests/recompiler_smoke/aot_cache_unit.cpp` | `smoke_aot_cache_unit` (v, 2026-10-07) | Covers naming, producer seam, lock, staging, publish/replace, interrupted-publish restore, launcher requirement, and non-ANSI cache roots. |
 | `tests/export_integration/run_export_integration.py` | `aot_cache_publish_scenarios()`, `aot_cache_matrix_scenarios()`, `--only-aot-cache`, `--only-aot-cache-matrix` (v, 2026-10-07) | Covers publish/failure preservation/reuse/producer changes/lock and the named artifact, manifest-input, backend/topology, source, and package-exclusion matrix. |

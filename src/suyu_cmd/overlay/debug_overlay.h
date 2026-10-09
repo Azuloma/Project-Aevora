@@ -13,11 +13,22 @@
 
 namespace SuyuCmd {
 
-/// Environment variable that turns the overlay on. Any value other than "" and "0" enables it.
+/// Environment variable that controls the overlay. It is on unless the value is "0".
 inline constexpr const char* kDebugOverlayEnvVar = "SUYU_DEBUG_OVERLAY";
 
-/// Whether the environment asks for the overlay. Off unless explicitly requested.
+/// Whether the overlay should be created: on by default, off with SUYU_DEBUG_OVERLAY=0.
 bool IsDebugOverlayRequested();
+
+class DebugOverlay;
+
+/// The process-wide overlay, or nullptr when it is switched off.
+///
+/// It outlives every window and renderer on purpose: the renderer keeps a raw pointer and shuts
+/// the overlay down in its own destructor, and on an early-exit path the window (declared after
+/// the system in main) is destroyed first. An overlay owned by the window would be gone by
+/// then. It is never destroyed, so no Vulkan call can run during static destruction after the
+/// device is gone.
+DebugOverlay* AcquireDebugOverlay();
 
 /// Dear ImGui layer drawn over the presented frame.
 ///

@@ -148,6 +148,11 @@ def registry_dump():
     return result.stdout
 
 
+# On-by-default export options (see common/env_option.h) that the baseline environment pins off.
+OPTIONS_PINNED_OFF = ('SUYU_AOT_FM_INLINE', 'SUYU_AOT_DIRECT_CHAIN', 'SUYU_AOT_INDIRECT_CHAIN',
+                      'SUYU_AOT_SPLIT_MAIN')
+
+
 class Run:
     def __init__(self, args):
         self.args = args
@@ -158,6 +163,11 @@ class Run:
         self.env['LOCALAPPDATA'] = str(self.work / 'localappdata')
         self.env['SUYU_MCP_PORT'] = str(args.port)
         self.env['SUYU_CMD_CAPTURE_HEADLESS'] = '1'
+        # These options are on by default now. The scenarios below were written against the old
+        # defaults (all off), so the baseline pins them off; the scenarios that need a default or
+        # a switch change them explicitly (default_option_scenarios, the chain matrix).
+        for variable in OPTIONS_PINNED_OFF:
+            self.env[variable] = '0'
         self.out = self.work / 'out'
         self.fixture = self.work / 'SynthFixture'
         self.process = None
@@ -359,6 +369,86 @@ class Run:
                 self.check_all_static_package(tag, package)
             code, output, log = self.launch(package, package_name + '.exe', keys=True, timeout=180)
             self.check_split_run(tag, code, log, info, split=split)
+
+    def default_option_scenarios(self):
+        """What the export options do when their variables are not set, and when they are 0.
+
+        Unset means on: inline fast memory, both chain options and the split of main into a DLL
+        (the split only where it is supported; elsewhere it is skipped without a refusal, while
+        an explicit request is still refused, as split_option_scenarios checks). An explicit 0
+        switches each one off. The first export also runs its launcher, so the default
+        generated code is shown to work and not just to be produced."""
+        fixture = self.work / 'DefaultsFixture'
+        info = make_multimodule_fixture.write_multimodule_fixture(fixture, None, None)
+        out = self.work / 'out-defaults'
+        name = 'DefaultsFixture'
+        package = out / name
+
+        def manifest():
+            return json.loads((package / 'aot_manifest.json').read_text(encoding='utf-8'))
+
+        try:
+            # FASTMEM is on by default too; it is removed as well so a value inherited from the
+            # developer's own environment cannot decide what "unset" produced.
+            unset = {variable: None for variable in OPTIONS_PINNED_OFF}
+            unset['SUYU_AOT_FASTMEM'] = None
+            self.restart_suyu_with_env(unset)
+            status = self.export('static', 'build', rom=fixture, output=out)
+            self.record('defaults: unset options: export succeeds', status.get('success'),
+                        status.get('status', ''))
+            if status.get('success'):
+                recorded = manifest()
+                self.record('defaults: unset means fast memory on (image ABI 6 with features)',
+                            recorded.get('image_abi') == 6 and
+                            isinstance(recorded.get('image_features'), int) and
+                            recorded.get('image_features') != 0,
+                            'image_abi=%s image_features=%s' % (recorded.get('image_abi'),
+                                                                recorded.get('image_features')))
+                self.record('defaults: unset means inline fast memory and both chains on',
+                            recorded.get('fm_inline') is True and
+                            recorded.get('direct_chain') is True and
+                            recorded.get('indirect_chain') is True,
+                            'fm_inline=%s direct_chain=%s indirect_chain=%s' % (
+                                recorded.get('fm_inline'), recorded.get('direct_chain'),
+                                recorded.get('indirect_chain')))
+                self.record('defaults: unset means main is split into a DLL',
+                            recorded.get('module_bindings', {}).get('main') == 'dll',
+                            str(recorded.get('module_bindings')))
+                self.check_split_package('defaults', package, info)
+                code, output, log = self.launch(package, name + '.exe', keys=True, timeout=180)
+                self.check_split_run('defaults', code, log, info, split=True)
+            shutil.rmtree(out, ignore_errors=True)
+
+            # Where a split is not supported the default skips it quietly; the same export with
+            # the split asked for outright is refused (split_option_scenarios).
+            for backend, fmt, tag in (('dynarmic', 'build', 'JIT baseline'),
+                                      ('hybrid', 'source', 'Source format')):
+                status = self.export(backend, fmt, rom=fixture, output=out)
+                self.record('defaults: unset split is skipped, not refused (%s)' % tag,
+                            status.get('success'), status.get('status', ''))
+                shutil.rmtree(out, ignore_errors=True)
+
+            self.restart_suyu_with_env({variable: '0' for variable in OPTIONS_PINNED_OFF})
+            status = self.export('static', 'build', rom=fixture, output=out)
+            self.record('defaults: options set to 0: export succeeds', status.get('success'),
+                        status.get('status', ''))
+            if status.get('success'):
+                recorded = manifest()
+                self.record('defaults: 0 switches inline fast memory and both chains off',
+                            recorded.get('fm_inline') is False and
+                            recorded.get('direct_chain') is False and
+                            recorded.get('indirect_chain') is False,
+                            'fm_inline=%s direct_chain=%s indirect_chain=%s' % (
+                                recorded.get('fm_inline'), recorded.get('direct_chain'),
+                                recorded.get('indirect_chain')))
+                self.record('defaults: 0 keeps main in the launcher (no split)',
+                            'dll' not in (recorded.get('module_bindings') or {}).values(),
+                            str(recorded.get('module_bindings')))
+                self.check_all_static_package('defaults, all 0', package)
+            shutil.rmtree(out, ignore_errors=True)
+        finally:
+            # Back to the baseline for whatever runs next.
+            self.restart_suyu_with_env({variable: '0' for variable in OPTIONS_PINNED_OFF})
 
     def aot_cache_publish_scenarios(self):
         """The persistent AOT cache (publish side): a finished split Build export is kept under
@@ -778,7 +868,8 @@ class Run:
                                                 after.get(field), after.get('bundle_id')))
                 export(field + ' switched on, again', expect_reused=True)
             finally:
-                restart_with(variable, None)
+                # Off is spelled out: unset now means on.
+                restart_with(variable, '0')
             export(field + ' switched off again', expect_log=changed + field)
             self.record('matrix: %s switched off again: the original bundle id returns' % field,
                         manifest_record().get('bundle_id') == before.get('bundle_id') and
@@ -1269,6 +1360,16 @@ class Run:
         print('%d passed, %d failed' % (len(self.results) - len(failed), len(failed)))
         return 1 if failed else 0
 
+    def restart_suyu_with_env(self, updates):
+        """Restarts the frontend with some variables changed (None removes one)."""
+        self.stop_suyu()
+        for variable, value in updates.items():
+            if value is None:
+                self.env.pop(variable, None)
+            else:
+                self.env[variable] = value
+        self.start_suyu()
+
     def stop_suyu(self):
         try:
             self.process.terminate()
@@ -1349,9 +1450,13 @@ class Run:
             self.aot_cache_publish_scenarios()
             self.aot_cache_matrix_scenarios()
             return
+        if a.only_defaults:
+            self.default_option_scenarios()
+            return
         if a.only_multimodule:
             self.split_source_failure_scenarios()
             self.multimodule_split_scenarios()
+            self.default_option_scenarios()
             return
         self.ticket_scenarios()
 
@@ -1506,6 +1611,7 @@ class Run:
             self.multimodule_split_scenarios()
             self.split_source_failure_scenarios()
             self.split_failure_injection_scenarios()
+            self.default_option_scenarios()
 
 
 def main():
@@ -1514,6 +1620,8 @@ def main():
     parser.add_argument('--work', required=True, help='new, short work folder')
     parser.add_argument('--port', type=int, default=9761)
     parser.add_argument('--skip-aot', action='store_true', help='JIT and policy scenarios only')
+    parser.add_argument('--only-defaults', action='store_true',
+                        help='only the scenarios for options left unset or set to 0')
     parser.add_argument('--only-multimodule', action='store_true',
                         help='only the multi-module split-export scenarios')
     parser.add_argument('--only-split-failures', action='store_true',

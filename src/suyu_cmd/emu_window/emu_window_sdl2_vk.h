@@ -28,7 +28,7 @@ public:
 
     std::unique_ptr<Core::Frontend::GraphicsContext> CreateSharedContext() const override;
 
-    /// Non-null only when SUYU_DEBUG_OVERLAY is set.
+    /// Null only when the overlay is switched off with SUYU_DEBUG_OVERLAY=0.
     Core::Frontend::VulkanOverlay* GetVulkanOverlay() override;
 
 #if defined(__APPLE__)
@@ -40,5 +40,6 @@ protected:
     bool RouteOverlayEvent(const SDL_Event& event) override;
 
 private:
-    std::unique_ptr<SuyuCmd::DebugOverlay> debug_overlay;
+    /// Not owned: see SuyuCmd::AcquireDebugOverlay.
+    SuyuCmd::DebugOverlay* debug_overlay{};
 };

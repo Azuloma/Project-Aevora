@@ -10,6 +10,7 @@
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
 
+#include "common/env_option.h"
 #include "common/logging.h"
 #include "common/scm_rev.h"
 #include "core/arm/recomp/arm_recomp.h"
@@ -50,7 +51,15 @@ PFN_vkVoidFunction LoadVulkanFunction(const char* name, void* user_data) {
 
 bool IsDebugOverlayRequested() {
     const char* value = std::getenv(kDebugOverlayEnvVar);
-    return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+    return Common::EnvFlagDefaultOn(value != nullptr ? value : "");
+}
+
+DebugOverlay* AcquireDebugOverlay() {
+    if (!IsDebugOverlayRequested()) {
+        return nullptr;
+    }
+    static DebugOverlay* const overlay = new DebugOverlay;
+    return overlay;
 }
 
 DebugOverlay::DebugOverlay() = default;

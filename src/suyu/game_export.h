@@ -112,8 +112,9 @@ public:
         QString fail_at;
         /// Package type: -1 leaves the dialog's choice, 0 = uses the game file, 1 = portable.
         int package = -1;
-        /// SUYU_AOT_SPLIT_MAIN for this export only, validated like the variable (empty/"0" =
-        /// off, "1" = split main). Unset leaves the process environment in charge.
+        /// SUYU_AOT_SPLIT_MAIN for this export only, validated like the variable (empty = the
+        /// default, which splits main wherever that is supported; "0" = off; "1" = split main,
+        /// refused if unsupported). Unset leaves the process environment in charge.
         std::optional<QString> split_main;
         /// Makes one build stage of the next export fail as if its tool had failed, so the
         /// failure paths can be exercised without a broken toolchain. One of the names
@@ -338,6 +339,12 @@ private:
     /// telling the user why when the value is invalid or the export type cannot be split
     /// (Dynarmic, non-Windows, Source format, release export kit only).
     bool ResolveSplitMainOption(RecompileBackend backend, bool* split_main);
+
+    /// Set by ResolveSplitMainOption: this export is split only because that is the default,
+    /// not because SUYU_AOT_SPLIT_MAIN=1 asked for it. Failures that a split makes fatal then
+    /// name the opt-out (see SplitDefaultHint).
+    bool split_main_is_default_ = false;
+    QString SplitDefaultHint() const;
     /// True when a test-driven export asked @p stage to fail (for the module @p module, if
     /// the stage is per module).
     bool ShouldInjectFailure(const char* stage, const QString& module = {}) const;

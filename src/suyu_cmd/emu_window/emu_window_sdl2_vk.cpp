@@ -31,9 +31,7 @@
 EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsystem_,
                                      Core::System& system_, bool fullscreen)
     : EmuWindow_SDL2{input_subsystem_, system_} {
-    if (SuyuCmd::IsDebugOverlayRequested()) {
-        debug_overlay = std::make_unique<SuyuCmd::DebugOverlay>();
-    }
+    debug_overlay = SuyuCmd::AcquireDebugOverlay();
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Standalone exports are named after the game already (game_export.cpp
     // renames the exe at packaging time), so use that instead of the
@@ -247,7 +245,7 @@ bool EmuWindow_SDL2_VK::RouteOverlayEvent(const SDL_Event& event) {
 }
 
 Core::Frontend::VulkanOverlay* EmuWindow_SDL2_VK::GetVulkanOverlay() {
-    return debug_overlay.get();
+    return debug_overlay;
 }
 
 EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
