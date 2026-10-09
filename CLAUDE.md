@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-09, HEAD is `575b796` on `main`; dev18 overlay work (stages D and E) is user-reported working on PLA; committed. Milestone 4a synthetic work and covered Step 5 cases are verified; U1, direct B/BL chaining, and indirect RET/BR/BLR chaining are implemented, with the chain options now on by default. Smoke, the final AOT cache matrix (308/0), negative controls, and the host build pass; PLA observations cover U1 and both chain configurations, but chain-run FPS is unreported. Successful generation, compilation, or startup alone does not establish compatibility; keep public descriptions evidence-aligned.
+As of 2026-10-09, HEAD is `585c886` on `main`; overlay stages A-E and default-on options are committed. Milestone 4a synthetic work is verified; host rebuild, smoke, negative controls, and final integration runs pass (`--only-multimodule` 76/0, `--only-defaults` 24/0, `--only-aot-cache` 308/0). A new default-on PLA export, its image size, and chain-run FPS remain unverified; successful generation, compilation, or startup alone does not establish compatibility.
 
 Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
 
 ## Resuming work
 
-Read `CLAUDE.md`, then the latest Session handoff in `WORK_PLAN.md`. HEAD is `575b796`; dev18 overlay work is user-reported working on PLA; committed. Then disassemble and map the hot main-DLL RVAs and investigate the unexplained idle core wait; ask the user for FPS after each PLA run, including the chain builds. Never fake cache producer identity. Consider U2 only with explicit approval and low priority; the remaining Step 6 checklist and held items stay open. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
+Read `CLAUDE.md`, then the seventeenth-session handoff in `WORK_PLAN.md`. Start with the full default-on PLA export/image measurement or the user-selected item; hot-RVA mapping and idle-core investigation remain open. Ask the user for FPS and hardware-check details after PLA runs, never fake cache producer identity, and consider U2 only with explicit approval. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches. The user commits, tags, and pushes; agents never do so.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
@@ -50,11 +50,14 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
 | `src/core/` | Game loading, memory, and system-service runtime. |
+| `src/suyu_cmd/overlay/` | Dear ImGui Vulkan debug overlay, input/statistics logic, build identity, and diagnostics; acquired process-wide by `SuyuCmd::AcquireDebugOverlay`. |
+| `src/common/env_option.h` | Shared default-on flag and validated default/0/1 environment-option parsing. |
 | `src/video_core/`, `src/shader_recompiler/` | GPU and shader implementation. |
 | `tools/export_build_kit/` | Export build-kit support; match kit objects and libraries to the runtime build. |
 | `CMakeLists.txt`, `CMakeModules/`, `cpmfile.json` | Build configuration and dependency acquisition. |
 | `externals/`, `.patch/`, `vcpkg*.json`, `vcpkg-overlays/` | Dependencies, patches, and alternate package configuration. |
 | `src/tests/`, `tests/` | Existing verification code; inspect relevant targets before adding tests. |
+| `tests/recompiler_smoke/overlay_logic_unit.cpp`, `build_identity_unit.cpp`, `env_option_unit.cpp` | Standalone overlay/build-identity/default-option smoke tests. |
 | `docs/Aevora/` | Current project documentation. |
 | `AGENTS.md` | Codex entry point; points to `CLAUDE.md`. |
 | `docs/Suyu/` | Archived upstream documentation; some relative links may need repair. |

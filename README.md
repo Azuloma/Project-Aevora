@@ -1,7 +1,5 @@
-# Aevora
-
 <p align="center">
-  <img alt="aevora-icon" src="Assets/icon-rounded.png" width="200px" />
+  <img alt="aevora-icon" src="Assets/Aevora-git.ICON.png" width="300px" />
 <p>
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%20x64-1e90ff" alt="Platform">
@@ -10,7 +8,7 @@
 <p>
 <p align="center">
   <strong>An experimental static recompiled version of "Pokémon Legends: Arceus," the landmark first game in the Pokémon Legends series.</strong><br>
-  We plan to add various features in the future, such as quality of life improvements and modding capabilities.
+  Aevora is not limited to performing static recompilation via the Aevora Recompiler, and it also serves as a launcher that provides quality-of-life improvements and graphics enhancements specifically tailored for PLA.
 <p>
 <p align="center">
   <a href="#Status">Status</a> |
@@ -26,18 +24,6 @@
 Currently, Aevora can recompile PLA with Static AoT, achieving an average of 20-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
 
 Currently, it has become clear that the Suyu recompiler's code execution method is quite inefficient, so we are attempting to fix it. Additionally, we have improved usability by implementing ImGui.
-
-## Development Approach
-
-Aevora uses AI-assisted coding, including "vibe coding." The goal is to keep the code understandable and maintainable by humans, with human review and hands-on testing guiding development. Generated code and successful compilation alone are not treated as proof that the game works correctly. Furthermore, for README.md, I had AI complete the incomplete text I had written, and then I rewrote it myself, removing unnecessary parts and making it easier to read.
-
-Bug reports, questions, and feature requests are welcome. Useful reports include the build version, game update version, steps to reproduce the problem, and relevant logs.
-
-## Project policies and support
-
-Aevora is a personal project. It is not run for financial gain or recognition.
-
-There will be no Patreon, Ko-fi, or other fundraising campaign, and the project does not accept donations or other monetary support.
 
 ## Implemented features
 
@@ -59,14 +45,6 @@ These planned features are not guaranteed to be implemented, and may change depe
 - Reducing stutter that occurs during shader compilation
 - Native controller and keyboard support
 
-## Recompiler Scope
-
-Aevora Recompiler v1 is an improved version of the Suyu Recompiler, specifically designed to make the necessary changes for statically recompiling Pokémon Legends: Arceus. It does not support recompiling any games other than Pokémon Legends: Arceus, and <strong>Aevora assumes no responsibility for any compatibility issues or data loss that may occur.</strong>
-
-For other games, consider [upstream Suyu v0.0.12](https://github.com/suyu-emu/suyu-main/releases/tag/v0.0.12) or [Drippu](https://github.com/suyu-emu/drippu). Compatibility must be evaluated per game.
-
-Static AOT still relies on the runtime for system services, memory, audio, input, and GPU; GPU macro JIT and shader compilation remain runtime generation.
-
 ## Releases and Versioning
 
 When releases are available, users should choose a released version. Development builds are intended for developers and are not recommended for general use.
@@ -81,6 +59,45 @@ Release versions use **`vX.Y.Z`**. Development versions use **`vX.Y.Z-devN`**, w
 | `devN`  | The development commit count for the version currently being worked on.     |
 
 For example, `v0.1.0-dev7` denotes a development build for version `v0.1.0`. The corresponding release is named `v0.1.0`, without the development suffix. `v1.0.0` marks the first stable release.
+
+## About Aevora Recompiler
+
+<p align="center">
+  <img alt="aevora-icon" src="Assets/Aevora_Recompiler-git.ICON.png" width="800px" />
+<p>
+
+Aevora Recompiler is an improved version of the Suyu Recompiler, specifically designed to make the necessary changes for statically recompiling Pokémon Legends: Arceus. It does not support recompiling any games other than Pokémon Legends: Arceus, and <strong>Aevora Recompiler assumes no responsibility for any compatibility issues or data loss that may occur.</strong>
+
+<strong>The improvements and enhancements made to the original repo Suyu 0.0.12 are as follows:</strong>
+
+- Inlining of high-speed memory access paths (FMI)
+- Extension of high-speed paths to support floating-point configurations (FPX1)
+- Direct branching (B/BL)
+- Indirect branching (RET/BR/BLR)
+- Reduced locking overhead for exclusive access operations
+- Execution slice adjustments
+- Splitting the main module into DLLs
+- Module management supporting mixed static linking and DLLs
+- Persistent AOT cache
+- Finer-grained splitting of generated C code (from 20,000 blocks/32MB to 5,000 blocks/8MB)
+- Parallel builds scaled to memory capacity and compiler
+- Improved diagnostics for build failures
+
+For other games, consider [Suyu](https://github.com/suyu-emu/suyu-main) or [Drippu](https://github.com/suyu-emu/drippu). Compatibility must be evaluated per game.
+
+Static AOT still relies on the runtime for system services, memory, audio, input, and GPU; GPU macro JIT and shader compilation remain runtime generation.
+
+## Development Approach
+
+Aevora uses AI-assisted coding, including "vibe coding." The goal is to keep the code understandable and maintainable by humans, with human review and hands-on testing guiding development. Generated code and successful compilation alone are not treated as proof that the game works correctly. Furthermore, for README.md, I had AI complete the incomplete text I had written, and then I rewrote it myself, removing unnecessary parts and making it easier to read.
+
+Bug reports, questions, and feature requests are welcome. Useful reports include the build version, game update version, steps to reproduce the problem, and relevant logs.
+
+## Project policies and support
+
+Aevora is a personal project. It is not run for financial gain or recognition.
+
+There will be no Patreon, Ko-fi, or other fundraising campaign, and the project does not accept donations or other monetary support.
 
 ## License
 

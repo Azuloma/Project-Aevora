@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `575b796` plus uncommitted default-option files (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `585c886` (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.

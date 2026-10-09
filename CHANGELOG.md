@@ -18,13 +18,13 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - The process-wide debug overlay is acquired by `SuyuCmd::AcquireDebugOverlay` and intentionally never destroyed because the renderer retains a raw pointer and shuts it down in its own destructor; this closes the overlay's early-exit lifetime issue without changing the pre-existing renderer/window-reference hazard.
 
 ### Verified
-- Commit `575b796` built successfully (`BUILD_EXIT=0`) and the smoke run passed (`SMOKE_EXIT=0`), including the two new standalone tests. Negative controls caught the exercised mutations, and a real AOT-cache manifest was parsed as expected; the smoke runner requires `nlohmann/json.hpp` via `--nlohmann-include`, `NLOHMANN_INCLUDE_DIR`, or `CPM_SOURCE_CACHE`.
+- Commits `97e32dd`, `0ae08ea`, `575b796`, and `585c886` are present on `main`; the final host rebuild succeeded (`BUILD_EXIT=0`), clang-cl and MSVC `cl` synthetic smoke passed (`SMOKE_EXIT=0`), and negative controls caught the exercised mutations.
 - The user reported that, after a fresh full export with stages D and E of the `SUYU_DEBUG_OVERLAY=1` ImGui overlay (including the router redesign and reviewed stage-E fixes), the export completed successfully and the Debug window worked “perfectly” on PLA. This is a user observation; no itemized sections or inputs exercised and no performance result were provided.
-- The host rebuild passed with no AOT/overlay variables set initially; clang-cl smoke passed (`SMOKE_EXIT=0`), MSVC `cl` smoke passed with chain variants, eight env-option negative-control mutations were caught, and exporter-wiring negative controls were caught and restored byte-identically.
-- Integration passed `--only-multimodule` 76/0, `--only-defaults` 24/0, and final `--only-aot-cache` 308/0. Default scenarios verified unset default-on FMI/direct/indirect options, image ABI 6/features 7, default main DLL binding, supported split packaging and guest-chain execution without JIT fallback, quiet unsupported-default skips, and `=0` all-off/all-static output.
+- The host rebuild was run with no AOT/overlay variables initially set; MSVC `cl` smoke included chain variants, and exporter-wiring weakening was caught and restored byte-identically.
+- Integration passed `--only-multimodule` 76/0, `--only-defaults` 24/0, and final `--only-aot-cache` 308/0. Default scenarios covered unset default-on FMI/direct/indirect options, supported split binding, quiet unsupported-default skips, and `=0` all-off/all-static output.
 
 ### Known limitations / held items
-- A real PLA export with all default-on features and split has not been measured for `SizeOfImage`; overlay-on-by-default behavior in headless/capture integration, performance impact, and MSVC `cl` for a real title remain unverified. The persistent cache caveat remains: an entry at the same revision can reuse its old launcher, so these defaults reach a PLA launcher only after a new commit and full export.
+- A new PLA export with all default-on features and split has not been measured for `SizeOfImage`; chain-run FPS, overlay-on-by-default behavior in headless/capture integration, performance impact, and MSVC `cl` for a real title remain unverified. The persistent cache requires a new producer revision and full export before these defaults reach a PLA launcher.
 
 ## v0.0.1-dev17 - Unreleased
 

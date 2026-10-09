@@ -1139,3 +1139,37 @@ Disassemble the hot main-DLL RVAs and map them to generated functions. Keep the 
 - A standalone test must include a deliberately weakened, data-race-free negative control. Use cache status fields rather than the exporter log tail.
 
 Repository hygiene: six `.pyc` files are tracked and `.gitignore` has no `pycache` entry; the user must decide whether to untrack them. Archived history: see [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-08-from-work_planmd-end-of-fourteenth-session).
+
+## Archived on 2026-10-09 from WORK_PLAN.md (sixteenth-session cleanup)
+
+## Session handoff (2026-10-08, sixteenth session)
+
+### State and completed work
+
+HEAD is `575b796`. Overlay stages D and E are committed; after a fresh full export, the user reported that the Debug window worked 窶徘erfectly窶・on PLA. This is a user observation with no itemized detail or performance numbers; the host build and smoke run pass, including the new overlay logic and build-identity tests.
+
+The default-on environment change is implemented through `src/common/env_option.h`: unset/empty/other text keeps the flag options on, exactly `0` turns them off, and split uses a validated default/0/1 choice. The host rebuild passed with no AOT/overlay variables initially set; clang-cl and MSVC `cl` smoke passed, eight env-option negative controls were caught, exporter-wiring negative controls were caught and restored byte-identically, and the final integration runs passed 24/0 default scenarios and 308/0 AOT-cache scenarios. A real PLA export with the new defaults has not yet been run.
+
+### Open issues, in priority order
+
+1. The user must commit this change, then run a new full export to see the defaults in a PLA launcher and measure its `SizeOfImage` (including LNK1248 risk); ask the user for FPS and the detail of the hardware check if wanted.
+2. Map hot main-DLL RVAs and investigate the idle-core wait from the previous handoff; these remain open and unchanged, and the overlay’s guest PCs do not replace them.
+3. Implement planned Settings -> Controller / Graphics ImGui windows and keyboard forwarding.
+4. A Hybrid default-split export loses module-level JIT fallback until `SUYU_AOT_SPLIT_MAIN=0`; consider an automatic all-static re-plan.
+5. Finish the Step 6 checklist above.
+6. Consider U2 only with explicit user approval.
+
+### Immediate next action
+
+The user must commit this change before the persistent cache can produce a launcher with the new defaults; then run a new full PLA export and measure its image size.
+
+## How to work / procedures
+
+- Run `.cmd` helpers through PowerShell’s `cmd.exe /c "D:\HisuiWakeBuild\diag\buildsuyu.cmd > D:\HisuiWakeBuild\diag\<log> 2>&1"`; read logs for ASCII `error C` and `BUILD_EXIT`. Run `runsmoke.cmd` once per finished fix set and require both smoke pass markers; a first-pass new test needs a deliberately weakened negative control.
+- The overlay smoke tests need `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or provide a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`.
+- The overlay is on by default; set `SUYU_DEBUG_OVERLAY=0` to disable it. Empty and other values keep it on.
+- For cache integration, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`, use a fresh short work directory, run `--only-aot-cache-matrix`, then rebuild. Keep logs/builds/exports outside the repository.
+- For PLA, find the largest-working-set `Pokemon Legends_ Arceus` PID, run `sample_raw_kotobuki4.ps1` and `sample_stacks.ps1`, and confirm flags in `aot_manifest.json`. Defaults are on; set `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` to disable an option. Chain experiments now switch a chain off to compare.
+- For Orca workers, write the specification with the Write tool, start the requested model/effort, submit an unobserved turn through its terminal handle, wait once for `worker_done`/`escalation`, verify the diff, release the worker, and acknowledge the delivery. See `CLAUDE.md` for role rules.
+
+Repository hygiene: six `.pyc` files are tracked and `.gitignore` has no `pycache` entry; the user must decide whether to untrack them. The displaced handoff is archived under [the sixteenth-session replacement](OLD_HISTORY.md#archived-on-2026-10-08-from-work_planmd-sixteenth-session-replacement).

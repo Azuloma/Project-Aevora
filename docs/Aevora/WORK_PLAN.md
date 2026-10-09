@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-09. HEAD is `575b796` on `main`; overlay stages D and E are committed, and the user reported the Debug window working “perfectly” on PLA after a fresh full export. The user commits, tags, and pushes. Start at [Session handoff](#session-handoff-2026-10-08-sixteenth-session); historical detail is in [OLD_HISTORY.md](OLD_HISTORY.md).
+Handoff prepared: 2026-10-09. HEAD is `585c886` on `main`; start at the seventeenth-session handoff below. Historical text moved from the prior handoff and procedures is archived in [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-09-from-work_planmd-sixteenth-session-cleanup).
 
 ## Objective
 
@@ -10,10 +10,9 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 
 | Area | Current status |
 |---|---|
-| Milestone 4a | Topology, registry, loader, split exporter, persistent cache, and U1-U4 synthetic work are complete for covered cases. |
-| Step 6 PLA | Static AOT + FMI + main-DLL split runs; Kotobuki remains 17-21 FPS versus 30 FPS under JIT. The all-default PLA image size is not yet measured. |
-| U1 and chaining | U1, default-on direct B/BL chaining, and default-on indirect RET/BR/BLR chaining are implemented, reviewed, and synthetic-fixture verified. |
-| Verification | Smoke, cache matrix (308 passed/0 failed), negative controls, and host build passed; chain-run FPS is unreported. |
+| Milestone 4a | Topology, registry, loader, split exporter, persistent cache, and covered U1-U4 synthetic work are complete. |
+| Step 6 PLA | Static AOT + FMI + main-DLL split runs; prior Kotobuki observation is 17-21 FPS versus 30 FPS JIT; all-default image size and chain FPS are unmeasured. |
+| Verification | Host rebuild, clang-cl/MSVC smoke, negative controls, `--only-multimodule` 76/0, `--only-defaults` 24/0, and `--only-aot-cache` 308/0 passed. |
 
 ## Evidence so far (observations)
 
@@ -25,20 +24,21 @@ Determine whether Pokemon Legends: Arceus can run through Suyu-derived static CP
 | + direct chain | 77.0/82.1/83.6 | unreported | Main DLL 1,894,430,208 bytes |
 | + direct and indirect chain | 75.8/80.8/81.0 | unreported | Main DLL 1,909,940,736 bytes; SizeOfImage 1,923,067,904 |
 
-The last image is about 214 MiB below the 2 GiB LNK1248 limit. Block transfer (`run_slice` + lookup) is only about 3-4% of samples; generated main-DLL code is about 46-55%, with recurring hot RVAs `+0x20B0`, `+0x20D2`, `+0x211A`, and `+0x21AE`. Each core waits idle about 20% for an unexplained reason; the GPU thread waits 81% in its command queue, so the GPU is not the bottleneck. These are observations, not acceptance criteria.
+The last image is about 214 MiB below the 2 GiB LNK1248 limit. `run_slice` plus lookup is about 3-4% of samples; generated main-DLL code is about 46-55%, with hot RVAs `+0x20B0`, `+0x20D2`, `+0x211A`, `+0x21AE`. Each core waits idle about 20%; GPU command-queue wait is about 81%. These are observations, not acceptance criteria.
 
 ## What the code now contains
 
-- U1: lock-light exclusive-monitor host-pointer and reservation paths, page-aware fallback, conditional notification, and the redundant unlock fence removal; see `CHANGELOG.md` dev17 and [CODEBASE_INDEX.md](CODEBASE_INDEX.md).
-- Direct chaining: `g_emit_direct_chain` emits default-on same-module B/BL tail calls through `RECOMP_TAIL_CALL`; conditional branches remain unchained.
-- Indirect chaining: `g_emit_indirect_chain` handles default-on same-module RET/BR/BLR targets through `recomp_lookup`; misses return to `run_slice`.
-- FMI and both chain flags are on unless exactly `0`; each changes generated output or its manifest identity. The split default binds `main` as a DLL wherever supported and can be disabled with `SUYU_AOT_SPLIT_MAIN=0`; fixtures and cache matrix are verified.
+- Overlay: forced-bundled ImGui v1.92.9b, Vulkan extension point, present-pass recording under `scheduler.submit_mutex`, and a whole frame on the scheduler worker thread. Vulkan errors disable it; `SuyuCmd::AcquireDebugOverlay` is process-wide and never destroyed because the renderer owns raw-pointer shutdown.
+- Input/UI: top-bar Settings and Cheats placeholders plus Debug toggle; bounded SDL-event-thread to UI-thread mouse queue, event-position ownership until release, overlay-only queueing, and Reset on focus loss/minimize. Keyboard forwarding is not implemented; fullscreen draws ImGui's pointer over the UI.
+- Debug honesty: policy text only when recompiled code is active; fallback attempts are lookup misses plus unhandled/refused attempts, with none/attempted/refused verdicts. Guest PCs display `near <module>+offset`; PC 0 means no recompiled dispatch recorded. Build identity reads packaged manifest display fields; exporter-only cache fields are not shown. Native status supplies shader-build count.
+- Options: `src/common/env_option.h` defines default-on flags (`SUYU_AOT_FM_INLINE`, `SUYU_AOT_DIRECT_CHAIN`, `SUYU_AOT_INDIRECT_CHAIN`, `SUYU_DEBUG_OVERLAY`; exactly `0` disables) and split default/0/1/error semantics (`SUYU_AOT_SPLIT_MAIN`), with unsupported default split quietly skipped.
+- Tests: overlay logic, build identity, env-option units, default-option scenarios, multimodule scenarios, and AOT-cache matrix; negative controls and exporter-wiring weakening were caught and restored byte-identically.
 
 ## Milestones
 
-Milestones 1-3 record environment, exporter/build issues, generated-code loading, and gap diagnostics. Milestone 4a is complete for covered synthetic cases; real loader/refusal paths and PLA acceptance remain open. Milestones 5-6 are planned rendering, timing, and release-evidence work; none is accepted.
+Milestones 1-3 and covered Milestone 4a synthetic cases are complete; real loader/refusal paths, PLA acceptance, and Milestones 5-6 remain open.
 
-## Remaining Step 6 checklist
+## Step 6 checklist
 
 - [x] Repeat the Kotobuki position with U1 and samplers.
 - [ ] Compare FMI-off/on and record each image's `SizeOfImage`.
@@ -48,40 +48,43 @@ Milestones 1-3 record environment, exporter/build issues, generated-code loading
 
 ## Persistent cache rule
 
-The user-data cache producer is the git revision plus branch and build id; the launcher is part of the entry. A committed producer change requires regeneration, while an uncommitted runtime change can reuse an old launcher. Never spoof producer metadata; clear the three export variables before the normal host rebuild.
+The user-data cache producer is git revision plus branch and build id; the launcher is part of the entry. A committed producer change requires regeneration; never spoof producer metadata. After export-running tests, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR` before the normal host rebuild.
 
 ## Held work and evidence boundary
 
-Held items are the two-lifetime seam, real loader/refusal paths, `tests/export_regression` Qt-root lookup, MSVC `cl` route for the chain macro, old-manifest-without-chain-fields reuse, and six tracked `.pyc` files with no `.gitignore` entry. PLA results are user-run and scene-specific, not general compatibility or release evidence; the recompiled image has no PDB, so RVA attribution is the evidence boundary.
+Held items: two-lifetime seam; real loader/refusal paths; `tests/export_regression` Qt-root lookup; MSVC `cl` route for the chain macro; old-manifest-without-chain-fields reuse; six tracked `.pyc` files with no `.gitignore` entry. PLA results are user-run and scene-specific; the recompiled image has no PDB, so DLL samples remain RVA attribution only.
 
-## Session handoff (2026-10-08, sixteenth session)
+## Session handoff (2026-10-09, seventeenth session)
 
 ### State and completed work
 
-HEAD is `575b796`. Overlay stages D and E are committed; after a fresh full export, the user reported that the Debug window worked “perfectly” on PLA. This is a user observation with no itemized detail or performance numbers; the host build and smoke run pass, including the new overlay logic and build-identity tests.
+Commits this session are `97e32dd` (overlay stages A-C), `0ae08ea` (A-C review fixes), `575b796` (stages D-E), and `585c886` (default-on options, review fixes, tests). The overlay is user-reported working “perfectly” on PLA after a fresh export made before `585c886`; no new-default PLA launcher exists yet. Final verification is host rebuild, clang-cl/MSVC synthetic smoke (`SMOKE_EXIT=0`), `--only-multimodule` 76/0, `--only-defaults` 24/0, `--only-aot-cache` 308/0, and the recorded negative controls.
 
-The default-on environment change is implemented through `src/common/env_option.h`: unset/empty/other text keeps the flag options on, exactly `0` turns them off, and split uses a validated default/0/1 choice. The host rebuild passed with no AOT/overlay variables initially set; clang-cl and MSVC `cl` smoke passed, eight env-option negative controls were caught, exporter-wiring negative controls were caught and restored byte-identically, and the final integration runs passed 24/0 default scenarios and 308/0 AOT-cache scenarios. A real PLA export with the new defaults has not yet been run.
+### Contracts to preserve
+
+- Keep the overlay in the Vulkan present pass and scheduler-worker frame path; preserve the process-wide lifetime seam and disable on Vulkan errors.
+- Preserve event-thread ownership from the event's own last-drawn rectangles through release; queue overlay-owned events only; Reset on focus loss/minimize. Add keyboard/text with the same rule.
+- Treat default-on options as exactly-`0` off; split is unset=>default where supported, `0` off, `1` explicit request, other values error. Do not claim unsupported default split occurred.
+- Debug must say `near`, not `inside`; PC 0 means no recorded recompiled dispatch; attempts count lookup misses plus unhandled/refused paths; zero Hybrid attempts is not proof of static execution.
 
 ### Open issues, in priority order
 
-1. The user must commit this change, then run a new full export to see the defaults in a PLA launcher and measure its `SizeOfImage` (including LNK1248 risk); ask the user for FPS and the detail of the hardware check if wanted.
-2. Map hot main-DLL RVAs and investigate the idle-core wait from the previous handoff; these remain open and unchanged, and the overlay's guest PCs do not replace them.
-3. Implement planned Settings -> Controller / Graphics ImGui windows and keyboard forwarding.
-4. A Hybrid default-split export loses module-level JIT fallback until `SUYU_AOT_SPLIT_MAIN=0`; consider an automatic all-static re-plan.
-5. Finish the Step 6 checklist above.
-6. Consider U2 only with explicit user approval.
+1. Run a new FULL export from HEAD, regenerate the committed-revision cache, measure launcher and main-DLL `SizeOfImage` with all defaults on, and use LNK1248 advice (`FM_INLINE=0`, `DIRECT_CHAIN=0`, `INDIRECT_CHAIN=0`) if needed. Ask the user for FPS and hardware-check details. After export tests run `rebuild-suyu.bat`-style cleanup; never build twice on one tree.
+2. Map hot main-DLL RVAs `+0x20B0`, `+0x20D2`, `+0x211A`, `+0x21AE` by disassembly and investigate the roughly 20% idle core wait by stack sampling; overlay guest PCs do not replace RVA mapping.
+3. Stage F (not started): Settings -> Controller and Graphics ImGui windows, Graphics Resolution Scale, replacing the Win32 F12 controls; Cheats remains a placeholder. Add keyboard/text routing and test horizontal-wheel sign.
+4. Consider automatic all-static re-plan because default-split Hybrid loses module-level JIT fallback; do not silently change the default without evidence.
+5. Finish Step 6 and held items. MSVC `cl` chain support is synthetic-smoke-verified only; no real-title run.
+6. U2 only with explicit user approval.
 
 ### Immediate next action
 
-The user must commit this change before the persistent cache can produce a launcher with the new defaults; then run a new full PLA export and measure its image size.
+The user starts the new session by checking `git status`/`git log`, then chooses item 1 (recommended) or another item; ask what to do first before proceeding.
 
 ## How to work / procedures
 
-- Run `.cmd` helpers through PowerShell's `cmd.exe /c "D:\HisuiWakeBuild\diag\buildsuyu.cmd > D:\HisuiWakeBuild\diag\<log> 2>&1"`; read logs for ASCII `error C` and `BUILD_EXIT`. Run `runsmoke.cmd` once per finished fix set and require both smoke pass markers; a first-pass new test needs a deliberately weakened negative control.
-- The overlay smoke tests need `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or provide a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`.
-- The overlay is on by default; set `SUYU_DEBUG_OVERLAY=0` to disable it. Empty and other values keep it on.
-- For cache integration, clear `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, and `SUYU_CMD_RECOMP_PREBUILT_DIR`, use a fresh short work directory, run `--only-aot-cache-matrix`, then rebuild. Keep logs/builds/exports outside the repository.
-- For PLA, find the largest-working-set `Pokemon Legends_ Arceus` PID, run `sample_raw_kotobuki4.ps1` and `sample_stacks.ps1`, and confirm flags in `aot_manifest.json`. Defaults are on; set `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` to disable an option. Chain experiments now switch a chain off to compare.
-- For Orca workers, write the specification with the Write tool, start the requested model/effort, submit an unobserved turn through its terminal handle, wait once for `worker_done`/`escalation`, verify the diff, release the worker, and acknowledge the delivery. See `CLAUDE.md` for role rules.
-
-Repository hygiene: six `.pyc` files are tracked and `.gitignore` has no `pycache` entry; the user must decide whether to untrack them. The displaced handoff is archived under [the sixteenth-session replacement](OLD_HISTORY.md#archived-on-2026-10-08-from-work_planmd-sixteenth-session-replacement).
+- Do not feed Python or Markdown through shell heredocs when quotes/backslashes are present; write the script with the Write tool and run it. Edit/Write tools are fine; LF working copies are harmless when the repo expects CRLF.
+- After `cl`/`clang-cl` produces an exe, wait for the file if it appears a few seconds late. After any export-running test, run the cleanup rebuild; never run two builds on one tree.
+- `worker-start` can return unobserved `turnStart`: use `worker-show --dispatch`, confirm with `orca terminal read`, then submit with `orca terminal send --terminal <handle> --enter`; never send keys to a terminal you did not start. `check --wait` may replay the previous delivery; use `--ack`, read JSON as UTF-8, and ignore heartbeat lines.
+- Long builds/tests over ten minutes move to the background; wait for the completion notification instead of polling. Throwaway negative-control runners and logs live under `D:\HisuiWakeBuild\ovl` and `D:\HisuiWakeBuild\diag`, outside the repo.
+- Use `D:\HisuiWakeBuild\diag\buildsuyu.cmd` through `cmd.exe /c`; clear the three export variables after export runs. Keep builds, exports, logs, caches, and game-derived outputs outside the repository.
+- For PLA, use the local samplers, confirm `aot_manifest.json`, and report user FPS. Use cache status fields (`aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`), not the lost log tail, as cache evidence.
