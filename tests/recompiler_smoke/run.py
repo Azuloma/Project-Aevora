@@ -851,6 +851,7 @@ def main():
         call([executable(export_build, "smoke_gaps_unit")])
         call([executable(export_build, "smoke_env_option_unit")])
         call([executable(export_build, "smoke_thread_time_unit")])
+        call([executable(export_build, "smoke_guest_time_unit")])
         call([executable(export_build, "smoke_sharded_counters_unit")])
         call([executable(export_build, "smoke_chain_start_budget_unit")])
         call([executable(export_build, "smoke_overlay_logic_unit")])

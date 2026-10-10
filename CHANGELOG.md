@@ -23,7 +23,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - Orca Code reviewer findings on the counter change (3) and chain-start change (4) were fixed; the cleanup rebuild was completed with export variables cleared.
 
 ### Known limitations
-- No FPS measurement was made for counter sharding or chain-start. No PLA chain-start export exists, so real image size and performance gain are unknown; the 134 MiB and 8.3% values above are estimates.
+- No FPS measurement was made for counter sharding. A fresh full PLA export with chain start enabled succeeded; the main DLL was 1,706.8 MiB with indirect chain also enabled, and the user observed no FPS change. The gain and per-option size contribution remain unmeasured; the 134 MiB and 8.3% values above are estimates.
 - The 21 and 23.5 FPS observations are separate conditions (direct chain only off and indirect chain only off), not a direct-chain on/off pair. Whether these changes explain the 22-versus-30 FPS JIT gap or the 8.5 FPS all-off observation remains a hypothesis.
 - Export/runtime verification remains incomplete; the work needs a commit and full export because the AOT cache producer is the commit hash.
 

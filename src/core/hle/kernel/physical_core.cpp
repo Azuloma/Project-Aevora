@@ -5,7 +5,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <array>
+#include <chrono>
 #include <cstdlib>
+#include <optional>
+#include <string_view>
 #include <mutex>
 #include <string>
 
@@ -131,6 +134,20 @@ private:
     u64 m_untracked_saves = 0;
 };
 
+// SUYU_GUEST_TIME=1 logs each core's run/SVC/other split; off unless exactly "1" (two clock reads per slice).
+const bool kGuestTime = [] {
+    const char* e = std::getenv("SUYU_GUEST_TIME");
+    return e && std::string_view{e} == "1";
+}();
+constexpr std::uint64_t kGuestTimeWindowNs = 10'000'000'000ULL;
+constexpr std::size_t kGuestTimeTopCount = 6;
+
+std::uint64_t SteadyNowNs() {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count());
+}
+
 } // namespace
 
 PhysicalCore::PhysicalCore(KernelCore& kernel, std::size_t core_index)
@@ -217,6 +234,8 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
 
         // Otherwise, run the thread.
         Core::HaltReason hr{};
+        bool guest_time_run = false;
+        std::uint64_t run_end_ns = 0;
         {
             // If we were interrupted, exit immediately.
             if (!EnterContext()) {
@@ -230,7 +249,19 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
                     thread->SetStepState(StepState::StepPerformed);
                 }
             } else {
+                if (kGuestTime) {
+                    const std::uint64_t run_start_ns = SteadyNowNs();
+                    m_guest_time.BeginRun(thread->GetThreadId(), run_start_ns);
+                    if (const auto report = m_guest_time.TakeReport(
+                            run_start_ns, kGuestTimeWindowNs, m_core_index, kGuestTimeTopCount)) {
+                        LOG_INFO(Kernel, "{}", *report);
+                    }
+                    guest_time_run = true;
+                }
                 hr = interface->RunThread(thread);
+                if (guest_time_run) {
+                    run_end_ns = SteadyNowNs();
+                }
             }
 
             ExitContext();
@@ -247,6 +278,12 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
         const bool breakpoint = !step_completed && True(hr & Core::HaltReason::InstructionBreakpoint);
         const bool data_abort = !step_completed && True(hr & Core::HaltReason::DataAbort);
         const bool interrupt = !step_completed && True(hr & Core::HaltReason::BreakLoop);
+
+        if (guest_time_run) {
+            m_guest_time.EndRun(run_end_ns, supervisor_call
+                                                ? std::optional<u32>{interface->GetSvcNumber()}
+                                                : std::nullopt);
+        }
 
         // Since scheduling may occur here, we cannot use any cached
         // state after returning from calls we make.
@@ -282,7 +319,6 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
 
         // Handle system calls.
         if (supervisor_call) {
-            // Perform call.
             Svc::Call(system, interface->GetSvcNumber());
             return;
         }
@@ -358,8 +394,12 @@ void PhysicalCore::LogBacktrace(KernelCore& kernel) {
 }
 
 void PhysicalCore::Idle() {
+    const std::uint64_t idle_start_ns = kGuestTime ? SteadyNowNs() : 0;
     std::unique_lock lk{m_guard};
     m_on_interrupt.wait(lk, [this] { return m_is_interrupted; });
+    if (kGuestTime) {
+        m_guest_time.AddIdle(SteadyNowNs() - idle_start_ns);
+    }
 }
 
 bool PhysicalCore::IsInterrupted() const {

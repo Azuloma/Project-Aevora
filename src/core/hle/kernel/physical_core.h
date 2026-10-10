@@ -12,6 +12,7 @@
 #include <mutex>
 
 #include "core/arm/arm_interface.h"
+#include "core/hle/kernel/guest_time_ledger.h"
 
 namespace Kernel {
 class KernelCore;
@@ -73,6 +74,7 @@ private:
     KThread* m_current_thread{};
     bool m_is_interrupted{};
     bool m_is_single_core{};
+    GuestTimeLedger m_guest_time;
 };
 
 } // namespace Kernel

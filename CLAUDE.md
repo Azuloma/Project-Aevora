@@ -4,13 +4,13 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-As of 2026-10-10, HEAD is `2805512` on `main`, the dev19 FPXV documentation and AArch64-control-exemption commit, on top of `544dad2` and `a67035d`. FPXV had no user-observed FPS gain; user-observed same-scene A/B measurements found about 8.5 FPS with listed optimizations off versus about 22 FPS with defaults, chain-off results of 21/23.5 FPS, and a flat 21-23 FPS chain-budget sweep. The host tree still embeds `544dad2`; successful generation, compilation, or startup alone does not establish compatibility.
-
-Start a new session from the latest `Session handoff` section in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md).
+The current HEAD, host revision, measurements, and next action are maintained only in the latest `Session handoff` in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md); do not duplicate per-commit facts here, where they can drift.
 
 ## Resuming work
 
-Read `CLAUDE.md`, then the twenty-second-session handoff in `WORK_PLAN.md`. Reconfigure the host for `2805512` first, after clearing export variables, and verify `GIT_REV`; then request same-position/orientation averaged FMI and FP_SHARED A/B exports with image sizes and cache fields. Keep the documented open issues (all-off decomposition, opt-in run/SVC/wait instrumentation design, chain default decision, and carried items) in priority order; never fake cache producer identity, do not extend FPXV without sampler/probe evidence, and consider U2 only with explicit approval. Agents never commit, tag, or push. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches.
+Dev19 delivered FPXV and its cache/manifest contracts; no user-observed FPS gain was found. Dev20 carries FP_SHARED contracts forward and delivered per-thread sharded counters, the two-line comment rule, and opt-in chain start; no chain-start FPS gain was observed.
+The resume procedure is: read `CLAUDE.md`, then the latest WORK_PLAN handoff; verify `GIT_REV` against HEAD before exporting; use same-position averaged FPS for every A/B; and keep chain start opt-in until a measured gain.
+Agents never commit, tag, or push. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 

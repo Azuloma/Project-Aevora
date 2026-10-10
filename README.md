@@ -17,7 +17,8 @@
 <p>
 
 > [!IMPORTANT]
-> In the expected setup, the user will need to provide the base game's NSP file and corresponding update files separately. The user will also need to provide the key and any necessary firmware, which are not included with Aevora.
+> In the expected setup, the user will need to provide the base game's NSP file and corresponding update files separately. The user will also need to provide the key and any necessary firmware, which are not included with Aevora.<br>
+> Furthermore, <strong>we do not condone the use of pirated sources on the internet to obtain these files. Please dump and acquire them from your own Switch.</strong>
 
 ## Status
 
