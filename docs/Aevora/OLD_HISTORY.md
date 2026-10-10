@@ -3,6 +3,54 @@
 
 Archived, append-only record moved out of WORK_PLAN.md on 2026-10-05. Entries are kept verbatim; for current status, plans, and key facts see [WORK_PLAN.md](WORK_PLAN.md).
 
+## Measurements moved out of arm_recomp.cpp comments (2026-10-10)
+
+The original text is also retained in git history before the commit that shortened the code comments.
+
+### Chain budget
+
+`kShortSliceChainBudget` is the number of direct-call chain blocks that may run before returning. Only this side sets it; generated code only decrements it, so the emitter does not need to agree on the value.
+
+The budget bounds both how long a guest loop can run without the interrupt and SVC checks getting a look, and how deep the host stack goes when generated calls are not tail calls. Guest threads run on 2 MiB fibers (`512 * 4096` bytes, `common/fiber.cpp`), and a block frame carrying SIMD locals is not small. At the time, only the opt-in chains called blocks from blocks: the direct B/BL chain (`g_emit_direct_chain`) and the indirect RET/BR/BLR chain (`g_emit_indirect_chain`). Both were guaranteed tail calls under clang (`musttail`) and plain calls, bounded by this budget, elsewhere.
+
+The measurements below were taken with an earlier emitter whose `ChainTo` chained B, BL, and the conditional forms. They do not describe the current emitter, where the module's `run_slice` loop iterates between blocks.
+
+The earlier comment said that 256 overflowed the stack and crashed on boot, and that raising the budget was safe only when generated code was built with `-foptimize-sibling-calls`. That flag was only on the GNU branch; the MSVC branch emitted `/O1` then (`/O2` now) with no tail-call guarantee, and `ChainTo` calls into another translation unit. By that reasoning, Windows should have fallen over well below the ABI 4 default of 4096.
+
+That did not happen. Mario Kart 8 was measured fully static with zero JIT transitions, replaying the same 8861-command fixture at each budget:
+
+```text
+32 -> 0.666x realtime    256 -> 0.696x    1024 -> 0.695x
+4096 -> 0.678x           8192 -> 0.692x
+```
+
+Every run completed, including 256 and the 8192 ceiling, and each executed about 8.5 billion blocks. Either MSVC `/O1` does tail-call these, or the chains never get deep enough to matter. The budget was worth about 4% either way, with 32 the slowest, so there was little to gain from tuning it.
+
+The bound remains necessary: one title not overflowing is not proof that a deeper-recursing one cannot. However, a raised budget should not be treated as known-dangerous on MSVC, because that is not what the measurement says.
+
+The fixture replay measured throughput, not how quickly a core answers an interrupt. The budget also bounds that latency: the dispatcher checks `interrupted` only between slices, and `recomp_image_run_slice` does not check it. A core that wants a guest thread still running on another core spins in `KScheduler::ScheduleImplFiber` until that core reaches the check. Pokemon Legends: Arceus was measured in Hybrid mode (every module static, zero JIT transitions, overworld, 6-core/12-thread host) with `SUYU_RECOMP_CHAIN_BUDGET`:
+
+```text
+4096 -> about 14 FPS, 21-24% of the two busiest core threads' samples
+        spinning in ScheduleImplFiber
+256  -> 15-20 FPS, 8-10% spinning
+128 and 512 -> same as 256
+1024 -> about 1 FPS below 256
+```
+
+Therefore, long slices use 256, the middle of that plateau.
+
+### Relocation policy
+
+`kRelaPolicy` controls how much of the guest's relocation work is performed locally and what happens to `DT_RELASZ`/`DT_PLTRELSZ` afterwards; see `ApplyAllRelocations`.
+
+Only rtld's own self-relocation needs local handling: it is a hand-written bootstrap loop that the recompiled path exits early out of. Everything after that is rtld's ordinary C++ relocation pass, which runs correctly once rtld itself is relocated.
+
+- `rtld-only` — default. Pre-apply and zero rtld alone; leave every other module untouched for rtld to relocate, exactly as under dynarmic. Smash reaches an actual match on this.
+- `zero-all` — the previous default: pre-apply every module and zero every module's sizes. It boots, but main's `.dynamic` then reports no relocations, so when `nn::ro` loads a fighter NRO it cannot bind main's deferred imports. Measured: 0 of main's 909 `lua2cpp::create_agent_fighter_*` slots are ever bound, and the match never starts.
+- `zero-rtld` — pre-apply every module but zero only rtld's sizes. Measured not to work: rtld's pass then re-relocates modules already handled, and `svcBreak`s immediately (12071 breaks, first at 0.1s after the pre-apply).
+- `restore-on-main` — zero every module, then put the sizes back on first execution in main. Measured not to work: rtld caches the sizes into its own module state when it parses `.dynamic` at boot, so a later write is never re-read and the slots stay unbound just as under `zero-all`.
+
 ## Archived on 2026-10-10 from WORK_PLAN.md (twenty-second-session cleanup)
 
 ## Work log, sessions 17-19

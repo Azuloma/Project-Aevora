@@ -14,6 +14,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - Moved `svc_calls`, `jit_to_static`, and the SVC-number histogram from the locked `RecompCounters` path to sharded counters; SVC ids `>= 256` are reported in one overflow line. Fallback (JIT) SVCs still count only toward `svc_calls`, and `early_dispatches` stops incrementing at the 64-entry log limit.
 - Made `g_current_pcs` one cache line per core. `RecordMiss` and `RecordUnhandled` remain mutex/map diagnostics for static-to-JIT transitions.
 - Updated the smoke registration and project documentation for the new counter unit.
+- Reduced all code comments in `src/core/arm/recomp/arm_recomp.cpp` to at most two lines (comment-only change; non-comment lines were verified identical); moved the measurements to `OLD_HISTORY.md`.
 
 ### Verified
 - The standalone MSVC unit build passed; the host builds of `suyu` and `suyu-cmd` exited 0 with only existing `LOG_*` macro-redefinition warnings.

@@ -45,10 +45,8 @@
 namespace Core {
 
 namespace {
-// Mirrors the prefix of the GuestContext the recompiler emits. Only the fields
-// the emulator needs to observe or mutate are modelled; the generated struct
-// carries additional members after these (heap bookkeeping, save-data handles)
-// which the recompiled code manages itself and we never touch.
+// Prefix of the recompiler's emitted GuestContext; only fields the emulator touches are modelled.
+// Later members (heap bookkeeping, save-data handles) are managed by the generated code.
 struct GuestContextView {
     u64 x[32];
     u64 pc;
@@ -58,43 +56,28 @@ struct GuestContextView {
     u64 mem_base_vaddr;
     int halted;
     u64 pending_svc;
-    // The SIMD/FP register file and thread pointer sit immediately after
-    // pending_svc in the emitted struct. They have to be modelled here rather
-    // than left off the end: the recompiler emits SIMD code, so a context
-    // switch that did not carry these would silently lose every floating-point
-    // and vector register the guest had live.
+    // SIMD/FP registers and the thread pointer follow pending_svc; a context switch must carry them
+    // or every live FP/vector register is lost.
     u64 vreg[32][2];
     u64 tpidr_el0;
     const void* host_mem;
-    // TPIDRRO_EL0 - the kernel-published thread-local region, whose first
-    // 0x100 bytes are the IPC message buffer KServerSession reads a
-    // SendSyncRequest out of. Kept apart from tpidr_el0 (the guest's own
-    // thread pointer) because the two have different owners and different
-    // lifetimes; see the note on GuestContext in core/recompiler/arm64_to_c.h.
+    // Kernel-published TLS region (first 0x100 bytes are the IPC buffer); kept apart from the guest's
+    // tpidr_el0, see GuestContext in core/recompiler/arm64_to_c.h.
     u64 tpidrro_el0;
-    // FP control and status. Modelled here so they survive the marshal to and
-    // from the fallback JIT - without these fields the guest's rounding mode
-    // was silently reset to the host default on every engine transition.
+    // FP control/status; must survive the marshal to the fallback JIT or the rounding mode resets.
     u64 fpcr;
     u64 fpsr;
-    // Must sit here rather than at the end: the emitted struct continues with
-    // heap bookkeeping this view does not model, so a field appended after that
-    // point would be at a different offset on each side.
+    // Must stay here: the emitted struct continues with members this view does not model.
     int chain_budget;
-    // ABI 6 (FM1): the page table and a page-aligned limit below which the
-    // generated memory helpers may read the table directly. fm_limit 0 keeps
-    // them on the ABI 5 path. ABI 5 modules end their view at chain_budget and
-    // never read these.
+    // ABI 6 (FM1): page table and the page-aligned limit below which generated helpers read it directly;
+    // fm_limit 0 keeps the ABI 5 path, which never reads these.
     u32 fm_reserved;
     const u8* fm_table;
     u64 fm_limit;
 };
 
-// Matches RecompHostMem in the generated runtime. The recompiled code calls
-// through this for every guest access, so that it reads and writes the
-// emulator's address space rather than the flat buffer the standalone runtime
-// would otherwise own - without it the recompiled code and the HLE kernel
-// would be looking at two different memories.
+// Matches RecompHostMem in the generated runtime; recompiled code accesses guest memory through it
+// so it and the HLE kernel see the same address space.
 struct RecompHostMem {
     void* user;
     u64 (*load)(void* user, u64 va, u32 size);
@@ -109,10 +92,8 @@ struct RecompHostMem {
     u64 (*read_cntpct)(void* user);
     // Exclusive pair forms; `size` is the width of one register, 4 or 8.
     void (*excl_load_pair)(void* user, u64 va, u32 size, u64* lo, u64* hi);
-    // Page table, so generated code can resolve a mapped address inline instead
-    // of calling out for every load and store. Mirrors GetPointerImpl's fast
-    // path; a null backing pointer (unmapped, debug, or GPU-tracked memory)
-    // falls through to `load`/`store` so rasterizer invalidation still happens.
+    // Page table for inline address resolution; a null backing pointer (unmapped, debug, GPU-tracked)
+    // falls through to load/store so rasterizer invalidation still happens.
     u32 (*excl_store_pair)(void* user, u64 va, u32 size, u64 lo, u64 hi);
     const void* page_entries;
     u64 page_entry_stride;
@@ -123,16 +104,8 @@ struct RecompHostMem {
     const u64* guard_generation;
 };
 
-// This struct is duplicated by hand in the emitter (arm64_to_c.h, RuntimeH's
-// RecompHostMem) because the generated project is plain C and shares no headers
-// with the emulator. Nothing links the two, so a field added in the middle of
-// one and at the end of the other compiles cleanly on both sides and hands the
-// generated code a function pointer where it expects data.
-//
-// That is not hypothetical: inserting the page-table fields after
-// excl_load_pair here, while the emitter appended them after excl_store_pair,
-// made recompiled code dereference excl_store_pair's code pointer as a page
-// table. suyu died during boot with no diagnostic. Hence these.
+// Duplicated by hand in the emitter (arm64_to_c.h, RuntimeH) with no shared header, so a field added at
+// different positions on each side compiles cleanly but breaks at runtime; these asserts pin the layout.
 static_assert(offsetof(RecompHostMem, excl_load_pair) == 56);
 static_assert(offsetof(RecompHostMem, excl_store_pair) == 64);
 static_assert(offsetof(RecompHostMem, page_entries) == 72);
@@ -143,11 +116,8 @@ static_assert(offsetof(RecompHostMem, address_space_max) == 104);
 static_assert(offsetof(RecompHostMem, guard_generation) == 112);
 static_assert(sizeof(RecompHostMem) == 120);
 
-// Nothing links these two builds together, so the shared layout is pinned on
-// both sides: the generated runtime asserts the same four offsets against its
-// own GuestContext. If a field is ever inserted rather than appended, one of
-// the two fails to compile instead of the emulator silently reading the wrong
-// registers.
+// The generated runtime asserts the same offsets against its own GuestContext, so an inserted
+// (not appended) field fails to compile on one side.
 static_assert(offsetof(GuestContextView, pc) == 256);
 static_assert(offsetof(GuestContextView, pending_svc) == 304);
 static_assert(offsetof(GuestContextView, vreg) == 312);
@@ -155,9 +125,8 @@ static_assert(offsetof(GuestContextView, tpidr_el0) == 824);
 static_assert(offsetof(GuestContextView, chain_budget) == 864);
 static_assert(offsetof(GuestContextView, fm_table) == 872);
 static_assert(offsetof(GuestContextView, fm_limit) == 880);
-// The FM1 helpers fold the page table layout in as constants
-// (RECOMP_FM_PAGE_BITS, RECOMP_FM_STRIDE_LOG2, RECOMP_FM_PTR_MASK). A change
-// here must fail the build, not misread the table.
+// FM1 helpers hard-code the page table layout (RECOMP_FM_PAGE_BITS, _STRIDE_LOG2, _PTR_MASK);
+// a change must fail the build.
 static_assert(sizeof(Common::PageTable::PageEntryData) == 32);
 static_assert(Common::PageTable::ATTRIBUTE_BITS == 2);
 static_assert(Memory::YUZU_PAGEBITS == 12);
@@ -166,65 +135,12 @@ static_assert(offsetof(Common::PageTable::PageEntryData, recomp_watch) ==
               RecompGuardGen::kWatchOffset);
 static_assert(sizeof(std::atomic<u64>) == sizeof(u64) && std::atomic<u64>::is_always_lock_free);
 
-// Blocks a chain of direct calls may run before returning here. Only this side
-// sets it - the generated code just decrements - so the emitter does not need
-// to agree on the value.
-//
-// It bounds two things. How long a guest loop can run without the interrupt and
-// SVC checks below getting a look in; and, if the generated calls are not tail
-// calls, how deep the host stack goes. Guest threads run on 2 MiB fibers
-// (512 * 4096 bytes, common/fiber.cpp) and a block frame carrying SIMD locals is
-// not small. Today only the opt-in chains call blocks from blocks: the direct B/BL
-// chain (g_emit_direct_chain) and the indirect RET/BR/BLR chain
-// (g_emit_indirect_chain). Both are a guaranteed tail call under clang (musttail)
-// and a plain call, bounded by this budget, elsewhere.
-//
-// The measurements below were taken with an earlier emitter whose ChainTo chained
-// B, BL and the conditional forms; they do not describe the current emitter,
-// where the module's run_slice loop iterates between blocks.
-//
-// This comment used to say 256 overflowed that stack and crashed on boot, and
-// that raising the budget was only safe when the generated code was built with
-// -foptimize-sibling-calls. That flag is still only on the GNU branch - the
-// MSVC branch emitted "/O1" then (it is /O2 now) with no tail-call guarantee, and
-// ChainTo calls into another translation unit - so by that reasoning Windows should fall over well
-// below the ABI 4 default of 4096.
-//
-// It does not. Measured on Mario Kart 8 running fully static with zero JIT
-// transitions, replaying the same 8861-command fixture at each budget:
-//
-//     32 -> 0.666x realtime    256 -> 0.696x    1024 -> 0.695x
-//   4096 -> 0.678x             8192 -> 0.692x
-//
-// Every one completed, including 256 and the 8192 ceiling, each executing about
-// 8.5 billion blocks. So either MSVC /O1 does tail-call these, or the chains
-// never get deep enough to matter. The budget is worth about 4% either way,
-// with 32 the slowest, so there is little to gain from tuning it.
-//
-// Keep the bound: one title not overflowing is not proof that a deeper-
-// recursing one cannot. But do not treat a raised budget as known-dangerous on
-// MSVC, because that is not what the measurement says.
-//
-// That fixture replay measured throughput, not how quickly a core answers an
-// interrupt. The budget also bounds that latency: the dispatcher checks
-// `interrupted` only between slices, and recomp_image_run_slice does not check
-// it. A core that wants a guest thread still running on another core spins in
-// KScheduler::ScheduleImplFiber until that core reaches the check. Measured on
-// Pokemon Legends: Arceus (Hybrid, every module static, zero JIT transitions,
-// overworld, 6-core/12-thread host) by setting SUYU_RECOMP_CHAIN_BUDGET:
-//
-//   4096 -> about 14 FPS, 21-24% of the two busiest core threads' samples
-//           spinning in ScheduleImplFiber
-//    256 -> 15-20 FPS, 8-10% spinning
-//    128 and 512 -> same as 256      1024 -> about 1 FPS below 256
-//
-// So long slices use 256, the middle of that plateau.
+// Blocks a direct-call chain may run before returning to the dispatcher; only this side sets it.
+// It bounds interrupt latency and host stack depth; 256 is mid-plateau for PLA (measurements: OLD_HISTORY.md).
 constexpr int kShortSliceChainBudget = 32;
 constexpr int kLongSliceChainBudget = 256;
 
-// Refuse the JIT entirely. Without this, "the JIT was never reached" is an
-// observation about one run; with it, reaching the JIT is a loud, fatal failure
-// that names the address, which is the difference between evidence and proof.
+// Refuse the JIT entirely, so reaching it is a fatal error naming the address, not just an observation.
 bool StrictNoFallback() {
     const char* e = std::getenv("SUYU_RECOMP_STRICT");
     return e && *e && *e != '0';
@@ -250,14 +166,8 @@ const bool kSamplePc = [] {
     return e && *e && *e != '0';
 }();
 
-// How many blocks a thread retires between PC samples, as a power of two.
-//
-// The default of 18 samples proportionally to *executed blocks*, which is the
-// wrong denominator for a stall: a title that runs 260M blocks of boot work in
-// four seconds and then sits in a 4,000 block/s poll loop for three minutes
-// puts 99.7% of its samples in the four seconds nobody is asking about. Lower
-// this to sample the plateau, and use SUYU_RECOMP_SAMPLE_AFTER_SEC to throw
-// away the burst entirely.
+// Blocks a thread retires between PC samples, as a power of two. The default weights samples by executed
+// blocks; lower it (with SUYU_RECOMP_SAMPLE_AFTER_SEC) to sample a stall plateau instead of the boot burst.
 const unsigned kSamplePcShift = [] {
     const char* e = std::getenv("SUYU_RECOMP_SAMPLE_SHIFT");
     if (!e || !*e) {
@@ -317,19 +227,8 @@ private:
     std::uint64_t start_ns_;
 };
 
-// Naming the instruction that writes a guest field is not possible from the
-// store callback, because emitted code resolves mapped memory through the
-// inline page-table walk in recomp_host_ptr and never calls back. That walk
-// has one runtime-controlled escape: it gives up on any address at or above
-// host_mem->address_space_max and takes the callback path instead. Lowering
-// that bound sends every access above a chosen address through HostStore,
-// where the storing block's PC is visible - c->pc holds the entry address of
-// the block currently running, because the emitted code writes it at branches
-// rather than per instruction.
-//
-// The bound applies to loads too, so it is expensive: it is gated on a block
-// count so the fast part of boot runs at full speed and only the window around
-// the fault is instrumented.
+// Lowering host_mem->address_space_max routes accesses above it through HostStore, where the storing
+// block's PC (c->pc) is visible; it slows loads too, so it is gated on a block count.
 const u64 kSlowPathAbove = [] {
     const char* e = std::getenv("SUYU_RECOMP_SLOWPATH_ABOVE");
     return (e && *e) ? std::strtoull(e, nullptr, 0) : 0ULL;
@@ -347,50 +246,19 @@ const u64 kTrapStoreHi = [] {
     return (e && *e) ? std::strtoull(e, nullptr, 0) : 0ULL;
 }();
 
-// How much of the guest's relocation work we do ourselves, and what we do to
-// DT_RELASZ/DT_PLTRELSZ afterwards. See ApplyAllRelocations.
-//
-// Only rtld's own self-relocation actually needs us: it is a hand-written
-// bootstrap loop that the recompiled path exits early out of. Everything
-// after that is rtld's ordinary C++ relocation pass, which runs correctly
-// once rtld itself is relocated.
-//
-//   rtld-only       - default. Pre-apply and zero rtld alone; leave every
-//                     other module untouched for rtld to relocate, exactly as
-//                     under dynarmic. Smash reaches an actual match on this.
-//   zero-all        - the previous default: pre-apply every module and zero
-//                     every module's sizes. Boots, but main's .dynamic then
-//                     reports no relocations, so when nn::ro loads a fighter
-//                     NRO it cannot bind main's deferred imports. Measured:
-//                     0 of main's 909 lua2cpp::create_agent_fighter_* slots
-//                     are ever bound, and the match never starts.
-//   zero-rtld       - pre-apply every module but zero only rtld's sizes.
-//                     Measured not to work: rtld's pass then re-relocates
-//                     modules we already did and svcBreaks immediately
-//                     (12071 breaks, first at 0.1s after the pre-apply).
-//   restore-on-main - zero every module, then put the sizes back on first
-//                     execution in main. Measured not to work: rtld caches
-//                     the sizes into its own module state when it parses
-//                     .dynamic at boot, so a later write is never re-read and
-//                     the slots stay unbound just as under zero-all.
+// SUYU_RECOMP_RELA_POLICY: rtld-only (default), zero-all, zero-rtld, restore-on-main; see ApplyAllRelocations.
+// Only rtld-only works for Smash; the others' measured failures are in OLD_HISTORY.md.
 const std::string kRelaPolicy = [] {
     const char* e = std::getenv("SUYU_RECOMP_RELA_POLICY");
     return std::string{(e && *e) ? e : "rtld-only"};
 }();
-// Symbol-name prefix whose unresolved JUMP_SLOT/GLOB_DAT slots are recorded at
-// relocation time and re-read periodically, so a log can say whether anything
-// ever bound them. Smash's fighter agents are `lua2cpp::create_agent_fighter`.
+// Symbol prefix whose unresolved JUMP_SLOT/GLOB_DAT slots are tracked to show whether anything bound them.
 const std::string kTrackSlotPrefix = [] {
     const char* e = std::getenv("SUYU_RECOMP_TRACK_SLOT_PREFIX");
     return std::string{(e && *e) ? e : ""};
 }();
-// The original DT_RELASZ/DT_PLTRELSZ values, as (address, size) pairs, for the
-// restore-on-main policy. Process-global rather than per-Impl: every CPU Impl
-// runs its own relocation pass, but only the first one sees the real sizes -
-// the rest parse .dynamic after it has already zeroed them, so a per-Impl copy
-// records zeros and a later Impl's restore writes those zeros back over the
-// first Impl's correct one. That happened before the first NRO load and put
-// the sizes back at 0 exactly where they were needed.
+// Original DT_RELASZ/DT_PLTRELSZ (address, size) pairs for restore-on-main; process-global because only the
+// first Impl sees real sizes and a later one would restore zeros.
 std::mutex g_rela_restore_lock;
 std::vector<std::pair<u64, u64>> g_rela_restore;
 std::atomic<bool> g_rela_restored{false};
@@ -412,9 +280,7 @@ static_assert(offsetof(GuestContextView, fpsr) == 856);
 // with the emitted recomp_svc contract in core/recompiler/arm64_to_c.h.
 constexpr u64 kNoPendingSvc = ~0ULL;
 
-// Mirrors RECOMP_HALT_UNHANDLED in the generated runtime: a block that halts
-// with this parked its PC on an instruction the decoder cannot translate and
-// is asking for that address to be executed by the interpreter fallback.
+// Mirrors RECOMP_HALT_UNHANDLED: the block parked its PC on an untranslatable instruction for the fallback.
 constexpr int kHaltUnhandled = 2;
 // Mirrors RECOMP_HALT_BREAKPOINT. PC already names the faulting instruction.
 constexpr int kHaltBreakpoint = 3;
@@ -432,19 +298,14 @@ const bool kGuardGenDisabled = [] {
     const char* e = std::getenv("SUYU_RECOMP_GUARD_GEN");
     return e && *e == '0';
 }();
-// ABI 6 feature FPX1. Set by the loader once every module passed the FPX1
-// handshake, before any guest thread runs. While set, generated code may keep
-// native FP results, which is exact only in the host FP mode guest_fp_env.h
-// describes; RunThread puts every guest-core thread in that mode and checks it
-// on each dispatch. SUYU_RECOMP_FPX=0 sets the kill-switch bit instead.
+// ABI 6 FPX1: set once every module passed the handshake; RunThread then puts guest-core threads in the exact
+// FP mode of guest_fp_env.h and checks it each dispatch. SUYU_RECOMP_FPX=0 sets the kill-switch bit.
 std::atomic<bool> g_fpx_ready{false};
 const bool kFpxDisabled = [] {
     const char* e = std::getenv("SUYU_RECOMP_FPX");
     return e && *e == '0';
 }();
-// Bit 32 of the context's fpcr: host-owned, above the 32-bit guest register.
-// FPX1 code masks it out of MRS/MSR FPCR and takes the exact path while it is
-// set. Only an all-FPX1 bundle is loaded, so no module can read it.
+// Bit 32 of the context's fpcr, host-owned: FPX1 code masks it from MRS/MSR FPCR and takes the exact path.
 constexpr u64 kFpxInhibit = u64{1} << 32;
 std::atomic<u64> g_fpx_env_repairs{0};
 
@@ -454,9 +315,7 @@ u64 FpxInhibitBits() {
 bool FpxActive() {
     return !kFpxDisabled && g_fpx_ready.load(std::memory_order_acquire);
 }
-// Puts this thread's FP mode back where FPX1 code needs it; logged the first
-// time, since something on a guest-core thread (a host callback, an injected
-// library) changed it.
+// Restores this thread's FP mode for FPX1 code; logged once, since something on a guest-core thread changed it.
 void RepairFpEnv(const char* where) {
     if (RecompFpEnv::Ensure() &&
         g_fpx_env_repairs.fetch_add(1, std::memory_order_relaxed) == 0) {
@@ -493,10 +352,7 @@ struct RecompCounters {
     std::map<u32, u64> unhandled_insn;  ///< guest encoding -> times it forced a fallback
     std::map<u64, u64> miss_pc;         ///< PC with no block -> times it forced a fallback
     std::map<u64, u64> sampled_pc;      ///< sparse samples for zero-transition stalls
-    /// Load address -> module name, so a PC in this report can be resolved to
-    /// module+offset. Without it the addresses mean nothing except beside the
-    /// matching boot log, and a report read against another run's log resolves
-    /// to the wrong place without saying so.
+    /// Load address -> module name, so PCs in this report resolve to module+offset.
     std::map<u64, std::string> modules;
 
     void RecordModules(const std::map<u64, std::string>& m) {
@@ -550,10 +406,7 @@ std::atomic<int> g_live_instances{0};
 std::mutex g_snapshot_lock;
 std::map<std::pair<u64, std::size_t>, std::string> g_diagnostic_snapshots;
 
-/// The block tally is incremented once per executed block by every guest
-/// thread. As one shared atomic that is a contended cache line on the hottest
-/// path there is: it was 23% of the dispatch loop's own cycles. Each thread
-/// counts into its own line instead, and the report sums them.
+/// Per-thread block tally: one shared atomic was 23% of the dispatch loop's cycles; the report sums the lines.
 struct alignas(64) ThreadBlocks {
     std::atomic<u64> n{0};
     char pad[64 - sizeof(std::atomic<u64>)];
@@ -686,9 +539,7 @@ std::string FormatRecompCoverage() {
     }
 
     if (!g_counters.miss_pc.empty()) {
-        // Resolved here rather than left to the reader: a bare guest PC
-        // needs this run's load addresses to mean anything, and pairing a
-        // report with another run's log gives a confident wrong answer.
+        // Resolved here: a bare guest PC means nothing without this run's load addresses.
         const auto resolve = [](u64 pc) -> std::string {
             u64 best = 0;
             const std::string* name = nullptr;
@@ -894,9 +745,7 @@ const char* PinCauseName(RecompGuardGen::PinCause cause) {
     return "unknown";
 }
 
-// Registered once, process-wide: names the rule from DESIGN.md section 2 the
-// first time each module goes sticky, so a log says why instead of just that
-// it did. Info level, one line per module, never per access.
+// Registered once, process-wide: logs which DESIGN.md section 2 rule first pins each module (one line per module).
 void EnsureGuardGenPinLogger() {
     static std::once_flag once;
     std::call_once(once, [] {
@@ -978,10 +827,8 @@ RecompLookupFn GetRecompLookup() {
 }
 
 namespace {
-/// Hosted (shared-image) generated code must never take its private exclusive
-/// or counter fallbacks, because those keep per-image state that two images
-/// would not share. So every callback it can reach must exist. Returns false and
-/// names the first missing callback.
+/// Hosted generated code must never take its private exclusive/counter fallbacks (per-image state), so every
+/// callback it can reach must exist. Returns false and names the first missing one.
 RECOMP_DEFINE_FIRST_MISSING_BRIDGE_CALLBACK(FirstMissingBridgeCallback, RecompHostMem)
 
 bool CheckBridgeComplete(const RecompHostMem& bridge, const char** missing_callback) {
@@ -1023,11 +870,8 @@ struct ArmRecomp::Impl {
         }
     }
 
-    // The monitor is per-core, and core_index is what distinguishes one guest
-    // thread's reservation from another's. Without a monitor (no owning process,
-    // so no fallback either) these degrade to plain accesses with STXR always
-    // succeeding - the old behaviour, and wrong under threads, but that
-    // configuration cannot run a real title anyway.
+    // The monitor is per-core (core_index separates guests' reservations); without one these degrade to plain
+    // accesses with STXR always succeeding, which cannot run a real title.
     static u64 HostExclusiveLoad(void* user, u64 va, u32 size) {
         auto* self = static_cast<Impl*>(user);
         if (!self->exclusive_monitor) {
@@ -1063,9 +907,7 @@ struct ArmRecomp::Impl {
         return ok ? 0u : 1u;
     }
 
-    /// LDXP/LDAXP. The 64-bit pair takes a real 128-bit reservation; the
-    /// 32-bit pair is a 64-bit reservation whose two words are the registers,
-    /// which is what the architecture specifies rather than a shortcut.
+    /// LDXP/LDAXP: the 64-bit pair takes a 128-bit reservation, the 32-bit pair a 64-bit one, as the architecture specifies.
     static void HostExclusiveLoadPair(void* user, u64 va, u32 size, u64* lo, u64* hi) {
         auto* self = static_cast<Impl*>(user);
         if (!self->exclusive_monitor) {
@@ -1104,12 +946,8 @@ struct ArmRecomp::Impl {
         return ok ? 0u : 1u;
     }
 
-    /// Re-read the page table description into the bridge.
-    ///
-    /// Called on entry to a run rather than once at construction: the table
-    /// belongs to the process, and the pointer is not valid until one exists.
-    /// A stale pointer here would have generated code reading another address
-    /// space, so it is refreshed rather than cached forever.
+    /// Re-reads the page table description into the bridge on each run entry; the table belongs to the process
+    /// and a stale pointer would read another address space.
     void RefreshPageTable() {
         const auto view = system.ApplicationMemory().GetPageTableView();
         // ABI 5 checks the instruction bytes against this mapping on every entry.
@@ -1122,11 +960,8 @@ struct ArmRecomp::Impl {
             TotalStaticBlocks() >= kSlowPathAfterBlocks) {
             bridge.address_space_max = kSlowPathAbove;
         }
-        // ABI 6 (FM1). The generated helpers read the table with its layout
-        // folded in as constants, so enable them only for a table that has that
-        // layout. The limit is the ABI 5 walk's own limit (after any diagnostic
-        // lowering above) rounded down to a page, so the fast path serves a
-        // subset of what that walk serves and declines everything else to it.
+        // ABI 6 (FM1): enable the constant-layout helpers only for a table with that layout; the limit is the ABI 5
+        // walk's limit rounded down to a page, so the fast path serves a subset and defers the rest.
         ctx.fm_table = nullptr;
         ctx.fm_limit = 0;
         if (!kFastmemDisabled && g_fastmem_ready.load(std::memory_order_acquire) &&
@@ -1139,11 +974,8 @@ struct ArmRecomp::Impl {
         }
     }
 
-    /// ABI 6 GG1 activation for `process`. Decided entirely from what the
-    /// Core::Memory hooks recorded since the process's table was created: a
-    /// kernel query here would take the page-table KLightLock, and a contended
-    /// KLightLock reschedules, which inside RunThread could enter this core's
-    /// RunThread again for another guest thread.
+    /// ABI 6 GG1 activation, decided from what the Core::Memory hooks recorded; a kernel query would take the
+    /// page-table KLightLock, whose contention reschedules and could re-enter this core's RunThread.
     void ActivateGuardGen(Kernel::KProcess& process, u64 key) {
         // Watch every page of each stable module's span: GG1 stores there go to
         // HostStore, and Core::Memory reports writes and raw pointers there.
@@ -1181,14 +1013,8 @@ struct ArmRecomp::Impl {
         }
     }
 
-    /// Report a static-executed access to an address the guest has not mapped.
-    ///
-    /// The emitted code resolves a mapped access through the page table inline,
-    /// so only an unmapped one reaches these callbacks at all. Such an access
-    /// is not a guest bug: it means some earlier translated instruction put a
-    /// value in a register that the real hardware would never have produced.
-    /// The PC trail is the shortest route from the bad address back to the
-    /// instruction that computed it, and it is already maintained for misses.
+    /// Reports a static-executed access to an unmapped address (mapped ones resolve inline). It means an earlier
+    /// instruction produced a value real hardware would not; the PC trail leads back to it.
     static void ReportUnmapped(Impl* self, u64 va, u32 size, const char* what) {
         static std::atomic<int> logs{0};
         if (logs.fetch_add(1, std::memory_order_relaxed) >= 8) {
@@ -1278,19 +1104,16 @@ struct ArmRecomp::Impl {
         }
     }
 
-    /// Base address of the module containing `pc`, so an address can be turned
-    /// into the module-relative offset a recompiled image is keyed by. The
-    /// module list is fixed once the process is running, so it is read once.
+    /// Base address of the module containing `pc`, for the module-relative offset images are keyed by;
+    /// read once because the module list is fixed once the process runs.
     u64 ModuleBaseFor(Kernel::KThread* thread, u64 pc) {
         if (!modules_read) {
             modules_read = true;
             if (auto* process = thread->GetOwnerProcess()) {
                 modules = FindModules(process);
                 g_counters.RecordModules(modules);
-                // Now that the loader has placed everything, tell each image
-                // where its own module went. A bound process (BindRecompProcess)
-                // never gets here: modules_read is already set and the launcher's
-                // bind callback has set the bases by canonical name.
+                // Tell each image where its module went; a bound process never gets here (modules_read is set and
+                // the launcher's bind callback set the bases by canonical name).
                 if (const auto setter = g_recomp_base_setter.load(std::memory_order_acquire)) {
                     // modules is keyed by base, so iteration is load order.
                     size_t index = 0;
@@ -1309,10 +1132,8 @@ struct ArmRecomp::Impl {
         return base;
     }
 
-    // Is `pc` inside the main module? There is no module literally named
-    // "main" - Smash's is `cross2_Release.nss` - so it is identified by load
-    // order instead: the NSO layout is rtld, main, subsdk*, sdk, and `modules`
-    // is keyed by base, so main is the second entry. The next base bounds it.
+    // Is `pc` in the main module? Identified by load order (rtld, main, subsdk*, sdk; `modules` is keyed by base)
+    // since no module is literally named "main"; the next base bounds it.
     bool PcInMainModule(u64 pc) const {
         if (modules.size() < 2) {
             return false;
@@ -1334,19 +1155,8 @@ struct ArmRecomp::Impl {
         std::string name;
     };
 
-    // Find an existing `mov x0, #0; ret` (or failing that, a bare `ret`) in a
-    // module's text and hand back its address.
-    //
-    // Unresolved imports have to point somewhere, and the address has to be one
-    // BOTH execution engines can survive: the recompiled dispatcher can
-    // special-case a magic sentinel, but the dynarmic fallback cannot - it just
-    // tries to translate the address and dies with "cannot execute instruction
-    // at unmapped address". Reusing a real instruction pair the module already
-    // contains sidesteps that entirely: it is mapped, executable, and returns to
-    // the caller under any engine, with no per-engine handling and nothing
-    // written into guest memory. Most entries in a large import table exist for
-    // code paths a given boot never takes, so failing soft here is what keeps a
-    // partially-resolvable module bootable at all.
+    // Finds `mov x0, #0; ret` (else a bare `ret`) in a module's text as the target for unresolved imports:
+    // mapped and executable, so both engines survive it, and nothing is written to guest memory.
     u64 FindReturnStub(u64 mod_base) {
         auto& mem = system.ApplicationMemory();
         constexpr u32 kMovX0Zero = 0xD2800000, kRet = 0xD65F03C0;
@@ -1369,9 +1179,7 @@ struct ArmRecomp::Impl {
     // false if this module has no MOD0 (nothing to relocate).
     bool ParseDynamic(u64 mod_base, DynInfo& out) {
         auto& mem = system.ApplicationMemory();
-        // MOD0 magic "MOD0" = 0x30444F4D. It sits at the start of rodata
-        // (typically mod+0x2000 for rtld), but the actual location is pointed
-        // to by a 4-byte offset at mod+4 (per NSO ABI). Scan the first few KB.
+        // Scan the first few KB for the MOD0 magic (0x30444F4D); typically at mod+0x2000 for rtld.
         u64 mod0_va = 0;
         for (u64 off = 0; off < 0x4000; off += 4) {
             if (mem.Read32(mod_base + off) == 0x30444F4Du) {
@@ -1405,18 +1213,12 @@ struct ArmRecomp::Impl {
             if (tag == DT_STRTAB)   out.strtab_va  = mod_base + val;
             if (p - dyn_va > 0x1000) break; // safety
         }
-        // DT_PLTREL says whether JMPREL uses 16-byte REL entries (no addend)
-        // instead of 24-byte RELA - vanishingly rare on AArch64, but assuming
-        // RELA unconditionally would silently misalign every read if a
-        // module did use it. Checked after the loop since DT_PLTREL can
-        // appear either before or after the entries it describes.
+        // DT_PLTREL selects 16-byte REL over 24-byte RELA JMPREL entries; checked after the loop as it can appear anywhere.
         out.jmprel_ent = (pltrel_kind == DT_REL_TAG) ? 16 : 24;
         return true;
     }
 
-    // Read a symbol's name (from .dynstr) and value for GLOB_DAT/JUMP_SLOT
-    // resolution. Elf64_Sym: st_name(4) st_info(1) st_other(1) st_shndx(2)
-    // st_value(8) st_size(8) = 24 bytes.
+    // Reads a symbol's name (.dynstr) and value for GLOB_DAT/JUMP_SLOT resolution; Elf64_Sym is 24 bytes.
     struct SymInfo {
         std::string name;
         u64 value = 0;
@@ -1429,17 +1231,11 @@ struct ArmRecomp::Impl {
         if (!d.symtab_va) return s;
         const u64 sym_va = d.symtab_va + static_cast<u64>(index) * 24;
         const u32 name_off = mem.Read32(sym_va);
-        // st_shndx is a 2-byte field at offset 6 (st_name(4) st_info(1)
-        // st_other(1) st_shndx(2) st_value(8) st_size(8)) - reading 4 bytes
-        // here previously spilled into st_value's low bytes, corrupting the
-        // defined/undefined check for essentially every symbol whose value
-        // had nonzero low 16 bits.
+        // st_shndx is the 2-byte field at +6; reading 4 bytes spilled into st_value and corrupted the defined check.
         const u16 shndx = mem.Read16(sym_va + 6);
         s.value = mem.Read64(sym_va + 8);
         s.defined = shndx != 0; // SHN_UNDEF == 0
-        // st_info is the byte at +4; the binding is its high nibble.
-        // STB_WEAK == 2. An undefined weak symbol must resolve to 0, which is
-        // how the guest's own rtld leaves it - see the fallthrough below.
+        // st_info is at +4 with the binding in the high nibble (STB_WEAK == 2); an undefined weak symbol must resolve to 0.
         s.weak = (static_cast<u8>(mem.Read8(sym_va + 4)) >> 4) == 2;
         if (d.strtab_va) {
             std::string name;
@@ -1453,21 +1249,12 @@ struct ArmRecomp::Impl {
         return s;
     }
 
-    // Every module's exported (defined) symbols, keyed by name, so
-    // GLOB_DAT/JUMP_SLOT relocations that reference another module's symbol
-    // (e.g. main calling into sdk, or rtld exporting to everything) can be
-    // resolved. Built once, across every module, before any relocation
-    // actually writes anything - a relocation processed before its target
-    // module's exports are indexed would silently resolve to nothing.
+    // Every module's defined symbols by name, built across all modules before any relocation writes,
+    // so cross-module GLOB_DAT/JUMP_SLOT references resolve.
     void IndexExports(const DynInfo& d, std::unordered_map<std::string, u64>& out) {
         if (!d.symtab_va || !d.strtab_va) return;
-        // No count is stored in .dynamic for a plain DT_SYMTAB (that's normally
-        // DT_HASH/DT_GNU_HASH territory), but .dynsym and .dynstr are laid out
-        // back to back in every Switch module observed so far, so the gap
-        // between them is a reliable entry count - far more so than guessing
-        // from name-offset values, which was cutting exports short before
-        // rtld's own required symbols were reached (18 unresolved externals
-        // for rtld itself were enough to trigger its self-abort).
+        // .dynsym and .dynstr are back to back in every observed Switch module, so their gap is a reliable entry count
+        // (guessing from name offsets cut exports short and made rtld abort).
         u32 max_index = 8192;
         if (d.strtab_va > d.symtab_va) {
             const u64 span = d.strtab_va - d.symtab_va;
@@ -1498,18 +1285,8 @@ struct ArmRecomp::Impl {
                 mem.Write64(d.mod_base + r_offset, d.mod_base + r_addend);
                 ++applied;
             } else if (r_type == R_AARCH64_IRELATIVE) {
-                // IRELATIVE (ifunc): r_addend is a RESOLVER function's address,
-                // not the final target - the correct behaviour is to call it
-                // (no args, AAPCS64) and store whatever it returns. Actually
-                // invoking guest code from inside relocation application would
-                // need a full nested-call machinery this backend doesn't have,
-                // so - same as a genuinely-unresolved import - patch to the
-                // trap sentinel instead of leaving the GOT slot as raw
-                // pre-relocation file content. Previously this relocation type
-                // matched none of the branches below and was silently skipped
-                // entirely, which is exactly how a BLR through this slot ended
-                // up jumping to a small leftover file value (e.g. 0xe7ff0)
-                // instead of either a real function or a diagnosable trap.
+                // IRELATIVE: r_addend is a resolver address and calling it needs nested-call machinery this backend lacks,
+                // so patch to the trap sentinel like an unresolved import instead of leaving raw file content in the slot.
                 LOG_ERROR(Core_ARM,
                           "recomp: IRELATIVE relocation at module base={:#x} offset={:#x} not "
                           "invoked (resolver call unsupported); trapped instead",
@@ -1518,34 +1295,14 @@ struct ArmRecomp::Impl {
             } else if (r_type == R_AARCH64_GLOB_DAT || r_type == R_AARCH64_JUMP_SLOT ||
                        r_type == R_AARCH64_ABS64) {
                 const auto sym = ReadSymbol(d, r_sym);
-                // ABS64 is S + A, unlike GLOB_DAT/JUMP_SLOT which are plain S.
-                // It is by far the most common relocation in a C++ module's
-                // .data.rel.ro - every vtable slot, every typeinfo pointer, every
-                // static function-pointer table is one - and skipping it left
-                // those slots holding the raw module-relative symbol value the
-                // linker wrote. A virtual call through such a vtable branches to
-                // that small offset instead of base+offset, which is unmapped:
-                // that is the whole "cannot execute instruction at unmapped
-                // address 0xe7ff0" family of boot crashes.
+                // ABS64 is S + A (GLOB_DAT/JUMP_SLOT are plain S) and covers every vtable/typeinfo/function-pointer slot;
+                // skipping it left unmapped module-relative values (the 0xe7ff0 boot crashes).
                 const u64 addend = (r_type == R_AARCH64_ABS64) ? r_addend : 0;
-                // Linker-synthesized section-boundary symbols (__got_start,
-                // __rela_dyn_end, __tbss_align_abs, __EX_start, etc.) describe
-                // the CURRENT module's own layout - they're self-referential,
-                // not imports - but the minimal Switch toolchain often leaves
-                // them marked SHN_UNDEF anyway despite carrying a correct
-                // st_value. A nonzero value on an otherwise-"undefined"
-                // symbol is a strong signal it's one of these, not a genuine
-                // external import (those are left at value 0 with nothing to
-                // point to), so trust it ahead of both the defined check and
-                // cross-module export lookup.
+                // Linker section-boundary symbols (__got_start, __rela_dyn_end, ...) describe this module's own layout but are
+                // often left SHN_UNDEF with a correct st_value, so a nonzero value is trusted before export lookup.
                 u64 synthetic = 0;
                 bool is_synthetic = true;
-                // These describe THIS module's own relocation sections - the
-                // linker leaves them SHN_UNDEF/value-0 in the dynamic symbol
-                // table expecting the loader to patch them in directly from
-                // its own knowledge of where it placed .rela.dyn/.rela.plt,
-                // rather than resolving them like a normal import. We already
-                // parsed those bounds for our own use.
+                // These cover this module's own relocation sections; the loader patches them from the bounds parsed above.
                 if (sym.name == "__rela_dyn_start" || sym.name == "__rel_dyn_start") {
                     synthetic = d.rela_va;
                 } else if (sym.name == "__rela_dyn_end" || sym.name == "__rel_dyn_end") {
@@ -1567,9 +1324,7 @@ struct ArmRecomp::Impl {
                     mem.Write64(d.mod_base + r_offset, it->second + addend);
                     ++applied;
                 } else if (r_type == R_AARCH64_ABS64 && r_sym == 0) {
-                    // STN_UNDEF ABS64: S is 0 by definition, so the result is
-                    // the addend alone - a plain absolute constant, not a
-                    // failed import. Never trap these.
+                    // STN_UNDEF ABS64: S is 0, so the result is the addend alone, a plain constant; never trap it.
                     mem.Write64(d.mod_base + r_offset, addend);
                     ++applied;
                 } else {
@@ -1578,24 +1333,13 @@ struct ArmRecomp::Impl {
                         LOG_ERROR(Core_ARM, "recomp: unresolved GOT/PLT symbol '{}' for module base={:#x}",
                                   sym.name.empty() ? "<no name>" : sym.name, d.mod_base);
                     }
-                    // An undefined *weak* symbol resolves to 0 by ABI, and that
-                    // is what rtld leaves under dynarmic. Patching it to a
-                    // callable stub instead breaks the `if (&weak) weak(...)`
-                    // idiom: the null check passes and the guest calls a
-                    // function that only returns 0. Smash guards
-                    // nu::VirtualAllocHook/VirtualFreeHook that way at 5489
-                    // sites on its allocator path, so every allocation took the
-                    // hook branch and got nothing back.
-                    // Strong symbols keep the trap sentinel.
+                    // An undefined weak symbol resolves to 0 by ABI; a callable stub would break `if (&weak) weak(...)` (Smash's
+                    // VirtualAllocHook, 5489 sites). Strong symbols keep the trap sentinel.
                     const u64 stub =
                         sym.weak ? 0 : (d.trap_va ? d.trap_va : kUnresolvedImportTrap);
                     mem.Write64(d.mod_base + r_offset, stub);
-                    // The trap counter cannot report this case - it is only
-                    // written when a thread actually reaches kUnresolvedImportTrap,
-                    // and FindReturnStub always succeeds, so the guest calls a
-                    // real `mov x0,#0; ret` and nothing is ever counted. Record
-                    // the slot address instead, so a later poll can say whether
-                    // anything (nn::ro binding an NRO, say) ever wrote over it.
+                    // FindReturnStub always succeeds, so the trap counter never sees this case; record the slot so a later poll
+                    // can tell whether anything (e.g. nn::ro binding an NRO) overwrote it.
                     if (!kTrackSlotPrefix.empty() &&
                         sym.name.rfind(kTrackSlotPrefix, 0) == 0) {
                         diagnostics.TrackSlot(d.mod_base + r_offset, stub, sym.name);
@@ -1605,16 +1349,8 @@ struct ArmRecomp::Impl {
         }
     }
 
-    // Pre-apply relocations for every loaded module. Under dynarmic, rtld
-    // runs its own self-relocation loop correctly; under ArmRecomp the
-    // recompiled loop exits early, leaving most relocations un-applied and
-    // corrupting both data reads (R_AARCH64_RELATIVE, e.g. vtables, GOT
-    // pointers to local data) and indirect calls through the GOT/PLT
-    // (R_AARCH64_GLOB_DAT / R_AARCH64_JUMP_SLOT - unresolved, these are the
-    // null/garbage function pointers that were previously observed crashing
-    // rtld's module bootstrap). All module bases are already known by the
-    // time this runs (the loader maps every NSO up front), so cross-module
-    // symbol resolution just needs every module's exports indexed first.
+    // Pre-applies relocations for every loaded module: the recompiled rtld self-relocation loop exits early,
+    // leaving RELATIVE/GLOB_DAT/JUMP_SLOT entries unapplied. All bases are known, so exports are indexed first.
     void ApplyAllRelocations(const std::map<u64, std::string>& all_modules) {
         auto& mem = system.ApplicationMemory();
         std::vector<DynInfo> dyns;
@@ -1632,11 +1368,7 @@ struct ArmRecomp::Impl {
             u32 applied = 0, unresolved = 0;
             const bool is_rtld = d.name.find("rtld") != std::string::npos;
             if (kRelaPolicy == "rtld-only" && !is_rtld) {
-                // Left for rtld. Touching neither the entries nor the sizes is
-                // the whole point: rtld has to see this module exactly as it
-                // would under dynarmic, including whatever it records about
-                // which imports are still deferred, or nn::ro cannot bind them
-                // when an NRO turns up later.
+                // Left for rtld: it must see this module as under dynarmic (including deferred imports) or nn::ro cannot bind them.
                 LOG_INFO(Core_ARM, "recomp: leaving {} base={:#x} to rtld", d.name, d.mod_base);
                 continue;
             }
@@ -1647,21 +1379,8 @@ struct ArmRecomp::Impl {
                 ApplyRelocTable(d, d.jmprel_va, d.jmprel_sz, d.jmprel_ent, exports, applied,
                                  unresolved);
             }
-            // Zero DT_RELASZ/DT_PLTRELSZ so rtld's own self-relocator sees
-            // nothing left to do and skips both tables - it runs its own
-            // GLOB_DAT/JUMP_SLOT resolution loop with a load-bias consistency
-            // check that assumes it's relocating fresh, unresolved entries;
-            // finding them already resolved by us trips that check and it
-            // calls svcBreak, which is what was hanging every recompiled
-            // game at boot despite relocations succeeding.
-            //
-            // That hang is rtld double-relocating *itself*: its hand-written
-            // bootstrap loop runs before its C++ machinery and is not
-            // idempotent. Every other module is relocated by the C++ pass,
-            // which recomputes each slot from the rela entry rather than
-            // accumulating into it, so re-running it over our results is a
-            // no-op. Zeroing those modules too is what leaves nn::ro unable to
-            // bind main's deferred imports when an NRO shows up later.
+            // Zero DT_RELASZ/DT_PLTRELSZ so rtld's non-idempotent bootstrap self-relocation skips both tables; finding them
+            // resolved trips its consistency check and svcBreak (the boot hang). Zeroing other modules breaks nn::ro binding.
             if (kRelaPolicy == "zero-all" || kRelaPolicy == "restore-on-main" ||
                 ((kRelaPolicy == "zero-rtld" || kRelaPolicy == "rtld-only") && is_rtld)) {
                 if (d.rela_sz_va) mem.Write64(d.rela_sz_va, 0);
@@ -1729,9 +1448,8 @@ struct ArmRecomp::Impl {
     std::atomic<bool> interrupted{false};
     Loader::AppLoader::Modules modules{};
     bool modules_read{false};
-    // Whether the "pre-relocation modules" log line was written. Cores of a bound process
-    // share one flag (BindRecompProcess), so the line appears once per process and is tied to
-    // that process's lifetime; an unbound legacy Impl keeps its own.
+    // Whether the "pre-relocation modules" line was written; cores of a bound process share one flag
+    // (BindRecompProcess), an unbound legacy Impl keeps its own.
     std::shared_ptr<std::atomic_bool> prerelocation_logged{std::make_shared<std::atomic_bool>(false)};
     bool rela_applied{false};
     bool explicitly_prepared{false};
@@ -1741,13 +1459,9 @@ struct ArmRecomp::Impl {
     u64 trail[kTrail]{};
     size_t trail_pos{0};
 
-    // Interpreter fallback for PCs the static pass never covered. Built on the
-    // first miss rather than up front: most runs never need it, and a JIT per
-    // core costs a code cache each.
+    // Interpreter fallback for PCs the static pass never covered; built on the first miss, since most runs need none.
     Kernel::KProcess* owner_process{};
-    // The base interface, not dynarmic's implementation of it: the recompiled
-    // path only ever calls the virtual methods, and holding the concrete type
-    // here is what forced the library into a build that never runs a JIT.
+    // The base interface, not dynarmic's type: holding the concrete type forced the library into builds with no JIT.
     ExclusiveMonitor* exclusive_monitor{};
     // Last guest thread run on this core, so a reservation is voided on a real
     // context switch and left alone on an ordinary return to the host.
@@ -1847,9 +1561,7 @@ static std::string DescribeModuleInventory(const RecompModules& modules) {
 bool BindRecompProcess(Kernel::KProcess& process, const RecompModules& inventory) {
     const auto bind = g_recomp_bind.load(std::memory_order_acquire);
     if (!bind) return true;
-    // The same preconditions as PrepareRecompProcess, checked before any downcast:
-    // KProcess::InitializeInterfaces chooses ArmRecomp for every application core
-    // only while a lookup is installed (RTTI is disabled in core builds).
+    // Same preconditions as PrepareRecompProcess, checked before any downcast.
     if (!GetRecompLookup()) {
         LOG_CRITICAL(Core_ARM, "recomp: binding requires an installed recompiled lookup");
         return false;
@@ -1877,9 +1589,8 @@ bool BindRecompProcess(Kernel::KProcess& process, const RecompModules& inventory
     const auto process_prerelocation_logged = std::make_shared<std::atomic_bool>(false);
     for (size_t i = 0; i < Hardware::NUM_CPU_CORES; ++i) {
         cpus[i]->impl->prerelocation_logged = process_prerelocation_logged;
-        // rela_applied and explicitly_prepared stay false: the host pre-relocation
-        // still runs, and it must see the full canonical inventory (including a
-        // module whose embedded path FindModules cannot read).
+        // rela_applied and explicitly_prepared stay false: host pre-relocation still runs and needs the full canonical
+        // inventory (including a module whose embedded path FindModules cannot read).
         cpus[i]->impl->modules = inventory;
         cpus[i]->impl->modules_read = true;
         // Greppable by tests that check which inventory a process was bound to.
@@ -1931,10 +1642,8 @@ HaltReason ArmRecomp::RunFallback(Kernel::KThread* thread) {
     (void)thread;
     return HaltReason::PrefetchAbort;
 #else
-    // The recompiled context is the single source of truth; the JIT is loaded
-    // from it on the way in and drained back on the way out, so every accessor
-    // on this interface (SVC arguments, thread context save/restore) keeps
-    // working unchanged no matter which engine actually ran.
+    // The recompiled context is the single source of truth: the JIT is loaded from it and drained back, so every
+    // accessor on this interface works unchanged whichever engine ran.
     impl->ctx.pending_svc = kNoPendingSvc;
     impl->ctx.halted = 0;
     impl->interrupted.store(false, std::memory_order_relaxed);
@@ -1972,23 +1681,15 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         thread_time_scope.emplace(impl->thread_time, impl->core_index, thread->GetId(),
                                   impl->ctx.pc);
     }
-    // A context switch voids any outstanding reservation. A thread preempted
-    // between its LDXR and STXR would otherwise have the STXR succeed against a
-    // word another thread changed on this core meanwhile, silently losing an
-    // update to a mutex or condition variable and deadlocking the guest.
-    //
-    // Only on an actual switch: this backend returns to the host constantly
-    // (chain budget, SVCs), so clearing on every entry would void reservations
-    // the same thread is still in the middle of.
+    // A context switch voids any outstanding reservation, or a preempted LDXR/STXR pair could succeed against a word
+    // another thread changed and lose a mutex update. Only on a real switch: this backend returns to the host constantly.
     if (impl->last_thread != thread) {
         impl->last_thread = thread;
         if (impl->exclusive_monitor) {
             impl->exclusive_monitor->ClearExclusive(impl->core_index);
         }
     }
-    // Logged once so it is obvious from a log whether the backend was ever
-    // entered at all. A run with no errors is otherwise indistinguishable from
-    // a run where the guest thread was never scheduled onto it.
+    // Logged once so a log shows whether the backend was ever entered.
     static std::atomic_bool announced{false};
     bool first_run = !announced.exchange(true, std::memory_order_relaxed);
     if (first_run) {
@@ -2029,10 +1730,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                  kFastmemDisabled ? ", disabled by SUYU_RECOMP_FASTMEM=0" : "");
     }
 
-    // Registering every loaded image's base with the host dispatcher is a
-    // side effect of this call, not something its return value is used for
-    // here - the dispatcher needs it done once before the first lookup, or
-    // every image's base stays 0 and every lookup misses.
+    // Registering image bases with the host dispatcher is a side effect of this call, needed once before the first
+    // lookup or every image's base stays 0 and every lookup misses.
     if (HasRecompPrepareCallback() && !impl->explicitly_prepared) {
         LOG_ERROR(Core_ARM, "Refusing unprepared static guest execution");
         return HaltReason::BreakLoop;
@@ -2040,17 +1739,12 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
     // Keep the legacy desktop path isolated. Explicit sessions never enter
     // this process-global lazy protocol or its heuristic relocation path.
     if (!impl->explicitly_prepared && !impl->rela_applied) {
-        // Every CPU Impl needs its own complete module map and relocation pass.
-        // Collapsing this to once per KProcess left later Impls incompletely
-        // initialized and changed MK8's execution despite zero lookup misses.
-        // Serialize the shared guest-memory writes to retain the original
-        // per-Impl behavior without the original multicore race.
+        // Every CPU Impl needs its own module map and relocation pass (once per KProcess left later Impls incomplete);
+        // the shared guest-memory writes are serialized.
         std::scoped_lock lock{g_process_init_lock};
         if (!impl->rela_applied) {
             impl->ModuleBaseFor(thread, impl->ctx.pc);
-            // Every core of a bound process relocates the same shared guest memory from the
-            // same map, so the module list is logged once per process (the flag is shared by
-            // its cores and dies with it), not once per core.
+            // Cores of a bound process relocate the same memory from the same map, so the module list is logged once per process.
             if (!impl->prerelocation_logged->exchange(true)) {
                 LOG_INFO(Core_ARM, "recomp: pre-relocation modules: {}",
                          DescribeModuleInventory(impl->modules));
@@ -2060,9 +1754,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         }
     }
 
-    // ABI 6 GG1: the first run of each process decides which modules may skip
-    // their per-entry check. Module bases are set by now (above, or by the
-    // explicit prepare callback), and no block of this process has run yet.
+    // ABI 6 GG1: the first run of each process decides which modules may skip the per-entry check (bases set, no block run yet).
     if (RecompGuardGen::Watching()) {
         if (auto* process = thread->GetOwnerProcess()) {
             const u64 key = process->GetProcessId() | (u64{1} << 63);
@@ -2074,11 +1766,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
 
     if (kRelaPolicy == "restore-on-main" && !g_rela_restored.load(std::memory_order_acquire) &&
         impl->PcInMainModule(impl->ctx.pc)) {
-        // Ordering this relies on: rtld is the process entrypoint, and the NSO
-        // boot sequence has it self-relocate and then relocate every other
-        // module before it branches to main's entry. So the first guest PC
-        // inside main is after rtld is finished with both tables, and long
-        // before nn::ro loads any NRO (Smash's first LoadNro is ~33s in).
+        // rtld is the entrypoint and relocates every module before branching to main, so the first PC inside main is after
+        // rtld is done with both tables and long before nn::ro loads any NRO.
         std::scoped_lock lock{g_process_init_lock};
         if (!g_rela_restored.exchange(true, std::memory_order_acq_rel)) {
             LOG_INFO(Core_ARM, "recomp: first execution in main at pc={:#x}; restoring rela sizes",
@@ -2087,11 +1776,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         }
     }
 
-    // A previous miss handed this thread to the JIT; keep running there until
-    // the PC lands back inside recompiled code. The trap sentinel has to be
-    // caught before that hand-off as well as inside the dispatch loop below -
-    // a thread already in the JIT that calls an unresolved import would
-    // otherwise be handed the sentinel address to execute, which is unmapped.
+    // A previous miss handed this thread to the JIT; keep running there until the PC is recompiled again. The trap
+    // sentinel is caught before that hand-off too, since the JIT cannot execute that unmapped address.
     if (impl->ctx.pc == kUnresolvedImportTrap) {
         impl->ctx.x[0] = 0;
         impl->ctx.pc = impl->ctx.x[30];
@@ -2105,9 +1791,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
     impl->ctx.halted = 0;
 
     while (!impl->ctx.halted) {
-        // A host callback or SVC path run since the last block could have
-        // changed this thread's FP mode; one control-register read per
-        // dispatch, not per op.
+        // A host callback or SVC path may have changed this thread's FP mode; one control-register read per dispatch.
         if (fpx_active && !RecompFpEnv::Conforms()) {
             RepairFpEnv("dispatch");
         }
@@ -2125,32 +1809,13 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             impl->ctx.pending_svc = kNoPendingSvc;
         }
 
-        // A recompiled image is keyed by each block's offset within its own
-        // module, because that is all the static pass can know: an NSO's
-        // segment header carries the offset inside the module, not the address
-        // the loader will map it to, and that address changes per run anyway.
-        // The host-side dispatcher (suyu's chained lookup) owns picking which
-        // image the PC belongs to and reducing to that image's offset before
-        // calling into it - a second offset-based retry here used to guess
-        // which image based only on pc-base, but two images can both define a
-        // block at the same offset (every module has one at offset 0), so a
-        // guess made without knowing which image owns the address silently
-        // ran the wrong module's code with no error. Ask with the absolute PC
-        // and let the dispatcher own the reduction.
-        // Rolling trail of the last few PCs. A wild indirect branch reports
-        // only the address it landed on, which says nothing about which block
-        // computed it; without the predecessors there is no way to tell a bad
-        // GOT read from a bad emitted branch.
+        // The dispatcher picks the image and offset for an absolute PC; a guess by pc-base ran the wrong module's code.
+        // Trail of recent PCs: a wild indirect branch reports only where it landed, not which block computed it.
         impl->trail[impl->trail_pos++ & (Impl::kTrail - 1)] = impl->ctx.pc;
 
         if (impl->ctx.pc == kUnresolvedImportTrap) {
-            // Landed here via a BLR through a GOT/JUMP_SLOT slot patched by
-            // ApplyRelocTable because no definition was found anywhere - most
-            // such imports exist for code paths this particular boot never
-            // takes, so treat the call as a no-op: return to the caller with
-            // a zeroed result register rather than crash the thread. x30 is
-            // the guest's own return address (BLR sets it before the branch),
-            // exactly as if this were a real function that did nothing.
+            // BLR through a GOT/JUMP_SLOT patched by ApplyRelocTable with no definition: most such imports are never called in a
+            // given boot, so return to the caller (x30) with x0 = 0 as if a function did nothing.
             static std::atomic<int> trap_count{0};
             if (trap_count.fetch_add(1, std::memory_order_relaxed) < 16) {
                 g_counters.unresolved_import_traps.fetch_add(1, std::memory_order_relaxed);
@@ -2177,9 +1842,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             LOG_INFO(Core_ARM, "First static lookup: pc={:#x}, covered={}", impl->ctx.pc,
                      block != nullptr);
         }
-        // Test hook: forces every lookup past the Nth to miss, so the JIT
-        // fallback below can be exercised on a title that would otherwise never
-        // hit a gap. Unset in normal runs.
+        // Test hook: forces every lookup past the Nth to miss, to exercise the JIT fallback on a title with no gap.
         {
             static const char* const force_miss = std::getenv("SUYU_RECOMP_FORCE_MISS_AFTER");
             static const char* const force_miss_static_blocks =
@@ -2188,9 +1851,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             if (force_miss) {
                 const int n = blocks_run.fetch_add(1, std::memory_order_relaxed);
                 const int limit = std::atoi(force_miss);
-                // Name the blocks either side of the cutoff. Bisecting on the
-                // cutoff tells you which index first breaks the run; this turns
-                // that index into the actual guest address to look at.
+                // Name the blocks either side of the cutoff, turning a bisect index into a guest address.
                 if (n >= limit - 4 && n <= limit + 4) {
                     LOG_ERROR(Core_ARM, "recomp: block #{} pc={:#x}", n, impl->ctx.pc);
                 }
@@ -2198,20 +1859,14 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                     block = nullptr;
                 }
             }
-            // Same hook keyed on a module-relative guest PC. Block counts and
-            // wall clocks both bracket a fault loosely; this hands over at one
-            // named instruction, which is what turns a bracket into a bisect.
-            // Module bases are picked by the loader and differ per run, so the
-            // offset is matched against every loaded base rather than an
-            // absolute address the caller could not know in advance.
+            // Same hook keyed on a module-relative guest PC, matched against every loaded base (bases differ per run); hands over
+            // at one named instruction, turning a bracket into a bisect.
             static const char* const force_miss_at_offset =
                 std::getenv("SUYU_RECOMP_FORCE_MISS_AT_MODULE_OFFSET");
             if (force_miss_at_offset) {
                 static const u64 target = std::strtoull(force_miss_at_offset, nullptr, 0);
-                // Snapshotted rather than read under the counters' lock on every
-                // block, which would cost more than the whole dispatch loop.
-                // Retried while empty because the first guest blocks can run
-                // before the loader has finished registering module bases.
+                // Snapshotted, not read under the counters' lock per block; retried while empty as the loader may not have
+                // registered bases yet.
                 static std::vector<u64> bases;
                 if (bases.empty()) {
                     std::scoped_lock lk{g_counters.hist_lock};
@@ -2237,17 +1892,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                     }
                 }
             }
-            // Address-range hole. Every guest PC whose offset in `main` falls
-            // in [lo, hi) misses the lookup and runs under the JIT while the
-            // rest of the module stays static, which narrows a fault inside a
-            // module the way bisect-modules narrows it to a module. Read at
-            // runtime, so an arm needs neither a re-export nor a rebuild.
-            //
-            // Module-relative for the same reason as the cutoff above. Scoped
-            // to `main` because the same offset exists in every other image.
-            //
-            // Only meaningful when fallback is allowed: under
-            // SUYU_RECOMP_STRICT a miss is a PrefetchAbort, not a handover.
+            // Address-range hole: guest PCs whose offset in `main` falls in [lo, hi) miss the lookup and run under the JIT,
+            // narrowing a fault within a module. Read at runtime; needs fallback allowed (SUYU_RECOMP_STRICT makes a miss an abort).
             static const char* const main_hole = std::getenv("SUYU_RECOMP_MAIN_HOLE");
             if (main_hole) {
                 static u64 hole_lo = 0;
@@ -2267,12 +1913,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                     }
                     return true;
                 }();
-                // Which module the offsets are relative to, as a substring of
-                // its name. Modules are registered under the NSO's own name,
-                // not the exefs file name - Smash's `main` is
-                // `cross2_Release.nss` and its `sdk` is `nnSdk` - so matching
-                // "main" finds nothing. Unset applies the hole to every module,
-                // which is what the all-to-JIT control wants.
+                // Substring of the module name the offsets are relative to (modules use the NSO's own name, e.g. Smash's main is
+                // cross2_Release.nss); unset applies the hole to every module, as the all-to-JIT control wants.
                 static const char* const hole_module = std::getenv("SUYU_RECOMP_HOLE_MODULE");
                 // Snapshotted, and retried while empty, because the first guest
                 // blocks can run before the loader registers module bases.
@@ -2300,10 +1942,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                     }
                     const u64 off = impl->ctx.pc - base;
                     if (off >= hole_lo && off < hole_hi) {
-                        // Logged once so a run proves the hole was applied. A
-                        // silently ignored hole reports the same counters as no
-                        // hole at all, which makes every arm of a bisection look
-                        // uninformative for the wrong reason.
+                        // Logged once so a run proves the hole was applied; a silently ignored hole looks like an uninformative bisection arm.
                         static std::atomic<bool> hole_announced{false};
                         if (!hole_announced.exchange(true, std::memory_order_relaxed)) {
                             LOG_ERROR(Core_ARM,
@@ -2316,9 +1955,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                     }
                 }
             }
-            // Same hook keyed on wall time instead of block count. A stalled
-            // title stops retiring blocks, so a block-count cutoff placed
-            // inside the stall is never reached; seconds get there regardless.
+            // Same hook keyed on wall time: a stalled title stops retiring blocks, so a block-count cutoff inside it is never reached.
             static const char* const force_miss_after_sec =
                 std::getenv("SUYU_RECOMP_FORCE_MISS_AFTER_SEC");
             if (force_miss_after_sec) {
@@ -2357,9 +1994,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                 }
             }
         }
-        // A miss is now recoverable, so it can happen many times per second;
-        // the full diagnostic dump is kept for the first few only, where it is
-        // still useful for finding which indirect call went uncovered.
+        // A miss is recoverable and can be frequent; the full dump is kept for the first few only.
         static std::atomic<int> miss_count{0};
         const int miss_index = block ? 0 : miss_count.fetch_add(1, std::memory_order_relaxed);
         if (!block && miss_index < 8) {
@@ -2374,18 +2009,13 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                       impl->ctx.x[16], impl->ctx.x[17], impl->ctx.x[30], impl->ctx.x[31]);
             LOG_ERROR(Core_ARM, "recomp regs x0={:#x} x15={:#x} x18={:#x} x19={:#x}",
                       impl->ctx.x[0], impl->ctx.x[15], impl->ctx.x[18], impl->ctx.x[19]);
-            // The whole file, four per line. A miss is almost always a bad value
-            // in some register the previous block computed, and guessing which
-            // one to print in advance costs a rebuild per guess.
+            // The whole register file: a miss is usually a bad value the previous block computed, and guessing which to print costs a rebuild.
             for (size_t r = 0; r < 32; r += 4) {
                 LOG_ERROR(Core_ARM, "recomp regs x{:<2}={:#018x} x{:<2}={:#018x} x{:<2}={:#018x} x{:<2}={:#018x}",
                           r, impl->ctx.x[r], r + 1, impl->ctx.x[r + 1], r + 2, impl->ctx.x[r + 2],
                           r + 3, impl->ctx.x[r + 3]);
             }
-            // Dump guest memory around the registers that look like pointers.
-            // A miss caused by a bad *value* and one caused by the wrong data
-            // being mapped at the right address look identical from the
-            // register file alone.
+            // Dump guest memory around likely pointer registers: a bad value and wrong data at the right address look the same in registers.
             for (u32 r : {8u, 22u, 25u}) {
                 const u64 p = impl->ctx.x[r];
                 if (p < 0x1000 || p > 0x0000'FFFF'FFFF'FFFFULL) {
@@ -2399,10 +2029,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             }
             {
                 const u64 mbase = impl->modules.empty() ? 0 : impl->modules.begin()->first;
-                // A wide window through .rodata, to diff against the exporter's
-                // extracted copy: if the two disagree, the recompiled code is
-                // computing correct addresses into memory that holds something
-                // other than what was recompiled against.
+                // A wide .rodata window to diff against the exporter's extracted copy: a mismatch means correct addresses into different memory.
                 for (u64 w = 0x3c00; w < 0x3d80; w += 0x40) {
                     std::string dump;
                     for (u64 i = 0; i < 0x40; i += 4) {
@@ -2420,12 +2047,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             }
         }
         if (!block) {
-            // No recompiled block covers this address: an indirect branch into
-            // code the static pass never reached. The guest's own instructions
-            // are still mapped in guest memory, so hand the thread to a JIT and
-            // keep going instead of returning PrefetchAbort - that halt reason
-            // makes the kernel suspend the thread for a debugger that is not
-            // attached, which is a permanent, silent black-screen hang.
+            // No recompiled block covers this address (an indirect branch into code the static pass never reached); hand the thread to
+            // the JIT, since PrefetchAbort suspends it for an absent debugger and silently hangs on a black screen.
             if (miss_index < 64) {
                 LOG_ERROR(Core_ARM, "No recompiled block at PC {:#x}; falling back to JIT",
                           impl->ctx.pc);
@@ -2449,9 +2072,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             return RunFallback(thread);
         }
 
-        // Dump periodically: teardown is not guaranteed to run (the emulated
-        // process can outlive shutdown), and a run with no report is a run with
-        // no measurement. One compare per block against a power-of-two mask.
+        // Dump periodically since teardown may never run; one compare per block against a power-of-two mask.
         const u64 seen = t_blocks.slot->n.load(std::memory_order_relaxed) + 1;
         t_blocks.slot->n.store(seen, std::memory_order_relaxed);
         if ((seen & 0x3FFFFULL) == 0x3FFFFULL) {
@@ -2459,11 +2080,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             // Time-limited inside; teardown is not guaranteed, as above.
             RecompGaps::Flush(true, false);
         }
-        // Generated code calls a direct branch's target itself rather than
-        // coming back here, so one call below can run a whole chain of blocks.
-        // The budget bounds that chain, and what is left of it afterwards says
-        // how many blocks actually ran - without which every count here would
-        // report chains rather than blocks.
+        // Generated code calls a direct branch's target itself, so one call can run a chain of blocks; the budget left
+        // afterwards gives the number of blocks that actually ran.
         const int chain_budget = RecompChainBudget();
         impl->ctx.chain_budget = chain_budget;
         if (first_run) {
@@ -2483,9 +2101,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             const int spent = chain_budget - impl->ctx.chain_budget;
             u64 after = seen;
             if (spent > 0) {
-                // The first block is already in `seen`. A decrement to zero
-                // parks the next PC without entering it, so that final attempt
-                // contributes no executed block.
+                // The first block is already in `seen`; a decrement to zero parks the next PC without entering it.
                 after += static_cast<u64>(spent - (impl->ctx.chain_budget == 0 ? 1 : 0));
                 t_blocks.slot->n.store(after, std::memory_order_relaxed);
             }
@@ -2514,23 +2130,16 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             return HaltReason::InstructionBreakpoint;
         }
 
-        // The block stopped on an instruction the decoder has no translation
-        // for, having parked the PC on that instruction. Running it on the JIT
-        // instead keeps guest state exact: the alternative the generated code
-        // used to take - step over it and zero x0 - silently produced a
-        // plausible-looking null that only surfaced as a crash much later, in
-        // whatever code eventually dereferenced it.
+        // The block parked its PC on an instruction the decoder cannot translate; the JIT keeps guest state exact, unlike the old
+        // step-over-and-zero-x0 that produced plausible nulls and crashed much later.
         if (impl->ctx.halted == kHaltUnhandled) {
             if ((static_cast<u32>(Impl::HostLoad(impl.get(), impl->ctx.pc, 4)) & 0xffffffe0U) == 0xd50b7520U) {
                 LOG_CRITICAL(Core_ARM, "recomp: legacy unguarded IC IVAU refused at {:#x}", impl->ctx.pc);
                 std::abort();
             }
             impl->ctx.halted = 0;
-            // The generated code knows the encoding but cannot pass it back
-            // through the halt contract, so read it out of guest memory - the
-            // PC is parked exactly on the offending instruction. This is what
-            // ranks the missing opcodes by execution rather than by how often
-            // they appear in the image.
+            // The halt contract cannot carry the encoding, so read it from guest memory (PC is parked on it); this ranks
+            // missing opcodes by execution count.
             g_counters.fallback_from_unhandled.fetch_add(1, std::memory_order_relaxed);
             const u32 unsupported_opcode =
                 static_cast<u32>(Impl::HostLoad(impl.get(), impl->ctx.pc, 4));
@@ -2552,7 +2161,6 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         }
 
         if (impl->ctx.pending_svc != kNoPendingSvc) {
-            // Log every SVC call from rtld (first few hundred only to avoid spam)
             LOG_TRACE(Core_ARM, "recomp SVC {} at pc={:#x} x0={:#x} x1={:#x} x2={:#x} x3={:#x}",
                       impl->ctx.pending_svc, impl->ctx.pc, impl->ctx.x[0], impl->ctx.x[1],
                       impl->ctx.x[2], impl->ctx.x[3]);
@@ -2566,14 +2174,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
 
 HaltReason ArmRecomp::StepThread(Kernel::KThread* thread) {
     impl->SampleDiagnostics(thread);
-    // A context switch voids any outstanding reservation. A thread preempted
-    // between its LDXR and STXR would otherwise have the STXR succeed against a
-    // word another thread changed on this core meanwhile, silently losing an
-    // update to a mutex or condition variable and deadlocking the guest.
-    //
-    // Only on an actual switch: this backend returns to the host constantly
-    // (chain budget, SVCs), so clearing on every entry would void reservations
-    // the same thread is still in the middle of.
+    // A context switch voids any outstanding reservation, or a preempted LDXR/STXR pair could succeed against a word
+    // another thread changed and lose a mutex update. Only on a real switch: this backend returns to the host constantly.
     if (impl->last_thread != thread) {
         impl->last_thread = thread;
         if (impl->exclusive_monitor) {
@@ -2680,19 +2282,14 @@ void ArmRecomp::SetContext(const Kernel::Svc::ThreadContext& ctx) {
     // ThreadContext carries the 32-bit guest FPCR; keep the FPX1 kill switch.
     impl->ctx.fpcr = static_cast<u32>(ctx.fpcr) | FpxInhibitBits();
     impl->ctx.fpsr = ctx.fpsr;
-    // Only the guest-owned thread pointer travels in ThreadContext. The
-    // read-only one is republished separately by PhysicalCore::LoadContext
-    // on every switch-in, so writing it from here would overwrite the
-    // kernel's TLS pointer with the guest's.
+    // Only the guest-owned thread pointer travels in ThreadContext; PhysicalCore::LoadContext republishes the read-only
+    // one on every switch-in, so writing it here would overwrite the kernel's TLS pointer.
     impl->ctx.tpidr_el0 = ctx.tpidr;
 }
 
 void ArmRecomp::SetTpidrroEl0(u64 value) {
-    // The emitted MRS handler for TPIDRRO_EL0 reads this out of the guest
-    // context, so it has to land there and nowhere else: writing it into
-    // tpidr_el0 (as this used to) destroyed the guest's own thread pointer on
-    // every context switch and made the guest emit its IPC header outside the
-    // TLS region the kernel parses it from.
+    // The emitted MRS handler for TPIDRRO_EL0 reads it from the guest context; writing it into tpidr_el0 destroyed the
+    // guest's thread pointer on every context switch.
     impl->ctx.tpidrro_el0 = value;
 }
 
