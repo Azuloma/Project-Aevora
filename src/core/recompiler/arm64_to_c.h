@@ -32,6 +32,7 @@
 #include <tuple>
 #include <vector>
 
+#include "chain_start_budget.h"
 #include "recomp_topology.h"
 
 #ifdef _WIN32
@@ -395,12 +396,20 @@ inline bool g_emit_direct_chain = false;
 // default, and while it is off the emitted text is byte-identical.
 inline bool g_emit_indirect_chain = false;
 
+// Chain start entries: small direct-chain targets also get a "_s" function (same guard slot, no
+// entry check) that direct chains call. Needs g_emit_direct_chain; opt-in, off is byte-identical.
+inline bool g_emit_chain_start = false;
+inline bool EmitChainStart() {
+    return g_emit_direct_chain && g_emit_chain_start;
+}
+
 // Strict static exports have no fallback to carry deliberately gated forms.
 inline bool TranslateAllForExport(bool strict_static, bool explicitly_requested) {
     return strict_static || explicitly_requested;
 }
 
 inline const std::unordered_set<u64>* g_chain_blocks = nullptr;
+inline const std::unordered_set<u64>* g_chain_start_blocks = nullptr;
 inline const char* g_chain_mod = nullptr;
 
 // How many blocks may run before control goes back to the dispatcher. The
@@ -416,23 +425,18 @@ inline constexpr int kChainBudget = 256;
 inline constexpr size_t kDefaultUnitSourceBytes = size_t{8} << 20;
 inline constexpr size_t kDefaultUnitBlocks = 5000;
 
-// Only the unconditional B and BL use this, and only when g_emit_direct_chain is
-// on. Conditional branches deliberately do not chain. Measured on an earlier
-// emitter: chaining them too takes 2.00 ms/frame against 1.80, and turns a tight
-// distribution into one spanning 1.70-2.54 across six reps while the dynarmic arm
-// stays at 2.905 in the same runs. It also pushed JIT transitions from 69,008 to
-// 88,983 and more than doubled lookup misses, which is unexplained and worth
-// understanding before trying this again.
-//
-// The tail call goes through RECOMP_TAIL_CALL, which the unit header defines as a
-// guaranteed tail call where the compiler offers one (clang's musttail) and as a
-// plain call elsewhere. Without the guarantee the frame depth is bounded only by
-// the chain budget, so the budget check must stay ahead of the call.
+// Only unconditional B/BL chain (conditional branches measured worse: OLD_HISTORY.md). The call is
+// RECOMP_TAIL_CALL, a guaranteed tail call under clang, so the budget check stays ahead of it.
 inline std::string ChainTo(u64 t) {
     char b[256];
     if (g_chain_blocks && g_chain_mod && g_chain_blocks->count(t)) {
-        char nm[64];
-        FuncNameTo(nm, g_chain_mod, t);
+        char name_buf[64];
+        FuncNameTo(name_buf, g_chain_mod, t);
+        std::string target_name = name_buf;
+        if (EmitChainStart() && g_chain_start_blocks && g_chain_start_blocks->count(t)) {
+            target_name += "_s";
+        }
+        const char* nm = target_name.c_str();
         // The declaration is at block scope so a unit needs no list of the
         // blocks it reaches.
         snprintf(b, sizeof b,
@@ -5255,6 +5259,8 @@ struct RecompileStats {
     size_t translated_terminators = 0;
     size_t emitted = 0;               ///< instructions actually walked inside discovered blocks
     size_t unhandled = 0;             ///< of those, how many fell through to recomp_unhandled
+    size_t chain_start_blocks = 0;    ///< blocks that got a chain start entry
+    u64 chain_start_estimated_bytes = 0; ///< estimated host bytes those entries add
 
     /// Unhandled counts keyed by encoding group (bits 28:25).
     std::map<u32, size_t> unhandled_by_group;
@@ -5419,51 +5425,91 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
     for (const auto& b : blocks) {
         chain_blocks.insert(b.vaddr);
     }
+    // Direct-chain targets small enough to get a start entry (see g_emit_chain_start).
+    std::unordered_set<u64> chain_start_blocks;
+    if (EmitChainStart()) {
+        for (const auto& b : blocks) {
+            const u32 last_index = (u32)((b.vaddr - base) / 4) + b.count - 1;
+            const u32 last = p[last_index];
+            u64 target = 0;
+            if (((last & 0xFC000000) == 0x14000000 || (last & 0xFC000000) == 0x94000000) &&
+                DirectBranchTarget(last, base + (u64)last_index * 4, target) &&
+                chain_blocks.count(target)) {
+                const auto it = std::lower_bound(
+                    blocks.begin(), blocks.end(), target,
+                    [](const Block& block, u64 vaddr) { return block.vaddr < vaddr; });
+                if (it != blocks.end() && it->vaddr == target &&
+                    it->count <= kChainStartMaxInsns && chain_start_blocks.insert(target).second) {
+                    ++stats.chain_start_blocks;
+                    stats.chain_start_estimated_bytes += EstimateStartEntryHostBytes(it->count);
+                }
+            }
+        }
+    }
     g_chain_blocks = &chain_blocks;
+    g_chain_start_blocks = &chain_start_blocks;
     g_chain_mod = mod.c_str();
     struct ChainScope {
         ~ChainScope() {
             g_chain_blocks = nullptr;
+            g_chain_start_blocks = nullptr;
             g_chain_mod = nullptr;
         }
     } chain_scope;
 
+    std::string rcs;
+    std::string expected_words;
     for (const auto& b : blocks) {
         rcu.clear();
+        rcs.clear();
+        expected_words.clear();
         FuncNameTo(namebuf, mod.c_str(), b.vaddr);
-        rcu += "void ";
-        rcu += namebuf;
-        rcu += "(GuestContext* c){\n";
+        const bool has_start_entry = chain_start_blocks.count(b.vaddr) != 0;
         const u32 first = (u32)((b.vaddr - base) / 4);
-        rcu += "    static const uint32_t _expected[]={";
         if (EmitGuardGen()) {
             // GG1 header: word count, module-relative PC low and high.
             char header[64];
             snprintf(header, sizeof header, "%uU,0x%08xU,0x%08xU,", b.count,
                      (unsigned)(b.vaddr & 0xffffffffu), (unsigned)(b.vaddr >> 32));
-            rcu += header;
+            expected_words += header;
         }
         for (u32 k = 0; k < b.count; ++k) {
-            char word[32]; snprintf(word, sizeof word, "0x%08xU,", p[first + k]); rcu += word;
+            char word[32]; snprintf(word, sizeof word, "0x%08xU,", p[first + k]); expected_words += word;
         }
-        // Verify each entry, including side entries and direct chains. Do not
-        // cache this in a function-static variable: multiple guest cores can
-        // enter the same generated block. Per-entry verification also handles
-        // process reuse and remapped addresses without an unsafe shared epoch.
+        // With a start entry both functions check one file-scope copy of the words.
+        std::string expected_name = "_expected";
+        if (has_start_entry) {
+            expected_name = std::string(namebuf) + "_exp";
+            rcu += "static const uint32_t " + expected_name + "[]={" + expected_words + "};\n";
+        }
+        rcu += "void ";
+        rcu += namebuf;
+        rcu += "(GuestContext* c){\n";
+        if (!has_start_entry) {
+            rcu += "    static const uint32_t _expected[]={" + expected_words;
+        }
+        // Verify every entry, never through a function-static cache: several guest cores enter the
+        // same block, and per-entry checks also cover process reuse and remapped addresses.
+        std::string guard_text;
         if (EmitGuardGen()) {
             // GG1: the same check, skipped while this block's seen word (its
             // slot of the unit's recomp_gg_seen) matches the module generation.
-            rcu += "};\n    RECOMP_GG_GUARD(_expected,@GG_SLOT@U);\n";
+            guard_text = "    RECOMP_GG_GUARD(" + expected_name + ",@GG_SLOT@U);\n";
         } else {
-            rcu += "};\n    recomp_code_guard(c,g_module_base+" + std::to_string(b.vaddr) +
-                   "ULL,_expected," + std::to_string(b.count) + "U,g_recomp_guard_host_v2);\n";
+            guard_text = "    recomp_code_guard(c,g_module_base+" + std::to_string(b.vaddr) +
+                         "ULL," + expected_name + "," + std::to_string(b.count) +
+                         "U,g_recomp_guard_host_v2);\n";
         }
+        rcu += (has_start_entry ? "" : "};\n") + guard_text;
         rcu += "    if(c->halted) return;\n";
-        // Lookup indexes every emitted instruction, not only block starts. An
-        // indirect transfer can therefore enter the middle of this function.
-        // Direct chains publish their exact target PC before calling, so any
-        // address outside this block is an invariant violation, never a request
-        // to start silently at the first instruction.
+        if (has_start_entry) {
+            // Same guard and slot as above; no entry check, as direct chains enter at the start.
+            rcs += "void ";
+            rcs += namebuf;
+            rcs += "_s(GuestContext* c){\n" + guard_text + "    if(c->halted) return;\n";
+        }
+        // Lookup indexes every instruction, so an indirect transfer can enter mid-block. An address
+        // outside this block is an invariant violation, never a request to start at the first insn.
         {
             char addr[32];
             rcu += "    { uint64_t _entry=c->pc-g_module_base; if(_entry!=0x";
@@ -5501,6 +5547,7 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
             bool unhandled = false;
             open = Translate(insn, insn_pc, body, &unhandled);
             rcu += body;
+            if (has_start_entry) rcs += body;
             ++stats.emitted;
             if (unhandled) {
                 ++stats.unhandled;
@@ -5514,34 +5561,36 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
             }
             if (!open) ++stats.translated_terminators;
         }
-        // A block that ends by running off its own end still has to hand the
-        // dispatcher an absolute guest address, exactly as every branch
-        // terminator above does. Emitting the bare module-relative offset here
-        // was silently catastrophic: the host dispatcher picks the owning image
-        // by "greatest base not exceeding the PC", so a small unbased value has
-        // no owner at all and falls through to the "try every image at the raw
-        // PC" path - which happily returns *some other module's* block at the
-        // same offset and runs it against this module's register state.
+        // Falling off the block's end must hand the dispatcher an absolute address, as every branch
+        // does: a bare module offset has no owning image and could run another module's block.
         if (open) {
             char tail[80];
             snprintf(tail, sizeof tail, "    c->pc=g_module_base+0x%llxULL; return;\n",
                      (unsigned long long)(b.vaddr + b.size));
             rcu += tail;
+            if (has_start_entry) rcs += tail;
         }
         rcu += "}\n\n";
+        if (has_start_entry) rcs += "}\n\n";
         // Reserve conservative space for the unit header and dispatch entries.
         // The actual table lines fit in emit_seg's 160-byte buffer.
-        const size_t projected = unit_body.size() + rcu.size() +
+        const size_t projected = unit_body.size() + rcu.size() + rcs.size() +
                                  (unit_blocks + 1) * 160 + 512;
         if (unit_blocks &&
             (unit_blocks >= effective_unit_block_limit || projected > unit_source_limit)) {
             finish_unit();
         }
         if (EmitGuardGen()) {
-            const size_t slot = rcu.find("@GG_SLOT@");
-            rcu.replace(slot, sizeof("@GG_SLOT@") - 1, std::to_string(unit_blocks));
+            const std::string slot_text = std::to_string(unit_blocks);
+            for (std::string* unit_text : {&rcu, &rcs}) {
+                const size_t slot = unit_text->find("@GG_SLOT@");
+                if (slot != std::string::npos) {
+                    unit_text->replace(slot, sizeof("@GG_SLOT@") - 1, slot_text);
+                }
+            }
         }
         unit_body += rcu;
+        unit_body += rcs;
         ++unit_blocks;
     }
     finish_unit();

@@ -76,13 +76,19 @@ VARIANTS = (("abi5", {}),
             ("ggdcic", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                         "SUYU_RECOMP_AB_DIRECT_CHAIN": "1",
                         "SUYU_RECOMP_AB_INDIRECT_CHAIN": "1"}),
+            # Chain start entries (small direct-chain targets get a check-free second entry)
+            # on top of the direct chain, with and without GG1; the run battery covers both.
+            ("abi6dcs", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_DIRECT_CHAIN": "1",
+                         "SUYU_RECOMP_AB_CHAIN_START": "1"}),
+            ("ggdcs", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
+                       "SUYU_RECOMP_AB_DIRECT_CHAIN": "1", "SUYU_RECOMP_AB_CHAIN_START": "1"}),
             # Split-export identity on top of ggfpx; structural only, not golden-hashed.
             ("identity", {"SUYU_RECOMP_AB_FASTMEM": "1", "SUYU_RECOMP_AB_GUARD_GEN": "1",
                           "SUYU_RECOMP_AB_FPX": "1", "SUYU_RECOMP_AB_IDENTITY": "1"}))
 AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
                "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY",
                "SUYU_RECOMP_AB_DIRECT_CHAIN", "SUYU_RECOMP_AB_INDIRECT_CHAIN",
-               "SUYU_RECOMP_AB_FP_SHARED", "SUYU_RECOMP_AB_FPX_VEC")
+               "SUYU_RECOMP_AB_FP_SHARED", "SUYU_RECOMP_AB_FPX_VEC", "SUYU_RECOMP_AB_CHAIN_START")
 # The identity export adds one export to each module's recomp_export.c and nothing else.
 IDENTITY_CHANGED = {"recomp_export.c"}
 # Shared-image names of the "second" module, per the generator's naming rule
@@ -671,28 +677,77 @@ def check_direct_chain(base, chained, what, direct=True, indirect=False):
             raise RuntimeError(f"{base}: chaining leaked into the switched-off output")
 
 
+def check_chain_start(chained, started, what):
+    """The start entry changes the block units only: it adds `_s` for the self-branch target."""
+    check_differences(chained, started, DIRECT_CHAIN_CHANGED, what)
+    for module, plain_module, name in ((started, chained, "smoke"),
+                                        (started / "second", chained / "second", "second")):
+        unit = (module / "src" / f"recompiled_{name}_0.c").read_text(encoding="utf-8")
+        plain = (plain_module / "src" / f"recompiled_{name}_0.c").read_text(encoding="utf-8")
+        target = f"blk_{name}_0000000000001000"
+        if f"void {target}_s(GuestContext* c){{" not in unit:
+            raise RuntimeError(f"{module}: the self-branch target has no start entry")
+        if f"RECOMP_TAIL_CALL({target}_s)" not in unit or f"RECOMP_TAIL_CALL({target})" in unit:
+            raise RuntimeError(f"{module}: the chain does not enter the start entry")
+        if "_s(" in plain or "_exp[]" in plain:
+            raise RuntimeError(f"{chained}: start entries leaked into the switched-off output")
+        # One entry check and one entry switch in the whole unit: the start entry has neither.
+        if unit.count("uint64_t _entry=") != plain.count("uint64_t _entry="):
+            raise RuntimeError(f"{module}: the start entry carries an entry check")
+        start_body = unit.split(f"void {target}_s(GuestContext* c){{", 1)[1].split("\n}\n", 1)[0]
+        if "_recomp_entry_" in start_body or "_entry" in start_body:
+            raise RuntimeError(f"{module}: the start entry has mid-block entry code")
+        if "recomp_code_guard(" not in start_body and "RECOMP_GG_GUARD(" not in start_body:
+            raise RuntimeError(f"{module}: the start entry has no code guard")
+        # Both functions check one shared array, and a GG1 start entry shares the block's slot.
+        if unit.count(f"static const uint32_t {target}_exp[]") != 1:
+            raise RuntimeError(f"{module}: the expected words are not shared")
+        guards = [slot for array, slot in re.findall(r"RECOMP_GG_GUARD\(([A-Za-z0-9_]+),(\d+)U\)", unit)
+                  if array == f"{target}_exp"]
+        if guards and (len(guards) != 2 or guards[0] != guards[1]):
+            raise RuntimeError(f"{module}: the start entry has its own GG1 slot: {guards}")
+        if re.findall(r"recomp_gg_seen\[(\d+)\]", unit) != re.findall(r"recomp_gg_seen\[(\d+)\]", plain):
+            raise RuntimeError(f"{module}: the start entry changed the GG1 slot count")
+
+
 def check_direct_chain_bl(root, exporter, build):
     """Chained BL, RET, BR and BLR, executed: all four on/off combinations (the controls)."""
     env = dict(os.environ)
     for key in AB_SWITCHES:
         env.pop(key, None)
-    for name, direct, indirect in (("bl-plain", False, False), ("bl-direct", True, False),
-                                   ("bl-indirect", False, True), ("bl-both", True, True)):
+    for name, direct, indirect, start in (("bl-plain", False, False, False),
+                                          ("bl-start-nodirect", False, False, True),
+                                          ("bl-direct", True, False, False),
+                                          ("bl-indirect", False, True, False),
+                                          ("bl-both", True, True, False),
+                                          ("bl-start", True, False, True),
+                                          ("bl-start-both", True, True, True)):
         out = root / name
         switches = {}
         if direct:
             switches["SUYU_RECOMP_AB_DIRECT_CHAIN"] = "1"
         if indirect:
             switches["SUYU_RECOMP_AB_INDIRECT_CHAIN"] = "1"
+        if start:
+            switches["SUYU_RECOMP_AB_CHAIN_START"] = "1"
         call([exporter, "--bl", out], env=dict(env, **switches))
         unit = (out / "src" / "recompiled_bl_0.c").read_text(encoding="utf-8")
-        if ("RECOMP_TAIL_CALL(blk_bl_000000000000100c)" in unit) != direct:
+        callee = "blk_bl_000000000000100c" + ("_s" if start else "")
+        if (f"RECOMP_TAIL_CALL({callee})" in unit) != direct:
             raise RuntimeError(f"{name}: the BL is not {'chained' if direct else 'plain'} in the text")
         if ("RECOMP_TAIL_CALL(_f)" in unit) != indirect:
             raise RuntimeError(f"{name}: RET/BR/BLR are not "
                                f"{'chained' if indirect else 'plain'} in the text")
+        # Requested without the direct chain it does nothing; the threshold is 8 instructions.
+        for callee, expected in (("100c", start and direct), ("1030", start and direct),
+                                 ("1060", False)):
+            if (f"void blk_bl_000000000000{callee}_s(GuestContext* c){{" in unit) != expected:
+                raise RuntimeError(f"{name}: the start entry of the callee at {callee} is "
+                                   f"{'missing' if expected else 'present'}")
+        start = start and direct
         run = build(f"run-{name}", f"-DBL_DIR={out.as_posix()}",
-                    f"-DBL_EXPECT_CHAIN={int(direct)}", f"-DBL_EXPECT_INDIRECT={int(indirect)}")
+                    f"-DBL_EXPECT_CHAIN={int(direct)}", f"-DBL_EXPECT_INDIRECT={int(indirect)}",
+                    f"-DBL_EXPECT_START={int(start)}")
         call([executable(run, "smoke_bl")], timeout=15)
     print("Chain execution checks passed.")
 
@@ -797,6 +852,7 @@ def main():
         call([executable(export_build, "smoke_env_option_unit")])
         call([executable(export_build, "smoke_thread_time_unit")])
         call([executable(export_build, "smoke_sharded_counters_unit")])
+        call([executable(export_build, "smoke_chain_start_budget_unit")])
         call([executable(export_build, "smoke_overlay_logic_unit")])
         call([executable(export_build, "smoke_build_identity_unit")])
         call([executable(export_build, "smoke_topology_unit")])
@@ -825,6 +881,8 @@ def main():
                            direct=False, indirect=True)
         check_direct_chain(generated["abi6gg"], generated["ggdcic"], "GG1+direct+indirect chain",
                            direct=True, indirect=True)
+        check_chain_start(generated["abi6dc"], generated["abi6dcs"], "chain start")
+        check_chain_start(generated["ggdc"], generated["ggdcs"], "GG1+chain start")
         check_identity(generated["ggfpx"], generated["identity"])
 
         for name, switches in VARIANTS:

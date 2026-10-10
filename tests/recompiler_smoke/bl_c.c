@@ -1,17 +1,18 @@
-/* Runs the direct B/BL and indirect RET/BR/BLR chaining fixture (bl_code.h).
-   BL_EXPECT_CHAIN is 1 when the module was exported with direct chaining and
-   BL_EXPECT_INDIRECT is 1 when it was exported with indirect chaining, so the same
-   checks pin all four texts: a chained transfer runs its target inside the one block
-   function call and spends one unit of budget, an unchained one parks the target's
-   address and returns for the run-slice loop to look it up. Whatever the text, the
-   slice has to reach the same end state. */
+/* Runs the chaining fixture (bl_code.h); BL_EXPECT_CHAIN/BL_EXPECT_INDIRECT say which chains the
+   module was exported with. A chained transfer runs its target in one call and spends one budget
+   unit, an unchained one parks the address; either way the slice must reach the same end state. */
 #include "recomp_runtime.h"
 #include "bl_code.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #if !defined(BL_EXPECT_CHAIN) || !defined(BL_EXPECT_INDIRECT)
 #error "BL_EXPECT_CHAIN and BL_EXPECT_INDIRECT must be 0 or 1"
+#endif
+/* BL_EXPECT_START is 1 when the callee was exported with a chain start entry. */
+#ifndef BL_EXPECT_START
+#define BL_EXPECT_START 0
 #endif
 
 extern void recomp_image_set_base(uint64_t);
@@ -20,6 +21,10 @@ extern BlockFn recomp_image_lookup(uint64_t);
 extern unsigned recomp_image_guard_v2(unsigned);
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+
+#if BL_EXPECT_START
+extern void blk_bl_000000000000100c_s(GuestContext*);
+#endif
 
 static GuestContext context;
 
@@ -153,8 +158,47 @@ static int run_checks(uint64_t base) {
     recomp_image_run_slice(&context);
     CHECK(context.x[0] == 5 && context.x[1] == 1 && context.halted == RECOMP_HALT_BREAKPOINT);
 
+    /* Callees of 8 and 9 instructions (the chain start threshold) end the same way. */
+    reset(BL_CALL8, 32);
+    recomp_image_run_slice(&context);
+    CHECK(context.x[2] == 7 && context.halted == RECOMP_HALT_BREAKPOINT && context.pc == AT(0x1028));
+    reset(BL_CALL9, 32);
+    recomp_image_run_slice(&context);
+    CHECK(context.x[2] == 8 && context.halted == RECOMP_HALT_BREAKPOINT && context.pc == AT(0x1054));
+
     return 0;
 }
+
+#if BL_EXPECT_START
+/* The start entry runs the same code guard as the general entry: with the callee's code changed
+   neither runs it (hosted + SUYU_RECOMP_STRICT=0 reports halted=UNHANDLED instead of aborting). */
+static int check_start_entry_guard(void) {
+    static uint32_t changed_code[sizeof(bl_code) / sizeof(bl_code[0])];
+    memcpy(changed_code, bl_code, sizeof(changed_code));
+    changed_code[(BL_CALLEE - BL_BASE) / 4] ^= 0x400u;
+#ifdef _WIN32
+    _putenv_s("SUYU_RECOMP_STRICT", "0");
+#else
+    setenv("SUYU_RECOMP_STRICT", "0", 1);
+#endif
+    module_base = 0;
+    recomp_image_set_base(0);
+    reset(BL_CALLEE, 8);
+    context.mem = (uint8_t*)changed_code;
+    blk_bl_000000000000100c_s(&context);
+    CHECK(context.halted == RECOMP_HALT_UNHANDLED && context.x[0] == 0 && context.chain_budget == 8);
+    reset(BL_CALLEE, 8);
+    context.mem = (uint8_t*)changed_code;
+    recomp_image_lookup(BL_CALLEE)(&context);
+    CHECK(context.halted == RECOMP_HALT_UNHANDLED && context.x[0] == 0);
+    /* Control: unchanged code runs through the start entry. */
+    reset(BL_CALLEE, 8);
+    context.x[30] = BL_AFTER_CALL;
+    blk_bl_000000000000100c_s(&context);
+    CHECK(context.x[0] == 5 && context.halted != RECOMP_HALT_UNHANDLED);
+    return 0;
+}
+#endif
 
 int main(void) {
     recomp_image_guard_v2(2);
@@ -162,6 +206,11 @@ int main(void) {
     if (run_checks(0) || run_checks(UINT64_C(0x40000))) {
         return 1;
     }
+#if BL_EXPECT_START
+    if (check_start_entry_guard()) {
+        return 1;
+    }
+#endif
     puts("PASS chain fixture");
     return 0;
 }

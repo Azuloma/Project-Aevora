@@ -137,6 +137,7 @@ public:
     /// "launcher_link" (launcher link, generic error) and "launcher_lnk1248" (launcher image
     /// over the 2 GB limit). "tamper_dll" and "remove_dll" damage the module's collected DLL
     /// after the build recorded it, so the packaging check against that record has to catch it.
+    /// "chain_start_budget" makes the chain start size check refuse as if the image were too big.
     static bool IsKnownFailStage(const QString& stage);
     void SetTestExportOptions(const TestExportOptions& options);
     /// True when the last test export stopped because its destination already existed.

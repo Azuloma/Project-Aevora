@@ -60,6 +60,8 @@ HEAD is `2805512` on `main`, on top of `544dad2` and `a67035d`. The host build t
 
 Diagnostic-overhead change (uncommitted): `RecompShardedCounters` now supplies per-thread cache-line-aligned dispatch counters; `svc_calls`, `jit_to_static`, and the SVC histogram moved from the atomic-plus-mutex/map `RecompCounters` path, with SVC ids `>= 256` reported in one overflow line. Fallback JIT SVCs still count only toward `svc_calls`, `early_dispatches` stops at the 64-entry log limit, and `g_current_pcs` uses one cache line per core. `RecordMiss`/`RecordUnhandled` remain unchanged because they run only on static-to-JIT transitions; comments are cleaned up only when touched and are limited to two lines.
 
+Chain-start experiment (uncommitted): `SUYU_AOT_CHAIN_START=1` adds `_s` entries for direct B/BL targets of at most eight instructions, requires the direct chain, and applies a per-image projection refusal near the 2 GiB limit. After commit and reconfigure, measure one export with the option enabled at the same position/orientation using averaged FPS; record image size from the `SizeOfImage` log and the `Chain start [module]` log line, plus the cache fields. Keep it opt-in and do not enable it by default until measured.
+
 ### Contracts to preserve
 
 - Preserve FP_SHARED's exact per-module bodies and FPXV's option, manifest, cache-identity, ABI, and result contracts; do not extend FPXV without sampler/probe evidence.

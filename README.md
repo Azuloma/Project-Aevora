@@ -63,26 +63,7 @@ For example, `v0.1.0-dev7` denotes a development build for version `v0.1.0`. The
 
 ## About Aevora Recompiler
 
-<p align="center">
-  <img alt="aevora-icon" src="Assets/Aevora_Recompiler-git.ICON.png" width="800px" />
-<p>
-
 Aevora Recompiler is an improved version of the Suyu Recompiler, specifically designed to make the necessary changes for statically recompiling Pokémon Legends: Arceus. It does not support recompiling any games other than Pokémon Legends: Arceus, and <strong>Aevora Recompiler assumes no responsibility for any compatibility issues or data loss that may occur.</strong>
-
-<strong>The improvements and enhancements made to the original repo Suyu 0.0.12 are as follows:</strong>
-
-- Inlining of high-speed memory access paths (FMI)
-- Extension of high-speed paths to support floating-point configurations (FPX1)
-- Direct branching (B/BL)
-- Indirect branching (RET/BR/BLR)
-- Reduced locking overhead for exclusive access operations
-- Execution slice adjustments
-- Splitting the main module into DLLs
-- Module management supporting mixed static linking and DLLs
-- Persistent AOT cache
-- Finer-grained splitting of generated C code (from 20,000 blocks/32MB to 5,000 blocks/8MB)
-- Parallel builds scaled to memory capacity and compiler
-- Improved diagnostics for build failures
 
 For other games, consider [Suyu](https://github.com/suyu-emu/suyu-main) or [Drippu](https://github.com/suyu-emu/drippu). Compatibility must be evaluated per game.
 

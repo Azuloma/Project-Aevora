@@ -47,11 +47,13 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 |---|---|
 | `src/suyu/game_export.cpp` | Export dialog, package generation, and generated-code build orchestration (configure, compile, link, packaging). |
 | `src/core/recompiler/arm64_to_c.h` | ARM64-to-C emitter, unit splitting, and the generated module CMake (job pool sizing). |
+| `src/core/recompiler/chain_start_budget.h` | Chain-start host-size projection and per-image 2 GiB safety-margin budget. |
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
 | `src/core/arm/recomp/recomp_thread_time.h` | Opt-in per-guest-thread, per-core `RecompThreadTimeLedger` diagnostic. |
 | `src/core/arm/recomp/recomp_sharded_counters.h` | Per-thread cache-line-aligned counters for dispatch-path diagnostics. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_thread_time_unit`. |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` | Standalone sharded-counter unit test, registered as `smoke_sharded_counters_unit`. |
+| `tests/recompiler_smoke/chain_start_budget_unit.cpp` | Standalone chain-start estimator and per-image budget unit test, registered as `smoke_chain_start_budget_unit`. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
 | `src/core/` | Game loading, memory, and system-service runtime. |
 | `src/suyu_cmd/overlay/` | Dear ImGui Vulkan debug overlay, input/statistics logic, build identity, and diagnostics; acquired process-wide by `SuyuCmd::AcquireDebugOverlay`. |
@@ -120,6 +122,7 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - The host embeds the git hash at CMake configure time. After the user commits, reconfigure and build before exporting; check `GIT_REV` in `msvc-release\src\common\scm_rev.cpp`, because `buildsuyu.cmd` alone can report no work and retain the old hash.
 
 - Standing export procedure: the AOT and overlay defaults are on. Set an option to `=0` to disable it; in particular, use `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` when comparing against an all-static or feature-disabled export. Chain experiments now mean switching a chain off to compare. The other procedure rules below are unchanged.
+- `SUYU_AOT_CHAIN_START=1` is an opt-in experiment that requires the direct chain; exports are refused when the projected image approaches the 2 GiB limit.
 
 - Suyu's log tail is lost at export exit; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` status fields, never the log tail, as cache evidence.
 - Never run two `rebuild-suyu.bat` or ninja invocations on one build tree concurrently.

@@ -3505,6 +3505,7 @@ struct BundleIdInputs {
     bool indirect_chain{};
     bool fp_shared{};
     bool fpx_vec{};
+    bool chain_start{};
     unsigned image_abi{};
     unsigned image_features{};
     QString coverage_fingerprint;
@@ -3544,6 +3545,10 @@ static std::string ComputeBundleId(const BundleIdInputs& inputs) {
     if (inputs.fpx_vec) {
         // Only when on, so the id of an export without it stays what it was.
         add("fpx_vec", flag(inputs.fpx_vec));
+    }
+    if (inputs.chain_start) {
+        // Only when on, as above.
+        add("chain_start", flag(inputs.chain_start));
     }
     add("image_abi", QByteArray::number(inputs.image_abi));
     add("image_features", QByteArray::number(inputs.image_features));
@@ -4012,7 +4017,7 @@ bool GameExportDialog::IsKnownFailStage(const QString& stage) {
            stage == QLatin1String("compile") || stage == QLatin1String("dll_link") ||
            stage == QLatin1String("launcher_link") ||
            stage == QLatin1String("launcher_lnk1248") || stage == QLatin1String("tamper_dll") ||
-           stage == QLatin1String("remove_dll");
+           stage == QLatin1String("remove_dll") || stage == QLatin1String("chain_start_budget");
 }
 
 bool GameExportDialog::ShouldInjectFailure(const char* stage, const QString& module) const {
@@ -4245,6 +4250,16 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         suyu::recomp::g_emit_fpx_vec = false;
     }
     const bool fpx_vec = suyu::recomp::EmitFpxVec();
+    // Chain start entries (SUYU_AOT_CHAIN_START=1, opt-in) need the direct chain; the manifest
+    // and bundle id record them, and an export projected past the image limit is refused.
+    suyu::recomp::g_emit_chain_start =
+        Common::EnvFlagDefaultOff(qEnvironmentVariable("SUYU_AOT_CHAIN_START").toStdString());
+    if (suyu::recomp::g_emit_chain_start && !suyu::recomp::g_emit_direct_chain) {
+        LOG_WARNING(Frontend, "Chain start entries (SUYU_AOT_CHAIN_START) need "
+                              "SUYU_AOT_DIRECT_CHAIN; exporting without them");
+        suyu::recomp::g_emit_chain_start = false;
+    }
+    const bool chain_start = suyu::recomp::EmitChainStart();
     // What the images will report from recomp_image_features(), recorded in the
     // manifest so a cached export with other features is not reused.
     const unsigned image_features =
@@ -4306,7 +4321,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         bundle_id_hex = ComputeBundleId(BundleIdInputs{
             source_hash, effective_backend_name, full_scan, translate_all,
             suyu::recomp::g_emit_fastmem, suyu::recomp::EmitGuardGen(), suyu::recomp::g_emit_fpx,
-            fm_inline, direct_chain, indirect_chain, fp_shared, fpx_vec,
+            fm_inline, direct_chain, indirect_chain, fp_shared, fpx_vec, chain_start,
             suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
             coverage_fingerprint, fallback_enabled, dll_modules});
         LOG_INFO(Frontend, "Split export: main is built as a DLL, bundle id {}", bundle_id_hex);
@@ -4435,6 +4450,11 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const bool same_fpx_vec = cached_fpx_vec.isBool()
                                           ? cached_fpx_vec.toBool() == fpx_vec
                                           : cached_fpx_vec.isUndefined() && !fpx_vec;
+            // Absent in a cache from before the option: that cache has no start entries.
+            const QJsonValue cached_chain_start = manifest_object.value(QStringLiteral("chain_start"));
+            const bool same_chain_start = cached_chain_start.isBool()
+                                              ? cached_chain_start.toBool() == chain_start
+                                              : cached_chain_start.isUndefined() && !chain_start;
             bool same_topology = false;
             QString split_detail;
             std::optional<SplitExportRecord> cached_split;
@@ -4476,6 +4496,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             require(same_indirect_chain, "indirect_chain");
             require(same_fp_shared, "fp_shared");
             require(same_fpx_vec, "fpx_vec");
+            require(same_chain_start, "chain_start");
             require(same_correctness_revision, "correctness_revision");
             require(same_coverage, "coverage_fingerprint");
             require(same_translate_all, "translate_all");
@@ -4779,6 +4800,10 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     }
     u64 lifted_code_bytes = 0;
     std::size_t lifted_modules = 0;
+    // Chain start entries are budgeted per linked image: the main DLL alone in a split export,
+    // otherwise every module together in the launcher.
+    suyu::recomp::ChainStartImageProjection main_dll_projection;
+    suyu::recomp::ChainStartImageProjection launcher_projection;
 
     for (const auto& mod : module_results) {
         if (mod.text_bytes.empty()) {
@@ -4912,6 +4937,33 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         } catch (...) {
             LOG_ERROR(Frontend, "EmitProject failed for module {} (unknown error)",
                       mod.name.toStdString());
+        }
+
+        if (emit_ok && chain_start) {
+            const bool in_main_dll = split_main && mod.name == QLatin1String(kSplitDllModuleName);
+            auto& projection = in_main_dll ? main_dll_projection : launcher_projection;
+            const auto budget =
+                projection.Add(mod.text_bytes.size(), stats.chain_start_estimated_bytes);
+            const QString image_name = in_main_dll ? tr("main DLL") : tr("launcher");
+            constexpr double kBytesPerMiB = 1024.0 * 1024.0;
+            LOG_INFO(Frontend,
+                     "Chain start [{}]: {} start entries, about {:.1f} MiB added; projected {} "
+                     "image {:.1f} MiB of {:.1f} MiB allowed",
+                     mod.name.toStdString(), stats.chain_start_blocks,
+                     static_cast<double>(stats.chain_start_estimated_bytes) / kBytesPerMiB,
+                     image_name.toStdString(),
+                     static_cast<double>(budget.projected_image_bytes) / kBytesPerMiB,
+                     static_cast<double>(budget.allowed_image_bytes) / kBytesPerMiB);
+            if (!budget.fits || ShouldInjectFailure("chain_start_budget", mod.name)) {
+                reject_export(tr("With chain start entries (SUYU_AOT_CHAIN_START) the %1 image, "
+                                 "through module '%2', is projected to need %3 MiB, above the "
+                                 "%4 MiB allowed below the 2 GiB image limit. Unset "
+                                 "SUYU_AOT_CHAIN_START to export without them.")
+                                  .arg(image_name, mod.name)
+                                  .arg(budget.projected_image_bytes >> 20)
+                                  .arg(budget.allowed_image_bytes >> 20));
+                return {};
+            }
         }
 
         if (emit_ok && ShouldInjectFailure("emit", mod.name)) {
@@ -6283,6 +6335,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         }
         out << "  \"direct_chain\": " << (direct_chain ? "true" : "false") << ",\n";
         out << "  \"indirect_chain\": " << (indirect_chain ? "true" : "false") << ",\n";
+        out << "  \"chain_start\": " << (chain_start ? "true" : "false") << ",\n";
         out << "  \"correctness_revision\": \"" << kGeneratorCorrectnessRevision << "\",\n";
         out << "  \"source_exefs_sha256\": \"" << source_hash << "\",\n";
         out << "  \"translate_all\": " << (translate_all ? "true" : "false") << ",\n";

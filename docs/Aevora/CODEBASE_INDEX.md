@@ -52,6 +52,9 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `kChainBudget` | `arm64_to_c.h:351` (v) | Blocks run before control returns to the dispatcher. |
 | `ChainTo` / `ChainIndirect` | `arm64_to_c.h:299-302`, `:409-440` (v) | Default-on direct B/BL and independent indirect RET/BR/BLR tail-chain emitters; set the corresponding environment option to `0` to disable; indirect lookup subtracts the module base and preserves budget on misses. |
 | `g_emit_direct_chain` / `g_emit_indirect_chain` | `arm64_to_c.h:367-374` (v) | Independent default-on chain switches controlled by `SUYU_AOT_DIRECT_CHAIN=0` and `SUYU_AOT_INDIRECT_CHAIN=0`. |
+| `g_emit_chain_start` / `EmitChainStart()` | `arm64_to_c.h:400-404` | Opt-in chain-start switch; effective only when direct chaining is enabled. |
+| Chain-start target set and `_s` emission | `arm64_to_c.h:5428-5510` and `:5568-5578` | Finds direct B/BL targets at most `kChainStartMaxInsns` instructions, selects `_s` from `ChainTo`, and shares the expected-word array and GG1 slot. |
+| `chain_start_budget.h` | `src/core/recompiler/chain_start_budget.h:14-53` | Estimates start-entry host bytes and projects guest text plus entries per linked image under the 2 GiB limit with a 128 MiB margin. |
 | `RECOMP_TAIL_CALL` | `arm64_to_c.h:5258-5273` (v) | Generated-unit macro: clang uses `musttail`; other compilers use a bounded plain call/return; emitted only when a chain flag is enabled. |
 | `EmitProject()` | `arm64_to_c.h:5084` (v) | Per-module entry point. Emits C sources, `GuestContext`, the module `CMakeLists.txt`, and returns `RecompileStats`. |
 | `SUYU_RECOMP_STRICT` read in emitted code | `arm64_to_c.h:7374` (v) | Generated runtime honours strict mode. |
@@ -75,6 +78,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 |---|---|---|
 | `GameExportDialog` | `game_export.h:44` | Export dialog and state. |
 | FPXV option, manifest, and bundle identity | `game_export.cpp:3507-3546`, `:4235-4247`, `:4434-4478`, `:6282` | Parses `SUYU_AOT_FPX_VEC`, records `fpx_vec`, checks it on cache reuse, and adds it to split bundle identity only when enabled. |
+| Chain-start option, cache identity, and image budget | `game_export.cpp:4255-4263`, `:4454-4460`, `:4805-4807`, `:4942-4964`, `:6338` | Reads `SUYU_AOT_CHAIN_START=1`, requires direct chaining, records manifest/cache/bundle identity, and refuses projected per-image size over the safety margin. |
 | `TargetPlatform`, `RecompileBackend` enums | `game_export.h:134`, `:140` | Windows/Linux/macOS; `SuyuStatic` / `Hybrid` / `Dynarmic`. |
 | `FindBestCmakeExecutable()` | `game_export.cpp:2931` (v) | Finds CMake on PATH, then in VS-bundled locations. |
 | `WantsCompiledOutput()` | `game_export.cpp:3139` (v) | Build (compile) versus Source-only output. |
@@ -260,6 +264,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/aot_cache_unit.cpp` | `smoke_aot_cache_unit` (v, 2026-10-07) | Covers naming, producer seam, lock, staging, publish/replace, interrupted-publish restore, launcher requirement, and non-ANSI cache roots. |
 | `tests/export_integration/run_export_integration.py` | `aot_cache_publish_scenarios()`, `aot_cache_matrix_scenarios()`, `--only-aot-cache`, `--only-aot-cache-matrix` (v, 2026-10-07) | Covers publish/failure preservation/reuse/producer changes/lock and the named artifact, manifest-input, backend/topology, source, and package-exclusion matrix. |
 | `tests/export_integration/run_export_integration.py` | `aot_cache_matrix_scenarios()` chain cases (`:702-706`, env-driven scenario `:767-768`) | Mutates direct/indirect manifest fields and restarts suyu with chain environment variables to verify naming, manifest/bundle-id changes, reuse, and refusal when switching off. |
+| `tests/export_integration/run_export_integration.py` | chain-start matrix cases `:906-941` | Verifies manifest mutation, direct-chain prerequisite, bundle-id/reuse behavior, split and non-split per-image refusal injection, and successful export without the injected refusal. |
+| `tests/recompiler_smoke/chain_start_budget_unit.cpp` | `smoke_chain_start_budget_unit` | Checks estimator boundaries, PLA calibration fit, and separate versus combined image projections. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests; export integration covers AOT-cache publish/reuse and binding mismatches; export build-kit tests reject split modules at configure time; export-regression fixture execution remains blocked by its Qt-root layout lookup. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
 

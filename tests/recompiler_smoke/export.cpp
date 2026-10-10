@@ -65,14 +65,22 @@ static int ExportXmod(const std::string& out_dir) {
     return failed;
 }
 
-// --bl <dir>: the chaining fixture (bl_code.h). Honours SUYU_RECOMP_AB_DIRECT_CHAIN
-// (B/BL) and SUYU_RECOMP_AB_INDIRECT_CHAIN (RET/BR/BLR) so one fixture is exported with
-// each combination of them.
+// --bl <dir>: the chaining fixture (bl_code.h), exported with each combination of the
+// SUYU_RECOMP_AB_DIRECT_CHAIN, _INDIRECT_CHAIN and _CHAIN_START switches.
 static int ExportBl(const char* out_dir) {
     suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
     suyu::recomp::g_emit_indirect_chain = EnvOn("SUYU_RECOMP_AB_INDIRECT_CHAIN");
+    suyu::recomp::g_emit_chain_start = EnvOn("SUYU_RECOMP_AB_CHAIN_START");
     const auto stats = suyu::recomp::EmitProject(
         "bl", reinterpret_cast<const uint8_t*>(bl_code), sizeof(bl_code), BL_BASE, out_dir, true);
+    // Callees of 2 and 8 instructions get one; the 9-instruction callee is over the threshold.
+    const size_t expected_start_blocks = suyu::recomp::EmitChainStart() ? 2 : 0;
+    if (stats.chain_start_blocks != expected_start_blocks) {
+        std::fprintf(stderr, "bl export: %llu chain start blocks, expected %zu\n",
+                     static_cast<unsigned long long>(stats.chain_start_blocks),
+                     expected_start_blocks);
+        return 1;
+    }
     if (stats.unhandled != 0 || stats.emitted != sizeof(bl_code) / 4) {
         std::fprintf(stderr, "bl export: emitted %llu of %zu, %llu unhandled\n",
                      static_cast<unsigned long long>(stats.emitted), sizeof(bl_code) / 4,
@@ -103,6 +111,7 @@ int main(int argc, char** argv) {
     suyu::recomp::g_emit_image_identity = EnvOn("SUYU_RECOMP_AB_IDENTITY");
     suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
     suyu::recomp::g_emit_indirect_chain = EnvOn("SUYU_RECOMP_AB_INDIRECT_CHAIN");
+    suyu::recomp::g_emit_chain_start = EnvOn("SUYU_RECOMP_AB_CHAIN_START");
     if (xmod) return ExportXmod(argv[2]);
     const auto stats = suyu::recomp::EmitProject(
         "smoke", reinterpret_cast<const uint8_t*>(smoke_code), sizeof(smoke_code),

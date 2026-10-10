@@ -168,6 +168,8 @@ class Run:
         # a switch change them explicitly (default_option_scenarios, the chain matrix).
         for variable in OPTIONS_PINNED_OFF:
             self.env[variable] = '0'
+        # Opt-in options stay off unless a scenario switches them on.
+        self.env.pop('SUYU_AOT_CHAIN_START', None)
         self.out = self.work / 'out'
         self.fixture = self.work / 'SynthFixture'
         self.process = None
@@ -800,6 +802,9 @@ class Run:
             ('vector FPX1',
              lambda: edit_manifest(r'"fpx_vec": false', '"fpx_vec": true'),
              changed + 'fpx_vec'),
+            ('chain start entries',
+             lambda: edit_manifest(r'"chain_start": false', '"chain_start": true'),
+             changed + 'chain_start'),
             ('direct chaining',
              lambda: edit_manifest(r'"direct_chain": false', '"direct_chain": true'),
              changed + 'direct_chain'),
@@ -889,6 +894,49 @@ class Run:
                         manifest_record().get('bundle_id') == before.get('bundle_id') and
                         manifest_record().get(field) is False)
             export(field + ' off, reused', expect_reused=True)
+
+        # Chain start entries are opt-in and need the direct chain: asked for without it the
+        # request changes nothing; with it the manifest and bundle id record it, and an export
+        # the size check refuses (injected here, the fixture is tiny) leaves no output.
+        before = manifest_record()
+        restart_with('SUYU_AOT_CHAIN_START', '1')
+        try:
+            export('chain start without the direct chain', expect_reused=True)
+            self.record('matrix: chain start without the direct chain: nothing recorded',
+                        manifest_record().get('chain_start') is False and
+                        manifest_record().get('bundle_id') == before.get('bundle_id'))
+            restart_with('SUYU_AOT_DIRECT_CHAIN', '1')
+            try:
+                export('chain start with the direct chain', expect_log='chain_start')
+                after = manifest_record()
+                self.record('matrix: chain start: the manifest and the bundle id record it',
+                            after.get('chain_start') is True and after.get('direct_chain') is True and
+                            after.get('bundle_id') != before.get('bundle_id'),
+                            '%s -> %s' % (before.get('bundle_id'), after.get('bundle_id')))
+                export('chain start, again', expect_reused=True)
+                for split in ('1', '0'):
+                    kind = 'main DLL' if split == '1' else 'launcher'
+                    refusal_out = self.work / ('out-chain-start-refusal-' + split)
+                    status = self.export('static', 'build', rom=fixture, output=refusal_out,
+                                         split_main=split, fail_stage='chain_start_budget')
+                    text = status.get('status', '')
+                    leftovers = [p.name for p in refusal_out.iterdir()] if refusal_out.exists() else []
+                    self.record('matrix: chain start size refusal (split=%s) names the image' % split,
+                                not status.get('success') and not leftovers and
+                                'SUYU_AOT_CHAIN_START' in text and kind in text, text)
+                    status = self.export('static', 'build', rom=fixture, output=refusal_out,
+                                         split_main=split, conflict='replace')
+                    self.record('matrix: chain start export without the refusal succeeds (split=%s)'
+                                % split, status.get('success'), status.get('status', ''))
+            finally:
+                restart_with('SUYU_AOT_DIRECT_CHAIN', '0')
+        finally:
+            restart_with('SUYU_AOT_CHAIN_START', None)
+        export('chain start switched off again', expect_log='chain_start')
+        self.record('matrix: chain start off again: the original bundle id returns',
+                    manifest_record().get('bundle_id') == before.get('bundle_id') and
+                    manifest_record().get('chain_start') is False)
+        export('chain start off, reused', expect_reused=True)
 
         # Real recorded coverage: a store file for this title with a code offset of the main
         # module changes the generated code, so the cached build no longer matches (the

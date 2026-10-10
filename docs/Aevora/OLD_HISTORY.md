@@ -7,6 +7,10 @@ Archived, append-only record moved out of WORK_PLAN.md on 2026-10-05. Entries ar
 
 The original text is also retained in git history before the commit that shortened the code comments.
 
+### Conditional-branch chaining
+
+The emitter deliberately chains only unconditional B and BL instructions; conditional branches do not chain. In an earlier emitter, adding conditional-branch chaining measured 2.00 ms/frame versus 1.80 ms/frame without it. Across six repetitions, it changed a tight distribution into one spanning 1.70–2.54 ms/frame, while the Dynarmic arm measured 2.905 ms/frame in the same runs. It also increased JIT transitions from 69,008 to 88,983 and more than doubled lookup misses. The causes of the transition and lookup changes were unexplained, so conditional-branch chaining was not tried again until they could be understood.
+
 ### Chain budget
 
 `kShortSliceChainBudget` is the number of direct-call chain blocks that may run before returning. Only this side sets it; generated code only decrements it, so the emitter does not need to agree on the value.

@@ -6,6 +6,7 @@
 #include "common/env_option.h"
 
 using Common::EnvChoice;
+using Common::EnvFlagDefaultOff;
 using Common::EnvFlagDefaultOn;
 using Common::ParseEnvChoice;
 
@@ -34,6 +35,16 @@ int FlagIsOnUnlessZero() {
     return 0;
 }
 
+int FlagIsOffUnlessOne() {
+    CHECK(!EnvFlagDefaultOff(""));
+    CHECK(EnvFlagDefaultOff("1"));
+    CHECK(!EnvFlagDefaultOff("0"));
+    CHECK(!EnvFlagDefaultOff("true"));
+    CHECK(!EnvFlagDefaultOff("11"));
+    CHECK(!EnvFlagDefaultOff(" 1"));
+    return 0;
+}
+
 int ChoiceDistinguishesDefaultFromRequest() {
     CHECK(ParseEnvChoice("") == EnvChoice::Default);
     CHECK(ParseEnvChoice("0") == EnvChoice::Off);
@@ -51,6 +62,7 @@ int ChoiceDistinguishesDefaultFromRequest() {
 
 int main() {
     CHECK(FlagIsOnUnlessZero() == 0);
+    CHECK(FlagIsOffUnlessOne() == 0);
     CHECK(ChoiceDistinguishesDefaultFromRequest() == 0);
     std::puts("All synthetic ENV OPTION smoke checks passed.");
     return 0;

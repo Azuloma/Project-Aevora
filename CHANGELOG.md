@@ -7,21 +7,25 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 *Development entry 20 toward v0.0.1. Not a release; no build artifacts are published.*
 
 ### Added
-- Added `RecompShardedCounters` with per-thread cache-line-aligned slots, single-writer load+store increments, and aggregate reads whose leaked slots outlive their threads.
-- Added `smoke_sharded_counters_unit`, including a shared-slot negative control that skips with a message on single-hardware-thread hosts.
+- Added `RecompShardedCounters` with per-thread cache-line-aligned slots, single-writer load+store increments, aggregate reads whose leaked slots outlive their threads, and `smoke_sharded_counters_unit` coverage; its shared-slot negative control skips with a message on single-hardware-thread hosts.
+- Added the opt-in `SUYU_AOT_CHAIN_START=1` experiment: `_s` entries serve direct-chain targets of at most eight instructions, sharing a guard and GG1 slot; it requires the direct chain and is off unless the value is exactly `1`.
+- Added `Common::EnvFlagDefaultOff`, the `chain_start` manifest/cache/bundle-id field, `chain_start_budget.h`, per-image projected-size refusal, the `chain_start_budget` test stage and `smoke_chain_start_budget_unit`, extended BL fixtures and `abi6dcs`/`ggdcs` smoke variants, and export-integration chain-start cases.
 
 ### Changed
-- Moved `svc_calls`, `jit_to_static`, and the SVC-number histogram from the locked `RecompCounters` path to sharded counters; SVC ids `>= 256` are reported in one overflow line. Fallback (JIT) SVCs still count only toward `svc_calls`, and `early_dispatches` stops incrementing at the 64-entry log limit.
-- Made `g_current_pcs` one cache line per core. `RecordMiss` and `RecordUnhandled` remain mutex/map diagnostics for static-to-JIT transitions.
-- Updated the smoke registration and project documentation for the new counter unit.
-- Reduced all code comments in `src/core/arm/recomp/arm_recomp.cpp` to at most two lines (comment-only change; non-comment lines were verified identical); moved the measurements to `OLD_HISTORY.md`.
+- Moved `svc_calls`, `jit_to_static`, and the SVC-number histogram from locked `RecompCounters` to sharded counters; SVC ids `>= 256` use one overflow line, fallback (JIT) SVCs count only toward `svc_calls`, and `early_dispatches` stops at the 64-entry log limit. `g_current_pcs` now uses one cache line per core, while `RecordMiss` and `RecordUnhandled` deliberately remain unchanged.
+- Limited every code comment to at most two lines through the new `CLAUDE.md` rule; shortened all comments in `src/core/arm/recomp/arm_recomp.cpp` (comment-only, with non-comment lines verified identical), shortened the ChainTo comment, and moved the measurements and longer text to `OLD_HISTORY.md`.
+- Chain-start refuses each image when its projected size exceeds 2 GiB minus a 128 MiB margin, records `chain_start` in manifest/cache/bundle identity, and remains opt-in; the work-plan handoff was updated for session 22.
+- PLA calibration estimates are about 400,199 unique direct-chain target blocks (12.2% of 3,276,463); at the eight-instruction threshold, 291,542 blocks add about 134 MiB, or about 8.3% of the 1603 MiB main image. A microbenchmark measured about 1.9 versus 1.4 ns per tiny block; this is a synthetic upper bound, not a PLA measurement.
 
 ### Verified
-- The standalone MSVC unit build passed; the host builds of `suyu` and `suyu-cmd` exited 0 with only existing `LOG_*` macro-redefinition warnings.
-- `python tests/recompiler_smoke/run.py --source <repo> --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include` exited 0, including `sharded_counters_unit: OK`.
+- The standalone MSVC unit build passed, host `suyu` and `suyu-cmd` builds exited 0 with only existing `LOG_*` macro-redefinition warnings, and the full smoke suite exited 0, including `sharded_counters_unit`, `chain_start_budget_unit`, and the BL-start variants.
+- `--only-aot-cache-matrix` passed 257 cases with 0 failures. Negative controls failed as intended for shared-slot counters and for chain-start entries without a guard, threshold 0, threshold 9, a separate GG1 slot, and the budget boundary.
+- Orca Code reviewer findings on the counter change (3) and chain-start change (4) were fixed; the cleanup rebuild was completed with export variables cleared.
 
-### Known limitations / held items
-- FPS impact is unmeasured; whether this explains the 22-versus-30 FPS JIT gap or the 8.5 FPS all-off observation remains a hypothesis. Export/runtime verification is not done; the change needs a commit and full export because the AOT cache producer is the commit hash.
+### Known limitations
+- No FPS measurement was made for counter sharding or chain-start. No PLA chain-start export exists, so real image size and performance gain are unknown; the 134 MiB and 8.3% values above are estimates.
+- The 21 and 23.5 FPS observations are separate conditions (direct chain only off and indirect chain only off), not a direct-chain on/off pair. Whether these changes explain the 22-versus-30 FPS JIT gap or the 8.5 FPS all-off observation remains a hypothesis.
+- Export/runtime verification remains incomplete; the work needs a commit and full export because the AOT cache producer is the commit hash.
 
 ## v0.0.1-dev19 - Unreleased
 

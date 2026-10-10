@@ -17,6 +17,11 @@ constexpr bool EnvFlagDefaultOn(std::string_view value) {
     return value != "0";
 }
 
+/// An option that is off unless the variable is exactly "1"; any other text leaves it off.
+constexpr bool EnvFlagDefaultOff(std::string_view value) {
+    return value == "1";
+}
+
 /// What a three-way option variable asked for.
 enum class EnvChoice {
     Default, ///< Unset or empty: the caller decides, usually "on where it is supported".
