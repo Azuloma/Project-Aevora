@@ -3,6 +3,52 @@
 
 Archived, append-only record moved out of WORK_PLAN.md on 2026-10-05. Entries are kept verbatim; for current status, plans, and key facts see [WORK_PLAN.md](WORK_PLAN.md).
 
+## Archived on 2026-10-10 from WORK_PLAN.md (twenty-second-session cleanup)
+
+## Work log, sessions 17-19
+
+- Session 17: overlay stages A-C were completed in `97e32dd` and `0ae08ea`.
+- Session 17: overlay stages D-E and split-main work were completed in `575b796`.
+- Session 17: default-on options and their review fixes were completed in `585c886`.
+- Session 17: the seventeenth-session record contains the associated smoke, integration, and negative-control evidence.
+- Session 18: `2bed3c6` added the per-guest-thread ledger.
+- Session 18: FMI-off A/B image and FPS observations were recorded.
+- Session 18: hot sampler offsets were attributed to real RVAs.
+- Session 18: idle samples were attributed to no runnable guest thread, not GPU/fence wait.
+- Session 19: cleanup rebuild exited 0 after export-running work.
+- Session 19: `SUYU_AOT_FP_SHARED` shared exact FP bodies in `c821526`, with harness, smoke, and integration evidence.
+- Session 19: three reviewer P2 findings were fixed and the documentation batch was completed.
+- Session 19: the host was rebuilt with `GIT_REV c821526d36db0427e44be438c682afb8fa8cf905`.
+- Session 19: the user observed smaller generated files and about 1-2 FPS higher FPS; exact values remain pending.
+- Session 20: `544dad2` added the FPXV all-lane vector FADD/FSUB fast path, with FPX harness and smoke evidence recorded in the dev19 changelog.
+- Session 20: code review reported one AArch64 negative-control issue, fixed in `tests/recompiler_fpx/run.py` (included in the dev19 commit); no other findings were reported.
+- Session 20: the host was rebuilt with `GIT_REV 544dad26944b3c5913b12be0e47b159d6ea59c42`; the user observed no FPS gain after a fresh FPXV-on export.
+
+## Session handoff (2026-10-09, twenty-first session)
+
+### State
+
+Current HEAD is `544dad2` (`recomp: Add all-lane vector FADD/FSUB fast path (SUYU_AOT_FPX_VEC)`), on top of `a67035d` dev18 and `c821526`. FPXV is default-on unless exactly `0`, requires FPX1, is absent from shadow builds, records `fpx_vec` in manifests, and changes split bundle identity only when enabled. The helper covers S-lane FADD/FSUB only and declines on hosts without SSE2; results and ABI are unchanged.
+
+### Contracts to preserve
+
+- Preserve FP_SHARED's exact per-module bodies, option/cache identity, and shared generator source of truth.
+- Preserve overlay architecture, honest `near`/fallback wording, and process/input ownership contracts.
+- Default-on options are exactly-`0` off; split is unset=>default where supported, `0` off, `1` explicit request, other values error.
+- `SUYU_RECOMP_THREAD_TIME` is opt-in and must not change execution; never fake cache producer identity.
+- Attempts are not handoffs, and zero Hybrid attempts is not proof of static execution.
+- Do not extend FPXV to FMUL/FMLA/D/FADDP without PLA sampler and `RECOMP_FPX_PROBE` keep-rate evidence.
+
+### Open issues, in priority order
+
+0. Obtain from the user the FPXV export's manifest `fpx_vec`, exact image sizes, `aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused`, FPS, hardware, and optional `SUYU_AOT_FPX_VEC=0` A/B.
+1. Measure with the PLA sampler and `RECOMP_FPX_PROBE` whether vector FP operations are hot and what the all-lane keep rate is; do not extend FPXV without that evidence.
+2. Carry over per-opcode-class host-size totals, SVC attribution, one-variable chain exports, Stage F, automatic all-static re-plan, Step 6/held items, MSVC `cl` real-title support, and U2 only with explicit approval.
+
+### Immediate next action
+
+Ask for the pending FPXV PLA export data, then measure vector-FP hotness and all-lane keep rate before considering any broader FPXV coverage.
+
 ## Earlier export evidence
 
 The following observations come from the user's previously supplied Suyu log. Preserve a local copy before another run overwrites it; share only a sanitized summary.

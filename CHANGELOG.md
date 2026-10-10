@@ -19,6 +19,11 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - Code review of `544dad2` found one AArch64 negative-control exemption issue, fixed afterwards in `tests/recompiler_fpx/run.py`; no other findings were reported. The host rebuild exited 0 with `GIT_REV` set to `544dad26944b3c5913b12be0e47b159d6ea59c42`.
 - The user observed no FPS gain after a fresh FPXV-on export in the usual PLA scene; this was not measured by an agent.
 
+### User-observed measurements recorded on 2026-10-10
+- In the same usual scene, an export with `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, `SUYU_AOT_FP_SHARED=0`, and `SUYU_AOT_FPX_VEC=0` measured about 8.5 FPS; the `SUYU_AOT_SPLIT_MAIN` setting was not confirmed. Individual direct-chain-off and indirect-chain-off exports measured 21 and 23.5 FPS.
+- A `SUYU_RECOMP_CHAIN_BUDGET` sweep measured 21, 22, 23, 22, 23, and 22 FPS for 32, 64, 128, 256, 512, and 1024. The value was not logged; these are FPS-only observations, and the export configuration was not confirmed.
+- Interpretation: the all-off result refutes the earlier hypothesis that generated-code speed is not the bottleneck; the flat budget sweep weakens the budget-bounded interrupt-latency hypothesis. The all-off cause and the remaining JIT gap are unresolved hypotheses.
+
 ### Known limitations / held items
 - FMUL/FMLA, D-lane, and FADDP vector forms, PLA sampler attribution, `RECOMP_FPX_PROBE` keep-rate measurement, an AArch64/NEON path, and the export integration run remain undone. The user has not provided the export's `fpx_vec` manifest value, image sizes, cache status fields, FPS, hardware, or an `SUYU_AOT_FPX_VEC=0` A/B.
 - The reason for the unchanged observed FPS is unknown. Possible explanations are hypotheses: vector FADD/FSUB is not the bottleneck, uncovered FP operations dominate, the all-lane keep rate is low, or prologue register saves offset the benefit.
