@@ -26,6 +26,7 @@
 #include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
 #include "core/arm/recomp/recomp_diagnostic_sampler.h"
+#include "core/arm/recomp/recomp_sharded_counters.h"
 #include "core/arm/recomp/recomp_thread_time.h"
 #include "core/core.h"
 #include "core/core_timing.h"
@@ -466,21 +467,10 @@ void RepairFpEnv(const char* where) {
 std::atomic<u64> g_forced_cutoff_pc{0};
 std::atomic<u64> g_forced_cutoff_blocks{0};
 
-// An unresolved GOT/JUMP_SLOT relocation used to be left untouched, which
-// means a call through it branches to whatever the raw NSO file already had
-// sitting in that GOT slot - typically a small placeholder/addend value the
-// static linker left for a symbol it expected the *dynamic* linker to fill
-// in later (lazy-binding stub offset, or just zero-adjacent garbage), not a
-// real address. The guest's BLR then lands on that small value directly -
-// e.g. 0xe7ff0 - which is unmapped, and the JIT fallback that "No recompiled
-// block" hands off to can't execute there either, so the whole thread dies.
-// Every unresolved slot is patched to this fixed, recognizable sentinel
-// instead: the dispatch loop below special-cases it as an immediate "return
-// to caller" (PC = LR) rather than a real guest address, so a genuinely
-// call-but-never-actually-invoked unresolved import (the common case - most
-// entries in a large import table exist for code paths a given boot never
-// takes) fails soft instead of crashing the thread outright.
+// Sentinel patched into unresolved GOT/JUMP_SLOT entries; the dispatch loop treats a jump to it
+// as an immediate return to the caller (PC = LR) instead of crashing the thread.
 constexpr u64 kUnresolvedImportTrap = 0xFFFF'FFFF'0000'0000ULL;
+constexpr u64 kEarlyDispatchLogLimit = 64;
 } // namespace
 
 namespace {
@@ -490,30 +480,18 @@ std::mutex g_process_init_lock;
 std::atomic<RecompPrepareFn> g_recomp_prepare{nullptr};
 std::atomic<RecompBindFn> g_recomp_bind{nullptr};
 
-/// Execution coverage for the AOT path (mk8-recomp #13).
-///
-/// The exporter's static coverage says what fraction of the *image* translates.
-/// It cannot say what fraction of *execution* stays on the recompiled path,
-/// and those differ by orders of magnitude: one untranslated instruction inside
-/// a hot loop costs a full engine transition on every iteration, while a
-/// thousand untranslated instructions in code that never runs cost nothing.
-///
-/// Only this decides whether the AOT path is worth anything, and only this can
-/// rank the missing opcodes by what actually executes.
+/// Execution coverage of the AOT path: how much of what runs stays recompiled,
+/// and which missing opcodes actually execute.
 struct RecompCounters {
-    std::atomic<u64> svc_calls{0};
     std::atomic<u64> fallback_from_miss{0};
     std::atomic<u64> fallback_from_unhandled{0};
-    std::atomic<u64> jit_to_static{0};
     std::atomic<u64> unresolved_import_traps{0};
     std::atomic<u64> no_fallback_available{0};
 
-    // Guarded rather than atomic: these are touched only on a transition, which
-    // is by definition already the slow path.
+    // Guarded rather than atomic: touched only on a transition, already the slow path.
     std::mutex hist_lock;
     std::map<u32, u64> unhandled_insn;  ///< guest encoding -> times it forced a fallback
     std::map<u64, u64> miss_pc;         ///< PC with no block -> times it forced a fallback
-    std::map<u32, u64> svc_numbers;     ///< SVC imm -> times the guest issued it
     std::map<u64, u64> sampled_pc;      ///< sparse samples for zero-transition stalls
     /// Load address -> module name, so a PC in this report can be resolved to
     /// module+offset. Without it the addresses mean nothing except beside the
@@ -524,11 +502,6 @@ struct RecompCounters {
     void RecordModules(const std::map<u64, std::string>& m) {
         std::scoped_lock lk{hist_lock};
         modules = m;
-    }
-
-    void RecordSvc(u32 num) {
-        std::scoped_lock lk{hist_lock};
-        ++svc_numbers[num];
     }
 
     void RecordUnhandled(u32 insn) {
@@ -546,7 +519,33 @@ struct RecompCounters {
 };
 
 RecompCounters g_counters;
-std::array<std::atomic<u64>, 4> g_current_pcs{};
+
+// Counters bumped per dispatch or per SVC; slot layout: [svc_calls, jit_to_static, svc numbers...,
+// overflow]. SVC ids at or above kSvcIdLimit share the overflow slot.
+constexpr std::size_t kSvcIdLimit = 256;
+constexpr std::size_t kSvcCallsCounter = 0;
+constexpr std::size_t kJitToStaticCounter = 1;
+constexpr std::size_t kFirstSvcIdCounter = 2;
+constexpr std::size_t kSvcOverflowCounter = kFirstSvcIdCounter + kSvcIdLimit;
+using HotCounters = RecompShardedCounters<kSvcOverflowCounter + 1>;
+HotCounters g_hot_counters;
+thread_local HotCounters::Slot& t_hot_counters = g_hot_counters.Acquire();
+
+void CountSvc(u32 svc_id) {
+    HotCounters::Increment(t_hot_counters, kSvcCallsCounter);
+    HotCounters::Increment(t_hot_counters,
+                           svc_id < kSvcIdLimit ? kFirstSvcIdCounter + svc_id : kSvcOverflowCounter);
+}
+
+u64 TotalSvcCalls() {
+    return g_hot_counters.Sum(kSvcCallsCounter);
+}
+
+// One cache line per core: the cores write their PC every dispatch and must not share a line.
+struct alignas(64) CurrentPc {
+    std::atomic<u64> pc{0};
+};
+std::array<CurrentPc, 4> g_current_pcs{};
 std::atomic<int> g_live_instances{0};
 std::mutex g_snapshot_lock;
 std::map<std::pair<u64, std::size_t>, std::string> g_diagnostic_snapshots;
@@ -600,13 +599,8 @@ auto TopN(const Map& m, size_t n) {
     return v;
 }
 
-/// Formats the run's execution-coverage report.
-///
-/// Built as a string rather than logged line by line so the same text can go to
-/// both the log and a file. The file matters: the emulated process is not
-/// always torn down at shutdown, so ~ArmRecomp may never run and the whole
-/// run's measurement is lost with it. Writing periodically means a report
-/// always exists for the last completed interval however the process ends.
+/// Formats the coverage report as one string for both the log and the periodic
+/// file, since teardown (and ~ArmRecomp) may never run.
 std::string FormatRecompCoverage() {
     const u64 blocks = TotalStaticBlocks();
     const u64 miss = g_counters.fallback_from_miss.load();
@@ -619,18 +613,16 @@ std::string FormatRecompCoverage() {
 
     std::string o = "=== RECOMP EXECUTION COVERAGE ===\n";
     o += fmt::format("  static blocks executed : {}\n", blocks);
-    o += fmt::format("  SVCs to HLE            : {}\n", g_counters.svc_calls.load());
+    o += fmt::format("  SVCs to HLE            : {}\n", TotalSvcCalls());
     o += fmt::format("  static -> JIT          : {} ({} lookup miss, {} unimplemented opcode)\n",
                      transitions, miss, unh);
-    o += fmt::format("  JIT -> static          : {}\n", g_counters.jit_to_static.load());
+    o += fmt::format("  JIT -> static          : {}\n", g_hot_counters.Sum(kJitToStaticCounter));
     o += fmt::format("  unresolved import traps: {}\n", g_counters.unresolved_import_traps.load());
     if (const u64 nofb = g_counters.no_fallback_available.load(); nofb) {
         o += fmt::format("  threads killed with no JIT fallback: {}\n", nofb);
     }
 
-    // Blocks per transition is the number that matters. Each transition costs a
-    // 32-GPR + 32-vector marshal in each direction, so a high static block count
-    // next to a comparable transition count is worse than it looks.
+    // Each transition marshals 32 GPRs + 32 vectors both ways, so blocks per transition is the key figure.
     if (transitions) {
         o += fmt::format("  blocks per transition  : {:.1f}\n",
                          double(blocks) / double(transitions));
@@ -649,15 +641,22 @@ std::string FormatRecompCoverage() {
         o += fmt::format("    {} distinct encodings\n", g_counters.unhandled_insn.size());
     }
 
-    if (!g_counters.svc_numbers.empty()) {
-        // What the guest actually asks the kernel for. A boot that stops making
-        // system calls while still executing millions of blocks is spinning on
-        // something, and this says on what.
+    std::map<u32, u64> svc_numbers;
+    for (u32 id = 0; id < kSvcIdLimit; ++id) {
+        if (const u64 count = g_hot_counters.Sum(kFirstSvcIdCounter + id)) {
+            svc_numbers[id] = count;
+        }
+    }
+    if (!svc_numbers.empty()) {
+        // A boot that stops making SVCs while still executing blocks is spinning; this says on what.
         o += "  --- SVCs by call count ---\n";
-        for (const auto& [num, count] : TopN(g_counters.svc_numbers, 40)) {
+        for (const auto& [num, count] : TopN(svc_numbers, 40)) {
             o += fmt::format("    svc 0x{:02X}  {:>10}\n", num, count);
         }
-        o += fmt::format("    {} distinct SVCs\n", g_counters.svc_numbers.size());
+        o += fmt::format("    {} distinct SVCs\n", svc_numbers.size());
+    }
+    if (const u64 overflow = g_hot_counters.Sum(kSvcOverflowCounter)) {
+        o += fmt::format("    {} SVCs with id >= {:#x}\n", overflow, kSvcIdLimit);
     }
 
     if (!g_counters.modules.empty()) {
@@ -777,7 +776,7 @@ void ReportRecompCoverage() {
 RecompExecutionStats GetRecompExecutionStats() {
     return {
         TotalStaticBlocks(),
-        g_counters.svc_calls.load(std::memory_order_relaxed),
+        TotalSvcCalls(),
         g_counters.fallback_from_miss.load(std::memory_order_relaxed),
         g_counters.fallback_from_unhandled.load(std::memory_order_relaxed),
         g_counters.no_fallback_available.load(std::memory_order_relaxed),
@@ -787,7 +786,7 @@ RecompExecutionStats GetRecompExecutionStats() {
 std::array<u64, 4> GetRecompCurrentPcs() {
     std::array<u64, 4> result{};
     for (std::size_t index = 0; index < result.size(); ++index) {
-        result[index] = g_current_pcs[index].load(std::memory_order_relaxed);
+        result[index] = g_current_pcs[index].pc.load(std::memory_order_relaxed);
     }
     return result;
 }
@@ -1797,11 +1796,9 @@ ArmRecomp::ArmRecomp(System& system, bool uses_wall_clock, RecompLookupFn lookup
 
 ArmRecomp::~ArmRecomp() {
     if (impl->core_index < g_current_pcs.size()) {
-        g_current_pcs[impl->core_index].store(0, std::memory_order_relaxed);
+        g_current_pcs[impl->core_index].pc.store(0, std::memory_order_relaxed);
     }
-    // Reports only copied samples and counters; never dereferences a process
-    // after its page table has been finalized. Report once per session, not once
-    // per host-process lifetime.
+    // Reports copied counters only, never a finalized process; once per session.
     if (g_live_instances.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         ReportRecompCoverage();
         RecompGaps::EndSession(TotalStaticBlocks() >
@@ -1956,14 +1953,14 @@ HaltReason ArmRecomp::RunFallback(Kernel::KThread* thread) {
     }
 
     if (True(hr & HaltReason::SupervisorCall)) {
-        g_counters.svc_calls.fetch_add(1, std::memory_order_relaxed);
+        HotCounters::Increment(t_hot_counters, kSvcCallsCounter);
     }
 
     // Return to recompiled execution as soon as the PC is covered again, so a
     // single uncovered function costs only the time spent inside it.
     if (impl->lookup && impl->lookup(impl->ctx.pc)) {
         impl->in_fallback = false;
-        g_counters.jit_to_static.fetch_add(1, std::memory_order_relaxed);
+        HotCounters::Increment(t_hot_counters, kJitToStaticCounter);
     }
     return hr;
 #endif
@@ -2116,7 +2113,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         }
         impl->SampleDiagnostics(thread);
         if (impl->core_index < g_current_pcs.size()) {
-            g_current_pcs[impl->core_index].store(impl->ctx.pc, std::memory_order_relaxed);
+            g_current_pcs[impl->core_index].pc.store(impl->ctx.pc, std::memory_order_relaxed);
         }
         if (impl->interrupted.load(std::memory_order_relaxed)) {
             return HaltReason::BreakLoop;
@@ -2165,9 +2162,13 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             continue;
         }
 
+        // Counted only until the log limit, so the shared line goes quiet afterwards.
         static std::atomic<u64> early_dispatches{0};
-        const u64 early_dispatch = early_dispatches.fetch_add(1, std::memory_order_relaxed);
-        if (early_dispatch < 64) {
+        u64 early_dispatch = kEarlyDispatchLogLimit;
+        if (early_dispatches.load(std::memory_order_relaxed) < kEarlyDispatchLogLimit) {
+            early_dispatch = early_dispatches.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (early_dispatch < kEarlyDispatchLogLimit) {
             LOG_INFO(Core_ARM, "Early static dispatch #{}: pc={:#x}", early_dispatch,
                      impl->ctx.pc);
         }
@@ -2469,7 +2470,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             LOG_INFO(Core_ARM, "Calling first signed static block at pc={:#x}", impl->ctx.pc);
         }
         block(&impl->ctx);
-        if (early_dispatch < 64) {
+        if (early_dispatch < kEarlyDispatchLogLimit) {
             LOG_INFO(Core_ARM, "Early static return #{}: pc={:#x}, svc={}, halted={}",
                      early_dispatch, impl->ctx.pc, impl->ctx.pending_svc, impl->ctx.halted);
         }
@@ -2555,8 +2556,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             LOG_TRACE(Core_ARM, "recomp SVC {} at pc={:#x} x0={:#x} x1={:#x} x2={:#x} x3={:#x}",
                       impl->ctx.pending_svc, impl->ctx.pc, impl->ctx.x[0], impl->ctx.x[1],
                       impl->ctx.x[2], impl->ctx.x[3]);
-            g_counters.svc_calls.fetch_add(1, std::memory_order_relaxed);
-            g_counters.RecordSvc(static_cast<u32>(impl->ctx.pending_svc));
+            CountSvc(static_cast<u32>(impl->ctx.pending_svc));
             return HaltReason::SupervisorCall;
         }
     }

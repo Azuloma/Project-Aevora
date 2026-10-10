@@ -2,6 +2,26 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev20 - Unreleased
+
+*Development entry 20 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added `RecompShardedCounters` with per-thread cache-line-aligned slots, single-writer load+store increments, and aggregate reads whose leaked slots outlive their threads.
+- Added `smoke_sharded_counters_unit`, including a shared-slot negative control that skips with a message on single-hardware-thread hosts.
+
+### Changed
+- Moved `svc_calls`, `jit_to_static`, and the SVC-number histogram from the locked `RecompCounters` path to sharded counters; SVC ids `>= 256` are reported in one overflow line. Fallback (JIT) SVCs still count only toward `svc_calls`, and `early_dispatches` stops incrementing at the 64-entry log limit.
+- Made `g_current_pcs` one cache line per core. `RecordMiss` and `RecordUnhandled` remain mutex/map diagnostics for static-to-JIT transitions.
+- Updated the smoke registration and project documentation for the new counter unit.
+
+### Verified
+- The standalone MSVC unit build passed; the host builds of `suyu` and `suyu-cmd` exited 0 with only existing `LOG_*` macro-redefinition warnings.
+- `python tests/recompiler_smoke/run.py --source <repo> --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include` exited 0, including `sharded_counters_unit: OK`.
+
+### Known limitations / held items
+- FPS impact is unmeasured; whether this explains the 22-versus-30 FPS JIT gap or the 8.5 FPS all-off observation remains a hypothesis. Export/runtime verification is not done; the change needs a commit and full export because the AOT cache producer is the commit hash.
+
 ## v0.0.1-dev19 - Unreleased
 
 *Development entry 19 toward v0.0.1. Not a release; no build artifacts are published.*

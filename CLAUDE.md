@@ -49,7 +49,9 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `src/core/recompiler/arm64_to_c.h` | ARM64-to-C emitter, unit splitting, and the generated module CMake (job pool sizing). |
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
 | `src/core/arm/recomp/recomp_thread_time.h` | Opt-in per-guest-thread, per-core `RecompThreadTimeLedger` diagnostic. |
+| `src/core/arm/recomp/recomp_sharded_counters.h` | Per-thread cache-line-aligned counters for dispatch-path diagnostics. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_thread_time_unit`. |
+| `tests/recompiler_smoke/sharded_counters_unit.cpp` | Standalone sharded-counter unit test, registered as `smoke_sharded_counters_unit`. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
 | `src/core/` | Game loading, memory, and system-service runtime. |
 | `src/suyu_cmd/overlay/` | Dear ImGui Vulkan debug overlay, input/statistics logic, build identity, and diagnostics; acquired process-wide by `SuyuCmd::AcquireDebugOverlay`. |
@@ -73,6 +75,7 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 - Use named constants for meaningful thresholds and configuration values. Document the reason for a workaround and the conditions under which it applies.
 - Prefer early checks and simple control flow. Avoid deeply nested branches, unrelated refactors, and broad formatting changes.
 - Keep comments focused on intent, assumptions, and constraints. Write code identifiers, comments, and project documentation in English; communicate with the user in Japanese unless requested otherwise.
+- Limit every code comment to at most two lines. Do not write a comment where the code, names, or types already say it; delete such a comment, and any comment over two lines, when you touch or find it. Put longer rationale in WORK_PLAN.md or the commit message, not in the code.
 - Put lasting fixes in the exporter/generator or runtime. Treat generated game code as local output, not the source of truth.
 - For non-ASCII path fixes, trace filesystem conversion, process invocation, and response-file handling. Keep display titles separate from filesystem-safe names, and account for empty names and collisions.
 

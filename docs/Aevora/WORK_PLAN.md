@@ -58,6 +58,8 @@ Held: per-opcode-class host-size totals, SVC attribution, Stage F, automatic all
 
 HEAD is `2805512` on `main`, on top of `544dad2` and `a67035d`. The host build tree `D:\HisuiWakeBuild\msvc-release` still has `GIT_REV 544dad26944b3c5913b12be0e47b159d6ea59c42`, so it is not configured for HEAD. User-observed PLA measurements in the same usual scene found no FPXV gain, about 8.5 FPS with all listed optimizations off, 21/23.5 FPS with direct/indirect chain disabled individually, and 21-23 FPS across chain budgets 32-1024; image sizes, cache fields, hardware, and exact export environments were not provided. It is unknown whether post-export cleanup was run.
 
+Diagnostic-overhead change (uncommitted): `RecompShardedCounters` now supplies per-thread cache-line-aligned dispatch counters; `svc_calls`, `jit_to_static`, and the SVC histogram moved from the atomic-plus-mutex/map `RecompCounters` path, with SVC ids `>= 256` reported in one overflow line. Fallback JIT SVCs still count only toward `svc_calls`, `early_dispatches` stops at the 64-entry log limit, and `g_current_pcs` uses one cache line per core. `RecordMiss`/`RecordUnhandled` remain unchanged because they run only on static-to-JIT transitions; comments are cleaned up only when touched and are limited to two lines.
+
 ### Contracts to preserve
 
 - Preserve FP_SHARED's exact per-module bodies and FPXV's option, manifest, cache-identity, ABI, and result contracts; do not extend FPXV without sampler/probe evidence.
@@ -77,7 +79,7 @@ HEAD is `2805512` on `main`, on top of `544dad2` and `a67035d`. The host build t
 
 ### Immediate next action
 
-Confirm the host reconfigure and ask the user for same-position FMI/FP_SHARED one-variable exports; in parallel, design (do not implement without approval) the issue-2 instrumentation.
+Commit the change, reconfigure the host for the new hash, then run a same-position/orientation A/B with defaults to see whether FPS changes; carry forward the unchanged `RecordMiss`/`RecordUnhandled` behavior and comment-cleanup-when-touched rule. Then ask the user for same-position FMI/FP_SHARED one-variable exports and, in parallel, design (do not implement without approval) the issue-2 instrumentation.
 
 ## How to proceed
 
