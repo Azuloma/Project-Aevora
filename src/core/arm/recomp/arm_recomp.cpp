@@ -340,6 +340,9 @@ std::mutex g_process_init_lock;
 std::atomic<RecompPrepareFn> g_recomp_prepare{nullptr};
 std::atomic<RecompBindFn> g_recomp_bind{nullptr};
 
+// Bumped whenever the loaded-module list changes, so per-thread snapshots know to refresh.
+std::atomic<u32> g_module_generation{0};
+
 /// Execution coverage of the AOT path: how much of what runs stays recompiled,
 /// and which missing opcodes actually execute.
 struct RecompCounters {
@@ -359,6 +362,7 @@ struct RecompCounters {
     void RecordModules(const std::map<u64, std::string>& m) {
         std::scoped_lock lk{hist_lock};
         modules = m;
+        g_module_generation.fetch_add(1, std::memory_order_release);
     }
 
     void RecordUnhandled(u32 insn) {
@@ -401,6 +405,29 @@ const bool kLookupStats = [] {
 }();
 constexpr u64 kLookupStatsWindowNs = 10'000'000'000ULL;
 RecompLookupStats g_lookup_stats;
+
+// Per-thread copy of the module bases and names, so an exit does not take the module-map lock.
+struct ModuleSnapshot {
+    u32 generation = ~0U;
+    std::vector<u64> bases;
+    std::vector<std::string> names;
+};
+
+const ModuleSnapshot& CurrentModuleSnapshot() {
+    thread_local ModuleSnapshot snapshot;
+    const u32 generation = g_module_generation.load(std::memory_order_acquire);
+    if (snapshot.generation != generation) {
+        std::scoped_lock lk{g_counters.hist_lock};
+        snapshot.bases.clear();
+        snapshot.names.clear();
+        for (const auto& [base, name] : g_counters.modules) {
+            snapshot.bases.push_back(base);
+            snapshot.names.push_back(name);
+        }
+        snapshot.generation = generation;
+    }
+    return snapshot;
+}
 
 RecompLookupStats::Counters::Slot& LookupStatsSlot() {
     thread_local RecompLookupStats::Counters::Slot& slot = g_lookup_stats.Acquire();
@@ -2096,6 +2123,7 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         }
         // Generated code calls a direct branch's target itself, so one call can run a chain of blocks; the budget left
         // afterwards gives the number of blocks that actually ran.
+        const u64 lookup_entry_pc = kLookupStats ? impl->ctx.pc : 0;
         const int chain_budget = RecompChainBudget();
         impl->ctx.chain_budget = chain_budget;
         if (first_run) {
@@ -2130,11 +2158,17 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                                    impl->ctx.chain_budget);
                 if (reason == DispatchReturn::Exit) {
                     // A second, diagnostic-only lookup: the unhooked answer for the next pc.
-                    RecompLookupStats::CountExit(stats_slot, impl->lookup(impl->ctx.pc) != nullptr);
+                    const ModuleSnapshot& modules = CurrentModuleSnapshot();
+                    RecompLookupStats::CountExit(
+                        stats_slot, impl->lookup(impl->ctx.pc) != nullptr,
+                        RecompLookupStats::ModuleIndex(modules.bases, lookup_entry_pc),
+                        RecompLookupStats::ModuleIndex(modules.bases, impl->ctx.pc));
                 }
                 if (RecompLookupStats::CountReturn(stats_slot, reason, after - seen + 1)) {
-                    if (const auto report =
-                            g_lookup_stats.TakeReport(SteadyNowNs(), kLookupStatsWindowNs)) {
+                    const ModuleSnapshot& report_modules = CurrentModuleSnapshot();
+                    if (const auto report = g_lookup_stats.TakeReport(
+                            SteadyNowNs(), kLookupStatsWindowNs, report_modules.names,
+                            report_modules.generation)) {
                         LOG_INFO(Core_ARM, "{}", *report);
                     }
                 }

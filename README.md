@@ -35,7 +35,7 @@ Currently, it has become clear that the Suyu recompiler's code execution method 
 
 These planned features are not guaranteed to be implemented, and may change depending on the circumstances, potentially increasing or decreasing in the number of features
 
-- Remove the GUI associated with Suyu and provide GUIs for the Aevora launcher and Awvora Recompiler
+- Remove the GUI associated with Suyu and provide GUIs for the Aevora launcher and Aevora Recompiler
 - Ultrawide support
 - Native 4K and WQHD support, and no Dynamic resolution
 - 60FPS Mode
