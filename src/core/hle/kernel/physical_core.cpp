@@ -235,6 +235,7 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
         // Otherwise, run the thread.
         Core::HaltReason hr{};
         bool guest_time_run = false;
+        std::optional<std::string> guest_time_report;
         std::uint64_t run_end_ns = 0;
         {
             // If we were interrupted, exit immediately.
@@ -252,10 +253,8 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
                 if (kGuestTime) {
                     const std::uint64_t run_start_ns = SteadyNowNs();
                     m_guest_time.BeginRun(thread->GetThreadId(), run_start_ns);
-                    if (const auto report = m_guest_time.TakeReport(
-                            run_start_ns, kGuestTimeWindowNs, m_core_index, kGuestTimeTopCount)) {
-                        LOG_INFO(Kernel, "{}", *report);
-                    }
+                    guest_time_report = m_guest_time.TakeReport(
+                        run_start_ns, kGuestTimeWindowNs, m_core_index, kGuestTimeTopCount);
                     guest_time_run = true;
                 }
                 hr = interface->RunThread(thread);
@@ -283,6 +282,9 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
             m_guest_time.EndRun(run_end_ns, supervisor_call
                                                 ? std::optional<u32>{interface->GetSvcNumber()}
                                                 : std::nullopt);
+        }
+        if (guest_time_report) {
+            LOG_INFO(Kernel, "{}", *guest_time_report);
         }
 
         // Since scheduling may occur here, we cannot use any cached

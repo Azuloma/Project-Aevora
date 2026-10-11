@@ -14,10 +14,7 @@
 namespace Kernel {
 
 // SUYU_GUEST_TIME=1 diagnostic: splits one core's wall time into guest run, idle and host time.
-// Single-writer (its PhysicalCore's thread); times are plain nanoseconds so tests need no clock.
-//
-// Run is BeginRun..EndRun; the gap from EndRun to the next BeginRun on the core is host time (SVC
-// service, scheduler) minus the idle wait inside it, charged to the thread and SVC that opened it.
+// Single-writer, times are plain nanoseconds; the gap after EndRun minus idle is charged as host.
 class GuestTimeLedger {
 public:
     static constexpr std::size_t kSvcSlots = 256;
@@ -92,7 +89,8 @@ public:
         idle_ns_ = 0;
         host_ns_ = 0;
         slices_ = 0;
-        window_open_ = false;
+        window_open_ = true; // reported right after BeginRun, so the new window starts now
+        window_start_ns_ = now_ns;
         return line.str();
     }
 

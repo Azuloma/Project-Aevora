@@ -4,17 +4,17 @@
 
 Aevora (formerly HisuiWake) is a hobby project investigating static recompilation of Pokemon Legends: Arceus (PLA) for PC, using a modified Suyu codebase. The README identifies Suyu v0.0.12 as its base; verify the exact source revision and dependency versions before treating this checkout as a reproducible v0.0.12 build.
 
-The current HEAD, host revision, measurements, and next action are maintained only in the latest `Session handoff` in [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md); do not duplicate per-commit facts here, where they can drift.
+The current HEAD, host revision, measurements, and next action are maintained only in the `Status`, `Current investigation`, `Open issues`, and `Immediate next action` sections of [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md); do not duplicate per-commit facts here, where they can drift.
 
 ## Resuming work
 
-Dev19 delivered FPXV and its cache/manifest contracts; no user-observed FPS gain was found. Dev20 carries FP_SHARED contracts forward and delivered per-thread sharded counters, the two-line comment rule, and opt-in chain start; no chain-start FPS gain was observed.
-The resume procedure is: read `CLAUDE.md`, then the latest WORK_PLAN handoff; verify `GIT_REV` against HEAD before exporting; use same-position averaged FPS for every A/B; and keep chain start opt-in until a measured gain.
+Dev19 delivered FPXV, dev20 per-thread sharded counters, the two-line comment rule, and opt-in chain start; none gave a user-observed FPS gain. Dev21 (commit 5bb3381) added the opt-in backend-agnostic SUYU_GUEST_TIME run/idle/host ledger; session 24 used it with host RIP sampling to compare JIT (30 FPS, 38 uncapped) and AOT (23 FPS) in ms of core time per frame: the gap is guest-code execution plus its runtime services, not SVC/kernel/scheduler/GPU-side host work. The split of the gap between services and code body is undetermined (see WORK_PLAN).
+The resume procedure is: read CLAUDE.md, then WORK_PLAN (Status, Current investigation, Open issues, Immediate next action); run git status/log and verify GIT_REV against HEAD before building or exporting; ask the user to choose the next target before any implementation; use same-position averaged FPS for every A/B and compare backends in ms per frame; keep chain start and the ledger options opt-in.
 Agents never commit, tag, or push. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
 
-Read [README.md](README.md) and [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, acceptance criteria, and the latest session handoff with open issues and the next action; older history is archived in [OLD_HISTORY.md](docs/Aevora/OLD_HISTORY.md). Update it after meaningful progress, batching related Markdown updates at work milestones and completing an unfinished batch before the final report.
+Read [README.md](README.md) and [WORK_PLAN.md](docs/Aevora/WORK_PLAN.md) before changing code. The work plan contains the handoff evidence, ordered milestones, acceptance criteria, the current investigation with its measurements, and the open issues and next action; older history is archived in [OLD_HISTORY.md](docs/Aevora/OLD_HISTORY.md). Update it after meaningful progress, batching related Markdown updates at work milestones and completing an unfinished batch before the final report.
 Use the WORK_PLAN `How to work / procedures` section for the current helper commands and PLA sampling procedure.
 
 ## Finding files
@@ -51,7 +51,9 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
 | `src/core/arm/recomp/recomp_thread_time.h` | Opt-in per-guest-thread, per-core `RecompThreadTimeLedger` diagnostic. |
 | `src/core/arm/recomp/recomp_sharded_counters.h` | Per-thread cache-line-aligned counters for dispatch-path diagnostics. |
+| `src/core/hle/kernel/guest_time_ledger.h` | Opt-in `GuestTimeLedger` (single-writer per core): splits core wall time into guest run, idle, and host (gap) time per guest thread and SVC number; hooked in `PhysicalCore::RunThread`/`Idle`, enabled only by `SUYU_GUEST_TIME=1`. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_thread_time_unit`. |
+| `tests/recompiler_smoke/guest_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_guest_time_unit`. |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` | Standalone sharded-counter unit test, registered as `smoke_sharded_counters_unit`. |
 | `tests/recompiler_smoke/chain_start_budget_unit.cpp` | Standalone chain-start estimator and per-image budget unit test, registered as `smoke_chain_start_budget_unit`. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
@@ -91,6 +93,7 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 6. Report what changed and what was verified. Do not claim success for stages that were skipped or blocked.
 
 Continue work within the user's authorized scope. Ask for missing information only when it blocks the next dependent step; continue independent work where possible. Creating these handoff files does not authorize publishing additional commits or releases.
+When comparing backends, a category total on one side is not the gap: state what the other backend pays for the same work (for example JIT's inline dispatch, FP, and exclusive handling) before attributing a share, and normalize to ms per frame rather than FPS when a frame cap may apply.
 
 The user makes all commits, tags, and pushes. Do not run `git commit`, `git tag`, or `git push`. For each coherent change, add a `## vX.Y.Z-devN - Unreleased` section (or extend the current one) in [CHANGELOG.md](CHANGELOG.md); write it in the next milestone batch and complete that batch before the final report. Then give the user the list of files to commit and a suggested commit message.
 
@@ -140,6 +143,8 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - The host rebuild helper is `D:\HisuiWakeBuild\diag\buildsuyu.cmd`; run it through `cmd.exe /c` with an absolute path and keep logs outside the repository.
 - PLA samplers are local diagnostics; a recompiled image has no PDB, so attribute DLL samples by RVA. The JIT exclusive lock is inline and cannot be compared with the separate SpinLock page.
 - A new standalone test must fail under a deliberately weakened implementation, and that negative control must itself be data-race free.
+- A launcher carrying new runtime code needs commit, reconfigure, and a full export: relink-only is not feasible because the generated registration sources and ABI headers are deleted after an export and the cache keeps only the launcher, DLL, manifest, and recomp_modules.cmake.
+- Before a build or export overwrites them, copy the measured launcher or suyu.exe together with its PDB (verify GUID/Age equality) to a safe folder; sample with sample_raw_rip2.ps1, which records every module base. Run analysis Python with -I -X utf8 (isolated mode ignores PYTHONIOENCODING and the script directory).
 
 - The inspected root build requires CMake 3.22 or newer and C++20. A working Windows baseline (MSVC 14.51 from Build Tools 2026, Ninja, Git for Windows for `patch`, Vulkan SDK for `glslangValidator`, short ASCII `CPM_SOURCE_CACHE`) is recorded in the work plan's Key facts from archived history section (details in `OLD_HISTORY.md`); `docs/Aevora/BUILD.md` has not been written yet.
 - A static launcher links all recompiled modules into one image; MSVC x64 images are limited to 2 GB (LNK1248). Check the image size impact of generated-code changes before a full PLA export.

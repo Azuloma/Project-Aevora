@@ -93,8 +93,23 @@ int ListsBusiestThreadsAndSvcsFirstAndStartsANewWindow() {
     CHECK(!Contains(*report, "id=1 "));
     CHECK(Contains(*report, "svc=0x34 "));
     CHECK(!Contains(*report, "svc=0x1 "));
-    // The next window starts empty.
-    CHECK(!ledger.TakeReport(5000 * kMs, 1000 * kMs, 0, 4).has_value());
+    return 0;
+}
+
+int ReportRightAfterBeginRunKeepsTheNextWindowConsistent() {
+    GuestTimeLedger ledger;
+    ledger.BeginRun(1, 0);
+    ledger.EndRun(100 * kMs, std::nullopt);
+    ledger.BeginRun(1, 1000 * kMs);
+    CHECK(ledger.TakeReport(1000 * kMs, 1000 * kMs, 0, 4).has_value());
+    ledger.EndRun(1100 * kMs, std::nullopt);
+    ledger.BeginRun(1, 2000 * kMs);
+    ledger.EndRun(2100 * kMs, std::nullopt);
+    ledger.BeginRun(1, 3000 * kMs);
+    CHECK(!ledger.TakeReport(1999 * kMs, 1000 * kMs, 0, 4).has_value());
+    const auto report = ledger.TakeReport(3000 * kMs, 1000 * kMs, 0, 4);
+    CHECK(report.has_value());
+    CHECK(Contains(*report, "window_ms=2000 run_pct=10 idle_pct=0 host_pct=90 unattributed_pct=0"));
     return 0;
 }
 
@@ -126,6 +141,7 @@ int main() {
     CHECK(IgnoresIdleOutsideAGapAndClampsItToTheGap() == 0);
     CHECK(ListsBusiestThreadsAndSvcsFirstAndStartsANewWindow() == 0);
     CHECK(ToleratesClockGoingBackwardsAndEarlyReports() == 0);
+    CHECK(ReportRightAfterBeginRunKeepsTheNextWindowConsistent() == 0);
     std::puts("All synthetic GUEST TIME smoke checks passed.");
     return 0;
 }

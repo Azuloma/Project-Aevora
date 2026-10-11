@@ -116,12 +116,17 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `arm_recomp.h/.cpp` (~2,400 lines) | `ArmRecomp : ArmInterface`. Block lookup/dispatch loop, context marshalling (`GuestContextView`, `RecompHostMem` with static_assert-locked offsets), registration hooks (`SetRecompLookup:52`, `SetRecompBindCallback:130`, `BindRecompProcess:135`, `SetRecompPrepareCallback`, `SetRecompBaseSetter`, `PrepareRecompProcess`). |
 | `src/core/arm/recomp/arm_recomp.h:176`, `arm_recomp.cpp:750` **(v)** | `Core::GetRecompModules()` returns a thread-safe copy of the recompiled module map for overlay diagnostics. |
 | `src/core/arm/recomp/recomp_thread_time.h:21` **(v)** | `RecompThreadTimeLedger` records per-guest-thread `RunThread` wall time for the opt-in diagnostic. |
+| `src/core/hle/kernel/guest_time_ledger.h` | `GuestTimeLedger`: `BeginRun`/`EndRun`/`AddIdle`/`TakeReport`, single-writer per core. (v, 2026-10-11) |
+| `src/core/hle/kernel/physical_core.cpp` | `kGuestTime`, `SteadyNowNs`, `BeginRun` + report around `interface->RunThread` in `PhysicalCore::RunThread`, `EndRun` after the halt reason is known, `AddIdle` in `PhysicalCore::Idle`; verify current lines (about :138-143, :250-262, :283, :396-402). (v, 2026-10-11) |
+| `src/core/hle/kernel/physical_core.h` | Member `m_guest_time`. (v, 2026-10-11) |
 | `src/core/arm/recomp/recomp_sharded_counters.h:17` **(v, 2026-10-10)** | `RecompShardedCounters` provides per-thread cache-line-aligned slots, single-writer increments, and aggregate counter reads for dispatch-path diagnostics. |
 | `src/core/arm/recomp/arm_recomp.cpp:279-305`, `:1725`, `:1972-1976` **(v)** | `kThreadTime`, `ThreadTimeScope`, one ledger per `Impl`, and the scope at the top of `ArmRecomp::RunThread`; enabled only by `SUYU_RECOMP_THREAD_TIME=1`. |
 | `src/core/arm/recomp/arm_recomp.cpp:221-245, 815-817, 1172-1176, 2466-2467` **(v, 2026-10-10)** | `kShortSliceChainBudget`/`kLongSliceChainBudget`, startup `kChainBudgetOverride`, `RecompChainBudget()`, `SetRecompLongSlices()`, and AOT `HostReadCntpct()`; the override reads `SUYU_RECOMP_CHAIN_BUDGET` once (valid 1-8192), and CNTPCT uses `CoreTiming().GetClockTicks()`. |
 | `src/core/arm/dynarmic/dynarmic_exclusive_access.h` | Lock-scoped reservation read/compare-and-swap wrappers (`ReadMarked<T>`, `WriteCompared<T>`) with optional attempted reporting. |
 | `src/core/arm/dynarmic/dynarmic_exclusive_monitor.h/.cpp` | Dynarmic exclusive-monitor fast path: resolves plain-page host pointers before the monitor lock, retains the locked Memory path for special/cross-page accesses, and conditionally reports writes. |
 | `src/core/memory.h/.cpp` | `Memory::GetPlainExclusivePointer` (`memory.h:353`, `memory.cpp:1001`) and `Memory::NoteExclusiveWrite` (`memory.h:360`, `memory.cpp:1005`) support the lock-light U1 path. |
+| `src/dynarmic/src/dynarmic/backend/x64/emit_x64_memory.cpp.inc` | `EmitExclusiveReadMemoryInline`/`EmitExclusiveWriteMemoryInline`: inline spin lock, reservation record, fastmem access, `lock cmpxchg`, no write notification. (v, 2026-10-11) |
+| `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp` | `SpinLockImpl`: one 4 KB Xbyak page holding the shared `lock`/`unlock` stubs used by `Dynarmic::ExclusiveMonitor`; unlock is `xchg` without `mfence`. (v, 2026-10-11) |
 | `recomp_bundle.h/.cpp` | Production v1 bundle loading and transactional DLL validation (`LoadRecompBundleV1:444`, `BindRecompBundleToInventory`, `ApplyRecompBundleBases`, `GetRecompExecutableDirectory`); used by the v1 launcher and smoke tests. |
 | `recomp_bridge_required.h` | Shared required host-bridge callback X-macro list and first-missing-callback helper (v, 2026-10-07). |
 | `recomp_image_features.h` | ABI 6 feature bits (FM1 `0x1`, GG1 `0x2`, FPX1 `0x4`). |
@@ -244,6 +249,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, production bundle-loading and mixed-image checks, the three-module xmod fixture, loader stub and lookup-boundary cases, `check_prebuild` split consumer checks, and `smoke_env_option_unit`; MSVC golden hashes require `/utf-8`, matching the real build. |
 | `tests/recompiler_smoke/overlay_logic_unit.cpp`, `build_identity_unit.cpp` | Standalone tests for overlay command/input/statistics logic and AOT manifest build-identity parsing. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` **(v)** | Standalone `RecompThreadTimeLedger` unit; registered as `smoke_thread_time_unit` and invoked by `run.py`. |
+| `tests/recompiler_smoke/guest_time_unit.cpp` | `smoke_guest_time_unit`, registered in `CMakeLists.txt:115-117` and `run.py:854`. (v, 2026-10-11) |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` **(v, 2026-10-10)** | Standalone `RecompShardedCounters` unit; registered as `smoke_sharded_counters_unit` and invoked by `run.py`, with a race-free shared-slot negative control. |
 | `tests/recompiler_smoke/run.py` | The build-identity test requires `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or use a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`. |
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
@@ -268,6 +274,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/chain_start_budget_unit.cpp` | `smoke_chain_start_budget_unit` | Checks estimator boundaries, PLA calibration fit, and separate versus combined image projections. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests; export integration covers AOT-cache publish/reuse and binding mismatches; export build-kit tests reject split modules at configure time; export-regression fixture execution remains blocked by its Qt-root layout lookup. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
+
+Local analysis helpers for session 24 live outside the repository in `D:\HisuiWakeBuild\tmp_gt` and `D:\HisuiWakeBuild\diag\hotrva` (see WORK_PLAN).
 
 ## 8. Entry points for current WORK_PLAN items
 
