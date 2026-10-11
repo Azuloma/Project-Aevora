@@ -9,15 +9,18 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Added
 - Added the opt-in `SUYU_GUEST_TIME=1` ledger (`src/core/hle/kernel/guest_time_ledger.h`, hooked in `PhysicalCore::RunThread` and `PhysicalCore::Idle`): every 10 s per core it logs `guest-time core=N window_ms=... run_pct idle_pct host_pct unattributed_pct slices threads | per-thread run/host | per-SVC host_pct calls`. Run is the time inside `ArmInterface::RunThread`, idle the `PhysicalCore::Idle` wait, and host the gap between runs minus idle, charged to the preceding thread and SVC number; the three sum to about 100%. It is backend-agnostic (JIT and AOT), single-writer per core, off unless the value is exactly `1`, and adds no clock reads when off.
 - Added `smoke_guest_time_unit` (`tests/recompiler_smoke/guest_time_unit.cpp`) registered in `tests/recompiler_smoke/CMakeLists.txt` and `run.py`.
+- Added opt-in lookup statistics, exit-pair classification, and exit-target reports through `SUYU_RECOMP_LOOKUP_STATS=1` and `SUYU_RECOMP_LOOKUP_TARGETS=1`, with `smoke_lookup_stats_unit` and `smoke_exit_targets_unit`.
 ### Changed
 - The ledger first charged SVC time by wall time around `Svc::Call`, which double-counted other fibers' runs (run+svc above 100%); it was replaced by non-overlapping run/idle/gap accounting before the commit.
+- Guest-time windows now restart after a report following `BeginRun`, and report construction is outside the run interval while report logging occurs after `EndRun`.
 ### Verified
 - `guest_time_unit` passed (MSVC standalone), and failed under two deliberately weakened implementations (nested SVC time not subtracted in the first design; idle not subtracted from host in the final design); the host build of `suyu` and `suyu-cmd` exited 0 with only existing `LOG_*` macro-redefinition warnings; after the commit the host was reconfigured and `GIT_REV` matched HEAD `5bb3381`.
 - Same-scene Kotobuki measurements (user FPS: AOT 23, JIT 30, JIT speed limit off 38): per core steady state JIT run/idle/host 51.6/42.2/5.0%, AOT 73.3/21.2/4.0%; busy core time per frame AOT 98.5 ms, JIT 52.0 ms (limit on) and 54.1 ms (limit off). Details and caveats are in WORK_PLAN.
+- The lookup and exit-target units passed with deliberately weakened controls; the host build exited 0, and the full smoke suite passed with `SMOKE_EXIT=0`. Session-25 measurements and the cross-module-chain proposal are recorded in WORK_PLAN.
 ### Known limitations
-- Not yet reviewed by the Orca Code reviewer, and the full `run.py` smoke suite was not run for this commit (only the standalone unit and the host build).
 - The ledger does not attribute time to guest functions; function-level attribution used host RIP sampling plus the DLL block tables and the dumped NSO.
 - The exclusive-access path was analyzed (AOT-only extra about 6.1 ms of core time per frame at most; designs E1/E2 recorded in WORK_PLAN) but nothing was changed.
+- Lookup diagnostics add a second host lookup per exit; the target table overflows and loses its tail; DLL-internal hit/miss counts are not measurable from the host. Cross-module chaining remains a design under review only.
 
 ## v0.0.1-dev20 - Unreleased
 

@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `c821526` (2026-10-09), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `36a1a40` (2026-10-11), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
@@ -120,6 +120,10 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `src/core/hle/kernel/physical_core.cpp` | `kGuestTime`, `SteadyNowNs`, `BeginRun` + report around `interface->RunThread` in `PhysicalCore::RunThread`, `EndRun` after the halt reason is known, `AddIdle` in `PhysicalCore::Idle`; verify current lines (about :138-143, :250-262, :283, :396-402). (v, 2026-10-11) |
 | `src/core/hle/kernel/physical_core.h` | Member `m_guest_time`. (v, 2026-10-11) |
 | `src/core/arm/recomp/recomp_sharded_counters.h:17` **(v, 2026-10-10)** | `RecompShardedCounters` provides per-thread cache-line-aligned slots, single-writer increments, and aggregate counter reads for dispatch-path diagnostics. |
+| `src/core/arm/recomp/recomp_sharded_counters.h:32` **(v, 2026-10-11)** | `RecompShardedCounters::Add` adds an amount to a selected counter slot. |
+| `src/core/arm/recomp/recomp_lookup_stats.h:20-27` **(v, 2026-10-11)** | `DispatchReturn` and `ClassifyReturn` classify dispatcher exits; `RecompLookupStats` begins at line 38, with per-thread windows, module indexes, and top exit pairs. |
+| `src/core/arm/recomp/recomp_exit_targets.h:21` **(v, 2026-10-11)** | `RecompExitTargets` records per-thread exit targets in bounded hash tables and reports top targets, overflow, and rebase state. |
+| `src/core/arm/recomp/arm_recomp.cpp:403-409, 345, 438` **(v, 2026-10-11)** | `kLookupStats`/`kLookupTargets` parse diagnostic flags; `g_module_generation` and `CurrentModuleSnapshot` provide per-thread module snapshots for dispatch-loop reports. |
 | `src/core/arm/recomp/arm_recomp.cpp:279-305`, `:1725`, `:1972-1976` **(v)** | `kThreadTime`, `ThreadTimeScope`, one ledger per `Impl`, and the scope at the top of `ArmRecomp::RunThread`; enabled only by `SUYU_RECOMP_THREAD_TIME=1`. |
 | `src/core/arm/recomp/arm_recomp.cpp:221-245, 815-817, 1172-1176, 2466-2467` **(v, 2026-10-10)** | `kShortSliceChainBudget`/`kLongSliceChainBudget`, startup `kChainBudgetOverride`, `RecompChainBudget()`, `SetRecompLongSlices()`, and AOT `HostReadCntpct()`; the override reads `SUYU_RECOMP_CHAIN_BUDGET` once (valid 1-8192), and CNTPCT uses `CoreTiming().GetClockTicks()`. |
 | `src/core/arm/dynarmic/dynarmic_exclusive_access.h` | Lock-scoped reservation read/compare-and-swap wrappers (`ReadMarked<T>`, `WriteCompared<T>`) with optional attempted reporting. |
@@ -251,6 +255,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/thread_time_unit.cpp` **(v)** | Standalone `RecompThreadTimeLedger` unit; registered as `smoke_thread_time_unit` and invoked by `run.py`. |
 | `tests/recompiler_smoke/guest_time_unit.cpp` | `smoke_guest_time_unit`, registered in `CMakeLists.txt:115-117` and `run.py:854`. (v, 2026-10-11) |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` **(v, 2026-10-10)** | Standalone `RecompShardedCounters` unit; registered as `smoke_sharded_counters_unit` and invoked by `run.py`, with a race-free shared-slot negative control. |
+| `tests/recompiler_smoke/lookup_stats_unit.cpp` **(v, 2026-10-11)** | Dispatcher-return, module-index, per-window, and exit-pair unit; registered as `smoke_lookup_stats_unit`. |
+| `tests/recompiler_smoke/exit_targets_unit.cpp` **(v, 2026-10-11)** | Exit-target hash-table, overflow, rebase, and concurrency unit; registered as `smoke_exit_targets_unit`. |
 | `tests/recompiler_smoke/run.py` | The build-identity test requires `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or use a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`. |
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_exec.c` | Cross-image reservation, counter, FPX, guard, bridge-null, and lookup-boundary fixture execution (v, 2026-10-07). |

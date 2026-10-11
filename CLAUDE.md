@@ -8,7 +8,7 @@ The current HEAD, host revision, measurements, and next action are maintained on
 
 ## Resuming work
 
-Dev19 delivered FPXV, dev20 per-thread sharded counters, the two-line comment rule, and opt-in chain start; none gave a user-observed FPS gain. Dev21 (commit 5bb3381) added the opt-in backend-agnostic SUYU_GUEST_TIME run/idle/host ledger; session 24 used it with host RIP sampling to compare JIT (30 FPS, 38 uncapped) and AOT (23 FPS) in ms of core time per frame: the gap is guest-code execution plus its runtime services, not SVC/kernel/scheduler/GPU-side host work. The split of the gap between services and code body is undetermined (see WORK_PLAN).
+Dev19 delivered FPXV, dev20 per-thread sharded counters, the two-line comment rule, and opt-in chain start; none gave a user-observed FPS gain. Dev21 added the opt-in SUYU_GUEST_TIME ledger, and session 25's lookup diagnostics show that almost all exits are main<->sdk transitions dominated by tiny nn::os leaf calls. A cross-module chain is under review; exact-FP helpers are a small measured share, and the verified evidence is in WORK_PLAN.
 The resume procedure is: read CLAUDE.md, then WORK_PLAN (Status, Current investigation, Open issues, Immediate next action); run git status/log and verify GIT_REV against HEAD before building or exporting; ask the user to choose the next target before any implementation; use same-position averaged FPS for every A/B and compare backends in ms per frame; keep chain start and the ledger options opt-in.
 Agents never commit, tag, or push. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches.
 
@@ -51,11 +51,16 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
 | `src/core/arm/recomp/recomp_thread_time.h` | Opt-in per-guest-thread, per-core `RecompThreadTimeLedger` diagnostic. |
 | `src/core/arm/recomp/recomp_sharded_counters.h` | Per-thread cache-line-aligned counters for dispatch-path diagnostics. |
+| `src/core/arm/recomp/recomp_lookup_stats.h` | Opt-in dispatcher-return, module-pair, and lookup-window statistics. |
+| `src/core/arm/recomp/recomp_exit_targets.h` | Opt-in per-thread exit-target hash tables and top-target reports. |
+| `src/core/arm/recomp/arm_recomp.cpp` | Lookup flags, per-thread module snapshots, generation tracking, and dispatch-loop diagnostic hooks. |
 | `src/core/hle/kernel/guest_time_ledger.h` | Opt-in `GuestTimeLedger` (single-writer per core): splits core wall time into guest run, idle, and host (gap) time per guest thread and SVC number; hooked in `PhysicalCore::RunThread`/`Idle`, enabled only by `SUYU_GUEST_TIME=1`. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_thread_time_unit`. |
 | `tests/recompiler_smoke/guest_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_guest_time_unit`. |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` | Standalone sharded-counter unit test, registered as `smoke_sharded_counters_unit`. |
 | `tests/recompiler_smoke/chain_start_budget_unit.cpp` | Standalone chain-start estimator and per-image budget unit test, registered as `smoke_chain_start_budget_unit`. |
+| `tests/recompiler_smoke/lookup_stats_unit.cpp` | Dispatcher-return and module-pair statistics unit test, registered as `smoke_lookup_stats_unit`. |
+| `tests/recompiler_smoke/exit_targets_unit.cpp` | Exit-target table, overflow, rebase, and concurrency unit test, registered as `smoke_exit_targets_unit`. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
 | `src/core/` | Game loading, memory, and system-service runtime. |
 | `src/suyu_cmd/overlay/` | Dear ImGui Vulkan debug overlay, input/statistics logic, build identity, and diagnostics; acquired process-wide by `SuyuCmd::AcquireDebugOverlay`. |
