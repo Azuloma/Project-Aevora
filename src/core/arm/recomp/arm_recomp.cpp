@@ -25,6 +25,7 @@
 #include "core/arm/recomp/guest_fp_env.h"
 #include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
+#include "core/arm/recomp/recomp_exit_targets.h"
 #include "core/arm/recomp/recomp_lookup_stats.h"
 #include "core/arm/recomp/recomp_diagnostic_sampler.h"
 #include "core/arm/recomp/recomp_sharded_counters.h"
@@ -404,6 +405,18 @@ const bool kLookupStats = [] {
     return e && std::string_view{e} == "1";
 }();
 constexpr u64 kLookupStatsWindowNs = 10'000'000'000ULL;
+// SUYU_RECOMP_LOOKUP_TARGETS=1 also reports the busiest exit target pcs; needs the stats above.
+const bool kLookupTargets = kLookupStats && ([] {
+    const char* e = std::getenv("SUYU_RECOMP_LOOKUP_TARGETS");
+    return e && std::string_view{e} == "1";
+}());
+RecompExitTargets g_exit_targets;
+std::atomic<bool> g_exit_targets_rebased{false};
+
+RecompExitTargets::Slot& ExitTargetsSlot() {
+    thread_local RecompExitTargets::Slot& slot = g_exit_targets.Acquire();
+    return slot;
+}
 RecompLookupStats g_lookup_stats;
 
 // Per-thread copy of the module bases and names, so an exit does not take the module-map lock.
@@ -412,6 +425,15 @@ struct ModuleSnapshot {
     std::vector<u64> bases;
     std::vector<std::string> names;
 };
+
+// "module+0xoffset" for a pc, or the bare pc when no module base is at or below it.
+std::string DescribePc(const ModuleSnapshot& modules, u64 pc) {
+    const std::size_t index = RecompLookupStats::ModuleIndex(modules.bases, pc);
+    if (index >= modules.bases.size()) {
+        return fmt::format("{:#x}", pc);
+    }
+    return fmt::format("{}+{:#x}", modules.names[index], pc - modules.bases[index]);
+}
 
 const ModuleSnapshot& CurrentModuleSnapshot() {
     thread_local ModuleSnapshot snapshot;
@@ -2163,13 +2185,26 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                         stats_slot, impl->lookup(impl->ctx.pc) != nullptr,
                         RecompLookupStats::ModuleIndex(modules.bases, lookup_entry_pc),
                         RecompLookupStats::ModuleIndex(modules.bases, impl->ctx.pc));
+                    if (kLookupTargets) {
+                        RecompExitTargets::Count(ExitTargetsSlot(), impl->ctx.pc);
+                    }
                 }
                 if (RecompLookupStats::CountReturn(stats_slot, reason, after - seen + 1)) {
+                    // Same start as the stats window, which opens on the first report call.
+                    if (kLookupTargets && !g_exit_targets_rebased.exchange(true)) {
+                        g_exit_targets.Rebase();
+                    }
                     const ModuleSnapshot& report_modules = CurrentModuleSnapshot();
                     if (const auto report = g_lookup_stats.TakeReport(
                             SteadyNowNs(), kLookupStatsWindowNs, report_modules.names,
                             report_modules.generation)) {
                         LOG_INFO(Core_ARM, "{}", *report);
+                        if (kLookupTargets) {
+                            LOG_INFO(Core_ARM, "{}",
+                                     g_exit_targets.TakeTop([&report_modules](u64 pc) {
+                                         return DescribePc(report_modules, pc);
+                                     }));
+                        }
                     }
                 }
             }
