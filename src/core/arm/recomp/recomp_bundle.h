@@ -57,6 +57,7 @@ struct RecompBundleModule {
     RecompBundleBlockFn run_slice{};
     unsigned image_abi{};
     unsigned (*guard_v2)(unsigned){};
+    unsigned (*xmod_v1)(const SuyuRecompXmodTableV1*){}; ///< XMOD1 bundles only
     bool is_dll{};
     std::string dll_file; ///< shared-image modules only; for logs
 };
@@ -87,6 +88,9 @@ public:
     bool long_slices{};  ///< every module is ABI >= 4 with run_slice
     /// Shared-image handles (Windows HMODULE as void*), never freed once loaded.
     std::vector<void*> dll_handles;
+    /// The XMOD1 table the images currently hold; null when none is published. Never freed
+    /// (see PublishRecompXmod), so a guest thread still reading it cannot dangle.
+    const SuyuRecompXmodTableV1* xmod_table{};
 };
 
 /// Directory of the running executable (where the shared images live). On
@@ -114,5 +118,16 @@ std::optional<std::vector<std::pair<size_t, u64>>> BindRecompBundleToInventory(
 /// Calls each module's set_base with the base chosen by BindRecompBundleToInventory.
 void ApplyRecompBundleBases(const RecompBundle& bundle,
                             const std::vector<std::pair<size_t, u64>>& bases);
+
+/// XMOD1 only (a no-op returning true for a bundle without the feature). Call after
+/// ApplyRecompBundleBases, so every module's block index exists, and before any guest thread
+/// runs. Verifies every module, then hands every image the same immutable table; if any image
+/// refuses, all are cleared and nothing stays published. The table is never freed, because an
+/// image may still be reading it when it is unpublished. Errors name the module or base.
+bool PublishRecompXmod(RecompBundle& bundle, const std::vector<std::pair<size_t, u64>>& bases,
+                       std::string* error);
+
+/// Clears the table in every image. Call before a rebind or an unload; the table stays allocated.
+void UnpublishRecompXmod(RecompBundle& bundle);
 
 } // namespace Core

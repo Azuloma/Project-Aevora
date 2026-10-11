@@ -267,6 +267,7 @@ struct RecompRegistryOptions {
     bool fastmem = false;           // FM1 handshake exports (ABI 6)
     bool guard_gen = false;         // GG1 handshake export
     bool fpx = false;               // FPX1 handshake export
+    bool cross_chain = false;       // XMOD1 shared lookup table export (needs FM1)
 };
 
 namespace detail {
@@ -312,7 +313,8 @@ inline std::string WriteRecompRegistryV1C(const RecompTopology& topology,
                                  ? options.fastmem
                                  : !options.fastmem && !options.guard_gen && !options.fpx &&
                                        options.expected_features == 0;
-    if (!abi_ok || !features_ok || (!options.fastmem && (options.guard_gen || options.fpx))) {
+    if (!abi_ok || !features_ok ||
+        (!options.fastmem && (options.guard_gen || options.fpx || options.cross_chain))) {
         return {};
     }
 
@@ -360,6 +362,11 @@ inline std::string WriteRecompRegistryV1C(const RecompTopology& topology,
                 externs += "extern unsigned recomp_image_fpx_v1_" + m +
                            "(uint32_t, uint32_t, uint64_t);\n";
                 entries += "        .fpx_v1 = recomp_image_fpx_v1_" + m + ",\n";
+            }
+            if (options.cross_chain) {
+                externs += "extern unsigned recomp_image_xmod_v1_" + m +
+                           "(const SuyuRecompXmodTableV1*);\n";
+                entries += "        .xmod_v1 = recomp_image_xmod_v1_" + m + ",\n";
             }
         }
         entries += "    },\n";

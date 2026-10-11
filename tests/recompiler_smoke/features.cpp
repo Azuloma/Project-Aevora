@@ -17,9 +17,16 @@ extern "C" unsigned recomp_image_features(void);
 namespace F = Core::RecompImageFeature;
 
 // The assignments are shared with other branches; they must stay distinct.
-static_assert(F::FastmemPT1 == 0x1u && F::GuardGen1 == 0x2u && F::ExactFpX1 == 0x4u);
+static_assert(F::FastmemPT1 == 0x1u && F::GuardGen1 == 0x2u && F::ExactFpX1 == 0x4u &&
+              F::CrossModule1 == 0x8u);
 
 int main() {
+    // A host without the shared table refuses an XMOD1 image, naming the bit.
+    CHECK(F::Unsupported(F::FastmemPT1 | F::CrossModule1, F::FastmemPT1) == F::CrossModule1);
+    CHECK(F::Unsupported(F::CrossModule1) == 0);
+    // Loaders that never publish the table refuse it.
+    CHECK(F::Unsupported(F::FastmemPT1 | F::CrossModule1, F::kLegacyLoaderSupported) ==
+          F::CrossModule1);
     CHECK(F::Unsupported(0) == 0);
     CHECK(F::Unsupported(F::FastmemPT1) == 0);
     // Anything outside what the host implements comes back, bit for bit.

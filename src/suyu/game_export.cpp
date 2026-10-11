@@ -3506,6 +3506,7 @@ struct BundleIdInputs {
     bool fp_shared{};
     bool fpx_vec{};
     bool chain_start{};
+    bool cross_chain{};
     unsigned image_abi{};
     unsigned image_features{};
     QString coverage_fingerprint;
@@ -3549,6 +3550,9 @@ static std::string ComputeBundleId(const BundleIdInputs& inputs) {
     if (inputs.chain_start) {
         // Only when on, as above.
         add("chain_start", flag(inputs.chain_start));
+    }
+    if (inputs.cross_chain) {
+        add("cross_chain", flag(inputs.cross_chain));
     }
     add("image_abi", QByteArray::number(inputs.image_abi));
     add("image_features", QByteArray::number(inputs.image_features));
@@ -4260,13 +4264,27 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         suyu::recomp::g_emit_chain_start = false;
     }
     const bool chain_start = suyu::recomp::EmitChainStart();
+    // Cross-module chaining (SUYU_AOT_CROSS_CHAIN=1, opt-in) needs FM1, the indirect chain and a
+    // split export (registry v1 carries its handshake).
+    static_assert(suyu::recomp::kFeatureCrossModule1 ==
+                  Core::RecompImageFeature::CrossModule1);
+    suyu::recomp::g_emit_cross_chain =
+        Common::EnvFlagDefaultOff(qEnvironmentVariable("SUYU_AOT_CROSS_CHAIN").toStdString());
+    if (suyu::recomp::g_emit_cross_chain && (!suyu::recomp::EmitCrossChain() || !split_main)) {
+        LOG_WARNING(Frontend, "Cross-module chaining (SUYU_AOT_CROSS_CHAIN) needs FM1, "
+                              "SUYU_AOT_INDIRECT_CHAIN and SUYU_AOT_SPLIT_MAIN; exporting "
+                              "without it");
+        suyu::recomp::g_emit_cross_chain = false;
+    }
+    const bool cross_chain = suyu::recomp::EmitCrossChain();
     // What the images will report from recomp_image_features(), recorded in the
     // manifest so a cached export with other features is not reused.
     const unsigned image_features =
         suyu::recomp::g_emit_fastmem
             ? (Core::RecompImageFeature::FastmemPT1 |
                (suyu::recomp::EmitGuardGen() ? Core::RecompImageFeature::GuardGen1 : 0u) |
-               (suyu::recomp::g_emit_fpx ? Core::RecompImageFeature::ExactFpX1 : 0u))
+               (suyu::recomp::g_emit_fpx ? Core::RecompImageFeature::ExactFpX1 : 0u) |
+               (cross_chain ? Core::RecompImageFeature::CrossModule1 : 0u))
             : 0u;
     // Set explicitly in both directions: the globals outlive an export, so a split export
     // must not leave identity code in the next all-static one.
@@ -4322,7 +4340,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             source_hash, effective_backend_name, full_scan, translate_all,
             suyu::recomp::g_emit_fastmem, suyu::recomp::EmitGuardGen(), suyu::recomp::g_emit_fpx,
             fm_inline, direct_chain, indirect_chain, fp_shared, fpx_vec, chain_start,
-            suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
+            cross_chain, suyu::recomp::g_emit_fastmem ? 6u : 5u, image_features,
             coverage_fingerprint, fallback_enabled, dll_modules});
         LOG_INFO(Frontend, "Split export: main is built as a DLL, bundle id {}", bundle_id_hex);
     }
@@ -4455,6 +4473,11 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             const bool same_chain_start = cached_chain_start.isBool()
                                               ? cached_chain_start.toBool() == chain_start
                                               : cached_chain_start.isUndefined() && !chain_start;
+            // Absent in a cache from before the option: that cache has no cross-module lookup.
+            const QJsonValue cached_cross_chain = manifest_object.value(QStringLiteral("cross_chain"));
+            const bool same_cross_chain = cached_cross_chain.isBool()
+                                              ? cached_cross_chain.toBool() == cross_chain
+                                              : cached_cross_chain.isUndefined() && !cross_chain;
             bool same_topology = false;
             QString split_detail;
             std::optional<SplitExportRecord> cached_split;
@@ -4497,6 +4520,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             require(same_fp_shared, "fp_shared");
             require(same_fpx_vec, "fpx_vec");
             require(same_chain_start, "chain_start");
+            require(same_cross_chain, "cross_chain");
             require(same_correctness_revision, "correctness_revision");
             require(same_coverage, "coverage_fingerprint");
             require(same_translate_all, "translate_all");
@@ -5137,6 +5161,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                 registry_options.fastmem = suyu::recomp::g_emit_fastmem;
                 registry_options.guard_gen = suyu::recomp::EmitGuardGen();
                 registry_options.fpx = suyu::recomp::g_emit_fpx;
+                registry_options.cross_chain = suyu::recomp::EmitCrossChain();
                 const std::string registry_text =
                     suyu::recomp::WriteRecompRegistryV1C(*topology, registry_options);
                 if (registry_text.empty()) {
@@ -6336,6 +6361,7 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         out << "  \"direct_chain\": " << (direct_chain ? "true" : "false") << ",\n";
         out << "  \"indirect_chain\": " << (indirect_chain ? "true" : "false") << ",\n";
         out << "  \"chain_start\": " << (chain_start ? "true" : "false") << ",\n";
+        out << "  \"cross_chain\": " << (cross_chain ? "true" : "false") << ",\n";
         out << "  \"correctness_revision\": \"" << kGeneratorCorrectnessRevision << "\",\n";
         out << "  \"source_exefs_sha256\": \"" << source_hash << "\",\n";
         out << "  \"translate_all\": " << (translate_all ? "true" : "false") << ",\n";

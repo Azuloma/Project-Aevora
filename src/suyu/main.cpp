@@ -7459,7 +7459,9 @@ int GMainWindow::LoadRecompiledImagesFrom(const QString& dir, bool require_curre
             // A feature bit is a requirement on the host: refuse any this host
             // does not implement, before trusting any other handshake.
             if (const u32 unknown =
-                    features ? Core::RecompImageFeature::Unsupported(features()) : 0) {
+                    features ? Core::RecompImageFeature::Unsupported(
+                                   features(), Core::RecompImageFeature::kLegacyLoaderSupported)
+                             : 0) {
                 LOG_WARNING(Frontend,
                             "Refusing automatic AOT bundle {}: {} requires image features {:#x} "
                             "that this host does not implement",

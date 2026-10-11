@@ -859,6 +859,7 @@ def main():
         call([executable(export_build, "smoke_overlay_logic_unit")])
         call([executable(export_build, "smoke_build_identity_unit")])
         call([executable(export_build, "smoke_topology_unit")])
+        call([executable(export_build, "smoke_xmod_table_unit")])
         call([executable(export_build, "smoke_aot_cache_unit"), root / "aot-cache-unit"])
         check_coverage_loop(root, exporter, build)
         check_direct_chain_bl(root, exporter, build)

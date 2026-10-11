@@ -228,7 +228,13 @@ int RegistryV1Text() {
     // Pointers appear only for the features the options enable.
     const std::string fm1_only = R::WriteRecompRegistryV1C(topology, {6, 1, true, false, false});
     CHECK(Contains(fm1_only, "recomp_image_fastmem_v1_sdk"));
-    CHECK(!Contains(fm1_only, "guard_gen_v1") && !Contains(fm1_only, "fpx_v1"));
+    CHECK(!Contains(fm1_only, "guard_gen_v1") && !Contains(fm1_only, "fpx_v1") &&
+          !Contains(fm1_only, "xmod_v1"));
+    // XMOD1 registrations carry the handshake pointer for static modules only, and need FM1.
+    const std::string xmod = R::WriteRecompRegistryV1C(topology, {6, 9, true, false, false, true});
+    CHECK(Contains(xmod, "recomp_image_xmod_v1_sdk") && Contains(xmod, "recomp_image_xmod_v1_subsdk0"));
+    CHECK(!Contains(xmod, "recomp_image_xmod_v1_main") && Count(xmod, ".xmod_v1 = ") == 2);
+    CHECK(R::WriteRecompRegistryV1C(topology, {5, 0, false, false, false, true}).empty());
     const std::string abi5 = R::WriteRecompRegistryV1C(topology, {5, 0, false, false, false});
     CHECK(!abi5.empty());
     CHECK(Contains(abi5, "recomp_image_guard_v2_sdk"));

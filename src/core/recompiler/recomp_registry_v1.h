@@ -36,12 +36,33 @@
 #define RECOMP_EXPORT_FASTMEM_V1 "recomp_image_fastmem_v1"
 #define RECOMP_EXPORT_GUARD_GEN_V1 "recomp_image_guard_gen_v1"
 #define RECOMP_EXPORT_FPX_V1 "recomp_image_fpx_v1"
+#define RECOMP_EXPORT_XMOD_V1 "recomp_image_xmod_v1"
+
+#define SUYU_RECOMP_XMOD_V1_VERSION 1u
+#define SUYU_RECOMP_XMOD_V1_MAX_MODULES 16u
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef void (*SuyuRecompBlockFn)(void*);
+
+/* XMOD1 shared lookup table: one immutable table the host hands to every image, so a block can
+   resolve a RET/BR/BLR target in another module. Entries are ascending by load base; the owner of
+   a pc is the last entry whose base <= pc, and its lookup (absolute pc, like
+   recomp_image_lookup) returns a normal block entry or NULL. */
+typedef struct SuyuRecompXmodEntryV1 {
+    uint64_t base;
+    SuyuRecompBlockFn (*lookup)(uint64_t);
+} SuyuRecompXmodEntryV1;
+
+typedef struct SuyuRecompXmodTableV1 {
+    uint32_t version;     /* SUYU_RECOMP_XMOD_V1_VERSION */
+    uint32_t struct_size; /* sizeof(SuyuRecompXmodTableV1) */
+    uint32_t entry_size;  /* sizeof(SuyuRecompXmodEntryV1) */
+    uint32_t count;       /* used entries, 1..SUYU_RECOMP_XMOD_V1_MAX_MODULES */
+    SuyuRecompXmodEntryV1 entries[SUYU_RECOMP_XMOD_V1_MAX_MODULES];
+} SuyuRecompXmodTableV1;
 
 typedef struct SuyuRecompRegistryEntryV1 {
     const char* canonical_name;  /* NSO name: rtld, main, subsdkN, sdk */
@@ -59,6 +80,8 @@ typedef struct SuyuRecompRegistryEntryV1 {
     unsigned (*fastmem_v1)(uint32_t, uint32_t, uint64_t, uint32_t, uint32_t); /* NULL unless FM1 */
     uint32_t* (*guard_gen_v1)(uint32_t, uint64_t*, uint64_t*, const uint64_t**); /* NULL unless GG1 */
     unsigned (*fpx_v1)(uint32_t, uint32_t, uint64_t);                         /* NULL unless FPX1 */
+    /* Takes the table (NULL clears it); returns 1 when accepted. NULL unless XMOD1. */
+    unsigned (*xmod_v1)(const SuyuRecompXmodTableV1*);
 } SuyuRecompRegistryEntryV1;
 
 typedef struct SuyuRecompRegistryV1 {

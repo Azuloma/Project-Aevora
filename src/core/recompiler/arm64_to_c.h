@@ -403,6 +403,16 @@ inline bool EmitChainStart() {
     return g_emit_direct_chain && g_emit_chain_start;
 }
 
+// Cross-module indirect chaining ("XMOD1"): RET/BR/BLR targets outside this module are looked up
+// in a host-published table shared by all modules. Needs FM1 and the indirect chain; opt-in, and
+// while it is off the emitted text is byte-identical.
+inline bool g_emit_cross_chain = false;
+inline bool EmitCrossChain() {
+    return g_emit_fastmem && g_emit_indirect_chain && g_emit_cross_chain;
+}
+// Must equal Core::RecompImageFeature::CrossModule1 (checked in game_export.cpp).
+inline constexpr unsigned kFeatureCrossModule1 = 8u;
+
 // Strict static exports have no fallback to carry deliberately gated forms.
 inline bool TranslateAllForExport(bool strict_static, bool explicitly_requested) {
     return strict_static || explicitly_requested;
@@ -6088,7 +6098,9 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
               "   compiled against exactly those, so the host may enable fm_limit. */\n"
               "RECOMP_API unsigned recomp_image_features(void){ return RECOMP_FEATURE_FASTMEM_PT1"
            << (EmitGuardGen() ? " | RECOMP_FEATURE_GUARD_GEN1" : "")
-           << (g_emit_fpx ? " | RECOMP_FEATURE_FPX1" : "") << "; }\n"
+           << (g_emit_fpx ? " | RECOMP_FEATURE_FPX1" : "")
+           << (EmitCrossChain() ? " | " + std::to_string(kFeatureCrossModule1) + "u" : "")
+           << "; }\n"
               "RECOMP_API unsigned recomp_image_fastmem_v1(uint32_t page_bits, uint32_t stride_log2,\n"
               "                                            uint64_t ptr_mask, uint32_t off_table,\n"
               "                                            uint32_t off_limit){\n"

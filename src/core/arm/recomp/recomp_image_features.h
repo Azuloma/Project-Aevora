@@ -17,7 +17,8 @@
 //   bit 0 (0x1)  FM1   page-table fastmem (RECOMP_FEATURE_FASTMEM_PT1)
 //   bit 1 (0x2)  GG1   generation code guard (RECOMP_FEATURE_GUARD_GEN1)
 //   bit 2 (0x4)  FPX1  exact native floating point (RECOMP_FEATURE_FPX1)
-//   bits 3-31          free
+//   bit 3 (0x8)  XMOD1 cross-module indirect chaining (RECOMP_FEATURE_XMOD1)
+//   bits 4-31          free
 //
 // Deliberately dependency-free so tests/recompiler_smoke can include it.
 namespace Core::RecompImageFeature {
@@ -26,8 +27,14 @@ inline constexpr std::uint32_t FastmemPT1 = 1u << 0;
 inline constexpr std::uint32_t GuardGen1 = 1u << 1;
 inline constexpr std::uint32_t ExactFpX1 = 1u << 2;
 
+inline constexpr std::uint32_t CrossModule1 = 1u << 3;
+
 /// Features this host implements.
-inline constexpr std::uint32_t kHostSupported = FastmemPT1 | GuardGen1 | ExactFpX1;
+inline constexpr std::uint32_t kHostSupported = FastmemPT1 | GuardGen1 | ExactFpX1 | CrossModule1;
+
+/// What loaders outside the registry v1 bundle loader implement: they never publish the XMOD1
+/// shared table, so they refuse an XMOD1 image.
+inline constexpr std::uint32_t kLegacyLoaderSupported = kHostSupported & ~CrossModule1;
 
 /// The bits of `features` a host implementing `supported` does not know; any
 /// nonzero result means the image must be refused.

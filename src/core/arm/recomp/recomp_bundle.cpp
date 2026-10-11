@@ -78,6 +78,7 @@ struct ResolvedEntry {
     unsigned (*fastmem_v1)(u32, u32, u64, u32, u32){};
     u32* (*guard_gen_v1)(u32, u64*, u64*, const u64**){};
     unsigned (*fpx_v1)(u32, u32, u64){};
+    unsigned (*xmod_v1)(const SuyuRecompXmodTableV1*){};
 };
 
 /// Shared-image handles taken by one load; released on every path except the one
@@ -234,6 +235,10 @@ bool ResolveStaticEntry(const SuyuRecompRegistryEntryV1& entry, ResolvedEntry* o
         !require(entry.fpx_v1 != nullptr, "fpx_v1")) {
         return false;
     }
+    if ((expected & RecompImageFeature::CrossModule1) &&
+        !require(entry.xmod_v1 != nullptr, "xmod_v1")) {
+        return false;
+    }
     out->lookup = entry.lookup;
     out->set_base = entry.set_base;
     out->run_slice = entry.run_slice;
@@ -243,6 +248,7 @@ bool ResolveStaticEntry(const SuyuRecompRegistryEntryV1& entry, ResolvedEntry* o
     out->fastmem_v1 = entry.fastmem_v1;
     out->guard_gen_v1 = entry.guard_gen_v1;
     out->fpx_v1 = entry.fpx_v1;
+    out->xmod_v1 = entry.xmod_v1;
     return true;
 }
 
@@ -308,6 +314,7 @@ bool LoadAndResolveDllEntry(const SuyuRecompRegistryV1& registry,
     const bool fm1 = abi6 && (expected & RecompImageFeature::FastmemPT1);
     const bool gg1 = abi6 && (expected & RecompImageFeature::GuardGen1);
     const bool fpx1 = abi6 && (expected & RecompImageFeature::ExactFpX1);
+    const bool xmod1 = abi6 && (expected & RecompImageFeature::CrossModule1);
     if (!ResolveExport(image, name, RECOMP_EXPORT_LOOKUP, true, &out->lookup, error) ||
         !ResolveExport(image, name, RECOMP_EXPORT_SET_BASE, true, &out->set_base, error) ||
         !ResolveExport(image, name, RECOMP_EXPORT_RUN_SLICE, true, &out->run_slice, error) ||
@@ -316,7 +323,8 @@ bool LoadAndResolveDllEntry(const SuyuRecompRegistryV1& registry,
         !ResolveExport(image, name, RECOMP_EXPORT_FEATURES, fm1, &out->features, error) ||
         !ResolveExport(image, name, RECOMP_EXPORT_FASTMEM_V1, fm1, &out->fastmem_v1, error) ||
         !ResolveExport(image, name, RECOMP_EXPORT_GUARD_GEN_V1, gg1, &out->guard_gen_v1, error) ||
-        !ResolveExport(image, name, RECOMP_EXPORT_FPX_V1, fpx1, &out->fpx_v1, error)) {
+        !ResolveExport(image, name, RECOMP_EXPORT_FPX_V1, fpx1, &out->fpx_v1, error) ||
+        !ResolveExport(image, name, RECOMP_EXPORT_XMOD_V1, xmod1, &out->xmod_v1, error)) {
         return false;
     }
 
@@ -483,6 +491,7 @@ std::optional<RecompBundle> LoadRecompBundleV1(const SuyuRecompRegistryV1& regis
         module.run_slice = resolved[i].run_slice;
         module.image_abi = entry.image_abi;
         module.guard_v2 = resolved[i].guard_v2;
+        module.xmod_v1 = resolved[i].xmod_v1;
         module.is_dll = entry.binding == SUYU_RECOMP_BINDING_DLL;
         if (module.is_dll) {
             module.dll_file = entry.dll_file_utf8;
@@ -566,6 +575,76 @@ void ApplyRecompBundleBases(const RecompBundle& bundle,
     for (const auto& [index, base] : bases) {
         bundle.modules[index].set_base(base);
     }
+}
+
+bool PublishRecompXmod(RecompBundle& bundle, const std::vector<std::pair<size_t, u64>>& bases,
+                       std::string* error) {
+    if (!(bundle.features & RecompImageFeature::CrossModule1)) {
+        return true;
+    }
+    if (bundle.xmod_table) {
+        return Fail(error, "the XMOD1 table is already published; unpublish it first");
+    }
+    if (bases.size() != bundle.modules.size() ||
+        bases.size() > SUYU_RECOMP_XMOD_V1_MAX_MODULES) {
+        return Fail(error, "XMOD1 needs one base for each of the " +
+                               std::to_string(bundle.modules.size()) +
+                               " modules (at most " +
+                               std::to_string(SUYU_RECOMP_XMOD_V1_MAX_MODULES) + "), got " +
+                               std::to_string(bases.size()));
+    }
+    std::vector<std::pair<u64, size_t>> by_base;
+    std::set<size_t> seen;
+    for (const auto& [index, base] : bases) {
+        if (index >= bundle.modules.size() || !seen.insert(index).second) {
+            return Fail(error, "XMOD1 base list has module index " + std::to_string(index) +
+                                   " out of range or repeated");
+        }
+        const RecompBundleModule& module = bundle.modules[index];
+        if (!module.xmod_v1 || !module.lookup) {
+            return Fail(error, "module " + Quoted(module.name) +
+                                   " has no xmod_v1/lookup pointer for the XMOD1 table");
+        }
+        by_base.emplace_back(base, index);
+    }
+    std::sort(by_base.begin(), by_base.end());
+    for (size_t i = 1; i < by_base.size(); ++i) {
+        if (by_base[i].first == by_base[i - 1].first) {
+            return Fail(error, "modules " + Quoted(bundle.modules[by_base[i - 1].second].name) +
+                                   " and " + Quoted(bundle.modules[by_base[i].second].name) +
+                                   " share load base " + Hex(by_base[i].first));
+        }
+    }
+
+    // Allocated for the process lifetime on purpose: see the header.
+    auto* table = new SuyuRecompXmodTableV1{};
+    table->version = SUYU_RECOMP_XMOD_V1_VERSION;
+    table->struct_size = sizeof(SuyuRecompXmodTableV1);
+    table->entry_size = sizeof(SuyuRecompXmodEntryV1);
+    table->count = static_cast<u32>(by_base.size());
+    for (size_t i = 0; i < by_base.size(); ++i) {
+        table->entries[i].base = by_base[i].first;
+        table->entries[i].lookup = bundle.modules[by_base[i].second].lookup;
+    }
+    for (size_t i = 0; i < bases.size(); ++i) {
+        const RecompBundleModule& module = bundle.modules[bases[i].first];
+        if (module.xmod_v1(table) != 1) {
+            UnpublishRecompXmod(bundle);
+            return Fail(error, "module " + Quoted(module.name) +
+                                   " refused the XMOD1 table; every image was cleared");
+        }
+    }
+    bundle.xmod_table = table;
+    return true;
+}
+
+void UnpublishRecompXmod(RecompBundle& bundle) {
+    for (const RecompBundleModule& module : bundle.modules) {
+        if (module.xmod_v1) {
+            module.xmod_v1(nullptr);
+        }
+    }
+    bundle.xmod_table = nullptr;
 }
 
 } // namespace Core

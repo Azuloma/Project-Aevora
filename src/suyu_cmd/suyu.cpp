@@ -2003,7 +2003,8 @@ int main(int argc, char** argv) {
                                        "re-export all modules with this build");
                 return EXIT_FAILURE;
             }
-            if (const u32 unknown = Core::RecompImageFeature::Unsupported(features)) {
+            if (const u32 unknown = Core::RecompImageFeature::Unsupported(
+                    features, Core::RecompImageFeature::kLegacyLoaderSupported)) {
                 LOG_CRITICAL(Frontend,
                              "Static recompiled modules require image features {:#x} that this "
                              "host does not implement; update suyu or re-export with this build",
@@ -2106,9 +2107,11 @@ int main(int argc, char** argv) {
                         GetProcAddress(h, "recomp_image_fastmem_v1"));
                     // A feature bit is a requirement on the host: refuse any
                     // this host does not implement.
-                    if (const u32 unknown = features ? Core::RecompImageFeature::Unsupported(
-                                                           features())
-                                                     : 0) {
+                    if (const u32 unknown =
+                            features ? Core::RecompImageFeature::Unsupported(
+                                           features(),
+                                           Core::RecompImageFeature::kLegacyLoaderSupported)
+                                     : 0) {
                         LOG_CRITICAL(Frontend,
                                      "{} requires image features {:#x} that this host does not "
                                      "implement; update suyu or re-export with this build",
@@ -2225,7 +2228,12 @@ int main(int argc, char** argv) {
                 LOG_CRITICAL(Frontend, "Recompiled module binding failed: {}", bind_error);
                 return false;
             }
+            Core::UnpublishRecompXmod(*s_recomp_bundle);
             Core::ApplyRecompBundleBases(*s_recomp_bundle, *bases);
+            if (!Core::PublishRecompXmod(*s_recomp_bundle, *bases, &bind_error)) {
+                LOG_CRITICAL(Frontend, "Recompiled cross-module table failed: {}", bind_error);
+                return false;
+            }
             for (const auto& [index, base] : *bases) {
                 const auto& module = s_recomp_bundle->modules[index];
                 // Misses in this module are gaps a re-export can close.
