@@ -418,7 +418,7 @@ int PeSizeOfImageMode(int argc, char** argv) {
 
 // Writes recomp_registration.c (registry v1) with the production writer:
 //   smoke_topology_unit --write-registry-v1 <out.c> <bundle hex> <abi> <features> <fastmem 0|1>
-//       <guard_gen 0|1> <fpx 0|1> <module>... [--dll <module>]...
+//       <guard_gen 0|1> <fpx 0|1> <module>... [--dll <module>]... [--cross-chain]
 int WriteRegistryV1Mode(int argc, char** argv) {
     constexpr int kFixedArgs = 10; // program, mode, out, bundle, abi, features, fm, gg, fpx, 1 module
     if (argc < kFixedArgs) {
@@ -439,6 +439,8 @@ int WriteRegistryV1Mode(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--dll") {
             dll_next = true;
+        } else if (arg == "--cross-chain") {
+            options.cross_chain = true;
         } else {
             (dll_next ? request.dll_modules : request.modules).push_back(arg);
             dll_next = false;

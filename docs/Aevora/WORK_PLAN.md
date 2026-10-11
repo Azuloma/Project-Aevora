@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `36a1a40` on `main`. Host `D:\HisuiWakeBuild\msvc-release` was reconfigured and built at HEAD (`GIT_REV 36a1a40df7229ca71e0b98b163e8d9a4da916d2b`, exit 0); the cleanup rebuild after export also exited 0. The working tree was clean except this Markdown batch when this handoff was specified. The PLA export at `D:\HisuiWakeExports\Pokémon Legends_ Arceus` was produced at HEAD with default options; its game log is written only after normal exit.
+HEAD is `165fc8f` on `main`, with the stage 3-4 XMOD1 work uncommitted. Host `D:\HisuiWakeBuild\msvc-release` was built and cleaned up successfully; its embedded `GIT_REV` remains `165fc8f`. The working tree contains the source and test changes for this batch; the user will commit them. No XMOD1 PLA export or FPS/ms-per-frame measurement has been made.
 
 ## Key observations
 
@@ -22,13 +22,15 @@ HEAD is `36a1a40` on `main`. Host `D:\HisuiWakeBuild\msvc-release` was reconfigu
 
 The new lookup diagnostics are implemented behind exact-`1` `SUYU_RECOMP_LOOKUP_STATS` and `SUYU_RECOMP_LOOKUP_TARGETS` (targets requires stats). They provide per-thread return counters, top module pairs, and target reports; target collection adds a second host lookup per exit. New smoke targets are `smoke_lookup_stats_unit` and `smoke_exit_targets_unit`.
 
+Cross-module chaining is approved by the user and implemented behind `SUYU_AOT_CROSS_CHAIN=1` as XMOD1 (feature bit `0x8`). It requires FM1, the indirect chain, and a split export; it records `cross_chain` in manifest/cache reuse/bundle identity only when enabled and preserves off output. One immutable host-published table uses ascending load bases, last-base ownership, normal block entries, and no `_s` entries; all images verify the same version/size/count and lookup, and publication is cleared on any refusal. Force-miss and main-hole hooks suppress publication and are identified by `ActiveRecompMissHookName`; the registry v1 loader is the only loader supporting XMOD1. Coverage includes `smoke_xmod_table_unit`, the three-module `cross`/`cross-off`/`cross-refuse`/`cross-guard` fixture cases with budgets 1/2/256, and AOT cache matrix cases.
+
 Commits since the prior handoff, all user-made: `5bb3381` guest-time ledger; `99493e8` guest-time window restart/log placement; `d8a2f74` opt-in lookup stats; `d5fb221` per-module pair exits; `36a1a40` exit target reports. Reviews found and fixes were verified for window baselines/ticks, SVC and halt classification, module-list changes, UINT64_MAX overflow, concurrent publication, and rebase.
 
 ## Design under review
 
-Cross-module indirect chaining is not approved for implementation. Revised proposal: feature bit XMOD1 (`0x8`) with all-or-none bundle verification; old hosts refuse unknown bits with a diagnostic. `SUYU_AOT_CROSS_CHAIN` is opt-in, recorded in manifest/cache identity and split-bundle identity only when enabled; off output stays byte-identical (ABI5/ABI6 goldens).
+Cross-module indirect chaining is approved and implemented as feature bit XMOD1 (`0x8`) with all-or-none bundle verification; old hosts refuse the unsupported bit with a diagnostic. `SUYU_AOT_CROSS_CHAIN` is opt-in, recorded in manifest/cache identity and split-bundle identity only when enabled; off output stays byte-identical (ABI5/ABI6 goldens).
 
-The shared lookup must return normal absolute-index entries, preserve GG1 and mid-block handling, and never return direct-chain `_s` entries. Publish one immutable table only after all modules verify, bind, set base, and expose indexes; clear before rebind/unload and do not free while guest threads can run. Force-miss hooks publish nothing with a reason. Tests must cover budgets 1/2/256, A→B→C→A, SVC/halt/IC IVAU, FP environment changes, conditional returns, misses/fallback records, race-free negative control, and unchanged off goldens. Evaluate the separate out-of-range lookup early miss later with its own A/B and golden update.
+The shared lookup returns normal absolute-index entries, preserves GG1 and mid-block handling, and never returns direct-chain `_s` entries. One immutable table is published only after all modules verify, bind, set base, and expose indexes; it is cleared on refusal and is never freed while guest threads can run. Force-miss hooks publish nothing with a reason. The fixture covers budgets 1/2/256, A→B→C→A, SVC/BRK, FADD, RET/BLR, misses, guard behavior, and unchanged off goldens; real `ArmRecomp` accounting, `RecordMiss`, `RecompGaps`, IC IVAU through the chain, and a 256-budget stop remain untested. Evaluate the separate out-of-range lookup early miss later with its own A/B and golden update.
 
 ## Contracts to preserve
 
@@ -36,14 +38,14 @@ Keep opt-in diagnostics execution-neutral when off, FP_SHARED/FPXV ABI/result/ca
 
 ## Open issues, in priority order
 
-1. User approval and review changes for the cross-chain design.
-2. If approved, implement and review cross-chain, then measure the same position, three conditions, ms/frame, and exit counters.
-3. Evaluate the separate lookup early-miss change.
+1. The user should commit the stage 3-4 work, then reconfigure and perform a full rebuild; after that, the user should run a PLA export with `SUYU_AOT_CROSS_CHAIN=1`.
+2. Measure the same position under three conditions (no chain, existing chain, and cross chain), recording ms per frame and lookup-stat exit counters.
+3. Evaluate the separate lookup early-miss change and add the untested XMOD1 items above.
 4. Held: opcode host-size totals, SVC attribution, Stage F, automatic all-static re-plan, MSVC `cl` real-title support, U2 only with explicit approval, two-lifetime seam, real loader/refusal paths, export_regression Qt-root lookup, old-manifest reuse, six tracked `.pyc` files; `RecordMiss`/ `RecordUnhandled` remain mutex+map. Carried: FMI-off/FP_SHARED-off/default A/B exports with cache fields, chain budget 256/512, chain-start-off A/B. Optional: JIT built-in-cost attribution and final sdk+0x346040 callee.
 
 ## Immediate next action
 
-Run `git status/log`, verify host `GIT_REV` against HEAD, and ask the user whether to approve the cross-chain design (and answer change requests) before any implementation. No builds or exports without the user's go-ahead.
+Ask the user to commit the stage 3-4 work; then verify `GIT_REV` against HEAD, reconfigure, and build. The user exports with `SUYU_AOT_CROSS_CHAIN=1` and measures the three same-position conditions.
 
 ## Milestones and cache rule
 

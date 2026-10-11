@@ -938,6 +938,37 @@ class Run:
                     manifest_record().get('chain_start') is False)
         export('chain start off, reused', expect_reused=True)
 
+        # Cross-module chaining (SUYU_AOT_CROSS_CHAIN=1, opt-in) needs the indirect chain: asked for
+        # without it nothing changes; with it the manifest, bundle id and image features record it,
+        # the launcher publishes the shared table and runs the guest chain through every module.
+        original_id = manifest_record().get('bundle_id')
+        restart_with('SUYU_AOT_CROSS_CHAIN', '1')
+        try:
+            export('cross chain without the indirect chain', expect_reused=True)
+            self.record('matrix: cross chain without the indirect chain: nothing recorded',
+                        manifest_record().get('cross_chain') is False and
+                        manifest_record().get('bundle_id') == original_id)
+            restart_with('SUYU_AOT_INDIRECT_CHAIN', '1')
+            try:
+                before = manifest_record()
+                export('cross chain with the indirect chain', expect_log='cross_chain', run=True)
+                after = manifest_record()
+                self.record('matrix: cross chain: the manifest, bundle id and features record it',
+                            after.get('cross_chain') is True and after.get('indirect_chain') is True and
+                            after.get('image_features', 0) & 8 == 8 and
+                            after.get('bundle_id') != before.get('bundle_id'),
+                            '%s -> %s' % (before.get('bundle_id'), after.get('bundle_id')))
+                export('cross chain, again', expect_reused=True)
+            finally:
+                restart_with('SUYU_AOT_INDIRECT_CHAIN', '0')
+        finally:
+            restart_with('SUYU_AOT_CROSS_CHAIN', None)
+        export('cross chain switched off again', expect_log='cross_chain')
+        self.record('matrix: cross chain off again: the original bundle id returns',
+                    manifest_record().get('bundle_id') == original_id and
+                    manifest_record().get('cross_chain') is False)
+        export('cross chain off, reused', expect_reused=True)
+
         # Real recorded coverage: a store file for this title with a code offset of the main
         # module changes the generated code, so the cached build no longer matches (the
         # bundle id follows the coverage, so the topology is named too); the same coverage

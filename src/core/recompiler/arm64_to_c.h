@@ -403,15 +403,48 @@ inline bool EmitChainStart() {
     return g_emit_direct_chain && g_emit_chain_start;
 }
 
-// Cross-module indirect chaining ("XMOD1"): RET/BR/BLR targets outside this module are looked up
-// in a host-published table shared by all modules. Needs FM1 and the indirect chain; opt-in, and
-// while it is off the emitted text is byte-identical.
+// XMOD1: RET/BR/BLR targets outside this module are looked up in a host-published table shared
+// by all modules. Needs FM1 and the indirect chain; opt-in, off output is byte-identical.
 inline bool g_emit_cross_chain = false;
 inline bool EmitCrossChain() {
     return g_emit_fastmem && g_emit_indirect_chain && g_emit_cross_chain;
 }
 // Must equal Core::RecompImageFeature::CrossModule1 (checked in game_export.cpp).
 inline constexpr unsigned kFeatureCrossModule1 = 8u;
+// Must equal SUYU_RECOMP_XMOD_V1_VERSION / _MAX_MODULES (checked in game_export.cpp).
+inline constexpr unsigned kXmodV1Version = 1u;
+inline constexpr unsigned kXmodV1MaxModules = 16u;
+
+// The table layout and lookup shared by every generated unit and the image export.
+inline std::string XmodTypesText() {
+    return "typedef struct RecompXmodEntry{uint64_t base; BlockFn (*lookup)(uint64_t);} "
+           "RecompXmodEntry;\n"
+           "typedef struct RecompXmodTable{uint32_t version,struct_size,entry_size,count; "
+           "RecompXmodEntry entries[" + std::to_string(kXmodV1MaxModules) + "];} RecompXmodTable;\n"
+           "extern const RecompXmodTable* g_recomp_xmod_table;\n"
+           "#if defined(_MSC_VER) && !defined(__clang__)\n"
+           "#include <intrin.h>\n"
+           "#if defined(_M_ARM64)\n"
+           "#define RECOMP_XMOD_LOAD(p) ((const RecompXmodTable*)__ldar64((volatile unsigned __int64*)&(p)))\n"
+           "#define RECOMP_XMOD_STORE(p,v) __stlr64((volatile unsigned __int64*)&(p),(unsigned __int64)(v))\n"
+           "#else\n"
+           "#define RECOMP_XMOD_LOAD(p) (*(const RecompXmodTable* const volatile*)&(p))\n"
+           "#define RECOMP_XMOD_STORE(p,v) do{ _ReadWriteBarrier(); *(const RecompXmodTable* volatile*)&(p)=(v); }while(0)\n"
+           "#endif\n"
+           "#else\n"
+           "#define RECOMP_XMOD_LOAD(p) __atomic_load_n(&(p),__ATOMIC_ACQUIRE)\n"
+           "#define RECOMP_XMOD_STORE(p,v) __atomic_store_n(&(p),(v),__ATOMIC_RELEASE)\n"
+           "#endif\n"
+           "/* The owner of pc is the last module whose base <= pc; NULL until published. */\n"
+           "static RECOMP_INLINE BlockFn recomp_xmod_lookup(uint64_t pc){\n"
+           "  const RecompXmodTable* t=RECOMP_XMOD_LOAD(g_recomp_xmod_table);\n"
+           "  if(!t) return 0;\n"
+           "  for(uint32_t i=t->count;i>0;--i){\n"
+           "    if(pc>=t->entries[i-1].base) return t->entries[i-1].lookup(pc);\n"
+           "  }\n"
+           "  return 0;\n"
+           "}\n\n";
+}
 
 // Strict static exports have no fallback to carry deliberately gated forms.
 inline bool TranslateAllForExport(bool strict_static, bool explicitly_requested) {
@@ -470,8 +503,10 @@ inline std::string ChainTo(u64 t) {
 // that, as it does for the run-slice loop. The budget check stays ahead of the
 // call for the same reason as in ChainTo.
 inline std::string ChainIndirect(const std::string& target) {
+    // With XMOD1 a miss in this module's index asks the host-published table before giving up.
+    const char* cross = EmitCrossChain() ? "if (!_f) _f=recomp_xmod_lookup(c->pc); " : "";
     return "{ c->pc=" + target +
-           "; { BlockFn _f=recomp_lookup(c->pc-g_module_base); "
+           "; { BlockFn _f=recomp_lookup(c->pc-g_module_base); " + cross +
            "if (_f && --c->chain_budget > 0) { RECOMP_TAIL_CALL(_f) } } return; }";
 }
 
@@ -5417,6 +5452,9 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
                       "#define RECOMP_TAIL_CALL(f) f(c); return;\n"
                       "#endif\n\n";
         }
+        if (EmitCrossChain()) {
+            output << XmodTypesText();
+        }
         if (u == 0) output << "int g_recomp_guard_host_v2=0;\n";
         if (EmitGuardGen()) {
             output << "static uint32_t recomp_gg_seen[" << std::max<size_t>(unit_blocks, 1)
@@ -6023,6 +6061,10 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
     if (g_emit_fpx) {
         cm << " recomp_image_fpx_v1=recomp_image_fpx_v1_" << mod;
     }
+    if (EmitCrossChain()) {
+        cm << " g_recomp_xmod_table=g_recomp_xmod_table_" << mod
+           << " recomp_image_xmod_v1=recomp_image_xmod_v1_" << mod;
+    }
     if (EmitGuardGen()) {
         cm << " g_recomp_gg_word=g_recomp_gg_word_" << mod
            << " recomp_image_guard_gen_v1=recomp_image_guard_gen_v1_" << mod;
@@ -6126,6 +6168,25 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
               "  return 0x100u | (unsigned)RECOMP_FPX_HOST"
            << (g_emit_fpx_shadow ? " | 0x200u; /* the shadow instrumentation build */\n" : ";\n")
            << "}\n";
+    }
+    if (EmitCrossChain()) {
+        ex << "/* XMOD1: the host hands every image one immutable table (NULL clears it); a table\n"
+              "   that differs from the built layout or is not ascending by base is refused. */\n"
+           << XmodTypesText()
+           << "const RecompXmodTable* g_recomp_xmod_table=0;\n"
+              "RECOMP_API unsigned recomp_image_xmod_v1(const RecompXmodTable* t){\n"
+              "  if(t){\n"
+              "    if(t->version!=" << kXmodV1Version
+           << "u || t->struct_size!=sizeof(RecompXmodTable) ||\n"
+              "       t->entry_size!=sizeof(RecompXmodEntry) || t->count==0 ||\n"
+              "       t->count>" << kXmodV1MaxModules << "u) return 0;\n"
+              "    for(uint32_t i=0;i<t->count;++i){\n"
+              "      if(!t->entries[i].lookup ||\n"
+              "         (i && t->entries[i].base<=t->entries[i-1].base)) return 0;\n"
+              "    }\n"
+              "  }\n"
+              "  RECOMP_XMOD_STORE(g_recomp_xmod_table,t); return 1;\n"
+              "}\n\n";
     }
     ex << "RECOMP_API BlockFn recomp_image_lookup(uint64_t pc){ return recomp_lookup(pc - g_module_base); }\n\n"
           "/* Run a bounded sequence while control flow stays inside this module.\n"

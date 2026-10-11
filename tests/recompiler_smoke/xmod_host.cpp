@@ -27,6 +27,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "core/arm/recomp/recomp_bundle.h"
 #include "core/arm/recomp/recomp_image_features.h"
@@ -35,6 +36,8 @@
 // xmod_exec.c: the cross-image blocks, against the run_slice pointers of the bundle.
 extern "C" int xmod_exec_scenarios(void (*run[3])(void*), void (*(*lookup[3])(uint64_t))(void*),
                                    const uint64_t base[3]);
+extern "C" int xmod_exec_cross(void (*run[3])(void*), const uint64_t base[3], int expect_cross);
+extern "C" int xmod_exec_cross_guard(void (*run[3])(void*), const uint64_t base[3]);
 extern "C" int xmod_exec_guard_probe(void (*run[3])(void*), const uint64_t base[3],
                                      unsigned image);
 
@@ -70,9 +73,10 @@ int Refused(const std::string& error) {
     return kExitRefused;
 }
 
-// Loads the production registry and binds it to the three bases; on success `bundle` is
-// loaded and its modules know their bases.
-int LoadAndBind(const std::filesystem::path& dir, std::optional<Core::RecompBundle>* bundle) {
+// Loads the registry, binds the three bases and, as the launcher does, publishes an XMOD1
+// table unless `publish` is false (the control for what images do without it).
+int LoadAndBind(const std::filesystem::path& dir, std::optional<Core::RecompBundle>* bundle,
+                bool publish = true) {
     std::string error;
     *bundle = Core::LoadRecompBundleV1(*suyu_recomp_registry_v1(), dir, kHost, &error);
     if (!*bundle) {
@@ -87,6 +91,9 @@ int LoadAndBind(const std::filesystem::path& dir, std::optional<Core::RecompBund
         return Refused(error);
     }
     Core::ApplyRecompBundleBases(**bundle, *bases);
+    if (publish && !Core::PublishRecompXmod(**bundle, *bases, &error)) {
+        return Refused(error);
+    }
     return 0;
 }
 
@@ -145,6 +152,26 @@ int CaseExec(const std::filesystem::path& dir) {
     return 0;
 }
 
+// Computed branches across the three images. `published` selects the XMOD1 behaviour; the
+// unpublished control must behave like an export without the feature.
+int CaseCross(const std::filesystem::path& dir, bool published) {
+    std::optional<Core::RecompBundle> bundle;
+    if (int rc = LoadAndBind(dir, &bundle, published)) {
+        return rc;
+    }
+    HOST_CHECK((bundle->xmod_table != nullptr) == published);
+    if (published) {
+        HOST_CHECK(bundle->xmod_table->count == kModuleCount);
+    }
+    void (*run[kModuleCount])(void*);
+    for (size_t i = 0; i < kModuleCount; ++i) {
+        run[i] = bundle->modules[i].run_slice;
+    }
+    HOST_CHECK(xmod_exec_cross(run, kBases, published ? 1 : 0) == 1);
+    std::printf("cross ok: published=%d\n", published ? 1 : 0);
+    return 0;
+}
+
 // Returns only when the guard did not stop the block (that is a failure); a working guard
 // ends the process with exit code 86 inside xmod_exec.c.
 int CaseGuard(const std::filesystem::path& dir, unsigned image) {
@@ -160,7 +187,82 @@ int CaseGuard(const std::filesystem::path& dir, unsigned image) {
     return kExitHostCheckFailed;
 }
 
+// Each image refuses a table that differs from the layout its blocks were built against, and
+// still accepts the valid one afterwards.
+int CaseCrossRefuse(const std::filesystem::path& dir) {
+    std::optional<Core::RecompBundle> bundle;
+    if (int rc = LoadAndBind(dir, &bundle)) {
+        return rc;
+    }
+    HOST_CHECK(bundle->xmod_table != nullptr);
+    const SuyuRecompXmodTableV1 good = *bundle->xmod_table;
+    const auto refused_by_all = [&](const SuyuRecompXmodTableV1& table) {
+        for (const auto& module : bundle->modules) {
+            if (module.xmod_v1(&table) != 0) {
+                return false;
+            }
+        }
+        return true;
+    };
+    SuyuRecompXmodTableV1 bad = good;
+    bad.version += 1;
+    HOST_CHECK(refused_by_all(bad));
+    bad = good;
+    bad.struct_size -= 4;
+    HOST_CHECK(refused_by_all(bad));
+    bad = good;
+    bad.entry_size += 8;
+    HOST_CHECK(refused_by_all(bad));
+    bad = good;
+    bad.count = 0;
+    HOST_CHECK(refused_by_all(bad));
+    bad = good;
+    bad.count = SUYU_RECOMP_XMOD_V1_MAX_MODULES + 1;
+    HOST_CHECK(refused_by_all(bad));
+    bad = good;
+    std::swap(bad.entries[0], bad.entries[1]);
+    HOST_CHECK(refused_by_all(bad));
+    bad = good;
+    bad.entries[1].base = bad.entries[0].base;
+    HOST_CHECK(refused_by_all(bad));
+    bad = good;
+    bad.entries[2].lookup = nullptr;
+    HOST_CHECK(refused_by_all(bad));
+    for (const auto& module : bundle->modules) {
+        HOST_CHECK(module.xmod_v1(&good) == 1);
+    }
+    std::printf("cross-refuse ok\n");
+    return 0;
+}
+
+// Exits with the guard's abort code from inside xmod_exec.c when the chained branch reaches a
+// changed block of another image.
+int CaseCrossGuard(const std::filesystem::path& dir) {
+    std::optional<Core::RecompBundle> bundle;
+    if (int rc = LoadAndBind(dir, &bundle)) {
+        return rc;
+    }
+    void (*run[kModuleCount])(void*);
+    for (size_t i = 0; i < kModuleCount; ++i) {
+        run[i] = bundle->modules[i].run_slice;
+    }
+    xmod_exec_cross_guard(run, kBases);
+    return kExitHostCheckFailed;
+}
+
 int RunCase(const std::string& name, const std::filesystem::path& dir) {
+    if (name == "cross") {
+        return CaseCross(dir, true);
+    }
+    if (name == "cross-off") {
+        return CaseCross(dir, false);
+    }
+    if (name == "cross-refuse") {
+        return CaseCrossRefuse(dir);
+    }
+    if (name == "cross-guard") {
+        return CaseCrossGuard(dir);
+    }
     if (name == "ok") {
         return CaseOk(dir);
     }

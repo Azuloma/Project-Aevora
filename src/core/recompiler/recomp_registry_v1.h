@@ -47,10 +47,8 @@ extern "C" {
 
 typedef void (*SuyuRecompBlockFn)(void*);
 
-/* XMOD1 shared lookup table: one immutable table the host hands to every image, so a block can
-   resolve a RET/BR/BLR target in another module. Entries are ascending by load base; the owner of
-   a pc is the last entry whose base <= pc, and its lookup (absolute pc, like
-   recomp_image_lookup) returns a normal block entry or NULL. */
+/* XMOD1: one immutable table the host gives every image, ascending by load base. The owner of a pc is
+   the last entry with base <= pc; its lookup (absolute pc) returns a normal block entry or NULL. */
 typedef struct SuyuRecompXmodEntryV1 {
     uint64_t base;
     SuyuRecompBlockFn (*lookup)(uint64_t);

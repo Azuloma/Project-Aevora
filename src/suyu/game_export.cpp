@@ -105,6 +105,7 @@
 #include "core/loader/nso_module_names.h"
 #include "core/recompiler/arm64_to_c.h"
 #include "core/recompiler/pe_image_size.h"
+#include "core/recompiler/recomp_registry_v1.h"
 #include "core/recompiler/recomp_topology.h"
 #include "frontend_common/content_manager.h"
 #include "frontend_common/firmware_manager.h"
@@ -4268,6 +4269,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
     // split export (registry v1 carries its handshake).
     static_assert(suyu::recomp::kFeatureCrossModule1 ==
                   Core::RecompImageFeature::CrossModule1);
+    static_assert(suyu::recomp::kXmodV1Version == SUYU_RECOMP_XMOD_V1_VERSION &&
+                  suyu::recomp::kXmodV1MaxModules == SUYU_RECOMP_XMOD_V1_MAX_MODULES);
     suyu::recomp::g_emit_cross_chain =
         Common::EnvFlagDefaultOff(qEnvironmentVariable("SUYU_AOT_CROSS_CHAIN").toStdString());
     if (suyu::recomp::g_emit_cross_chain && (!suyu::recomp::EmitCrossChain() || !split_main)) {

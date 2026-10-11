@@ -88,7 +88,8 @@ VARIANTS = (("abi5", {}),
 AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOMP_AB_FPX",
                "SUYU_RECOMP_AB_FM_INLINE", "SUYU_RECOMP_AB_IDENTITY",
                "SUYU_RECOMP_AB_DIRECT_CHAIN", "SUYU_RECOMP_AB_INDIRECT_CHAIN",
-               "SUYU_RECOMP_AB_FP_SHARED", "SUYU_RECOMP_AB_FPX_VEC", "SUYU_RECOMP_AB_CHAIN_START")
+               "SUYU_RECOMP_AB_FP_SHARED", "SUYU_RECOMP_AB_FPX_VEC", "SUYU_RECOMP_AB_CHAIN_START",
+               "SUYU_RECOMP_AB_CROSS_CHAIN")
 # The identity export adds one export to each module's recomp_export.c and nothing else.
 IDENTITY_CHANGED = {"recomp_export.c"}
 # Shared-image names of the "second" module, per the generator's naming rule
@@ -289,15 +290,21 @@ def bundle_registry_arguments(identity_tree):
     guard_gen = "RECOMP_FEATURE_GUARD_GEN1" in header
     fpx = "RECOMP_FEATURE_FPX1" in header
     # recomp_image_features.h: bit 0 FM1, bit 1 GG1, bit 2 FPX1.
-    features = (1 if fastmem else 0) | (2 if guard_gen else 0) | (4 if fpx else 0)
-    return [abi_line.split()[2], features, int(fastmem), int(guard_gen), int(fpx)]
+    # XMOD1 (bit 3) is announced by the image export, not the shared header.
+    export = (identity_tree / "second" / "recomp_export.c").read_text(encoding="utf-8")
+    cross_chain = "recomp_image_xmod_v1" in export
+    features = ((1 if fastmem else 0) | (2 if guard_gen else 0) | (4 if fpx else 0) |
+                (8 if cross_chain else 0))
+    arguments = [abi_line.split()[2], features, int(fastmem), int(guard_gen), int(fpx)]
+    return arguments, cross_chain
 
 
 def write_bundle_registry(root, topology_unit, identity_tree):
     """recomp_registration.c (registry v1) from the production writer."""
     registry = root / "bundle-registration.c"
-    call([topology_unit, "--write-registry-v1", registry, IDENTITY_BUNDLE_HEX,
-          *bundle_registry_arguments(identity_tree), "smoke", "second", "--dll", "second"],
+    arguments, cross_chain = bundle_registry_arguments(identity_tree)
+    call([topology_unit, "--write-registry-v1", registry, IDENTITY_BUNDLE_HEX, *arguments,
+          "smoke", "second", "--dll", "second", *(["--cross-chain"] if cross_chain else [])],
          timeout=15)
     return registry
 
@@ -408,17 +415,19 @@ XMOD_GUARD_ABORT_EXIT = 86  # xmod_exec.c: the guard stopped the probe block bef
 
 
 def check_xmod_guard(host, image, image_dir):
-    """The probe block of one image after a one-bit code change: the guard must name it."""
-    result = subprocess.run([str(host), f"guard-{image}", str(image_dir)], check=False, timeout=60,
+    """The probe block of one image after a one-bit code change: the guard must name it.
+    `image` is the module index, or the case name "cross-guard" (reached by a chained branch)."""
+    case = image if isinstance(image, str) else f"guard-{image}"
+    result = subprocess.run([str(host), case, str(image_dir)], check=False, timeout=60,
                             env=dict(os.environ, SUYU_RECOMP_STRICT="1"), capture_output=True,
                             text=True, encoding="utf-8", errors="replace")
     match = re.search(r"probe pc (\w+) expected (\w+) read (\w+)", result.stdout)
     if not match:
-        raise RuntimeError(f"xmod guard-{image}: no probe line in:\n{result.stdout[-800:]}")
+        raise RuntimeError(f"xmod {case}: no probe line in:\n{result.stdout[-800:]}")
     pc, expected, read = match.groups()
     message = f"unsupported code change or unavailable code at 0x{pc} (expected {expected}, read {read})"
     if result.returncode != XMOD_GUARD_ABORT_EXIT or message not in result.stderr:
-        raise RuntimeError(f"xmod guard-{image}: exit {result.returncode}, expected "
+        raise RuntimeError(f"xmod {case}: exit {result.returncode}, expected "
                            f"{XMOD_GUARD_ABORT_EXIT} with '{message}' in:\n{result.stderr[-800:]}")
 
 
@@ -442,8 +451,8 @@ def check_bridge_required_list(source, tree):
                            f"the generated runtime guards {sorted(guarded)}")
 
 
-def run_xmod(root, exporter, build, topology_unit, switches, source):
-    tree = root / "generated-xmod"
+def run_xmod(root, exporter, build, topology_unit, switches, source, label="xmod"):
+    tree = root / f"generated-{label}"
     tree.mkdir()
     env = dict(os.environ)
     for key in AB_SWITCHES:
@@ -451,10 +460,12 @@ def run_xmod(root, exporter, build, topology_unit, switches, source):
     env.update(switches)
     call([exporter, "--xmod", tree], env=env)
     check_bridge_required_list(source, tree)
-    registry = root / "xmod-registration.c"
-    call([topology_unit, "--write-registry-v1", registry, IDENTITY_BUNDLE_HEX,
-          *bundle_registry_arguments(tree), *XMOD_MODULES, "--dll", XMOD_DLL_MODULE], timeout=15)
-    run = build("run-xmod", f"-DXMOD_DIR={tree.as_posix()}",
+    registry = root / f"{label}-registration.c"
+    arguments, cross_chain = bundle_registry_arguments(tree)
+    call([topology_unit, "--write-registry-v1", registry, IDENTITY_BUNDLE_HEX, *arguments,
+          *XMOD_MODULES, "--dll", XMOD_DLL_MODULE, *(["--cross-chain"] if cross_chain else [])],
+         timeout=15)
+    run = build(f"run-{label}", f"-DXMOD_DIR={tree.as_posix()}",
                 f"-DIDENTITY_BUNDLE_BYTES={bundle_byte_list(topology_unit, IDENTITY_BUNDLE_HEX)}",
                 f"-DREGISTRY_C={registry.as_posix()}")
     host = executable(run, "xmod_host")
@@ -465,6 +476,14 @@ def run_xmod(root, exporter, build, topology_unit, switches, source):
         # Exclusive reservation, CLREX, pairs, counter and FADD across the three images.
         bundle_case(host, "exec", image_dir, 0, ("exec ok",))
         cases += 2
+        if cross_chain:
+            # Computed branches follow the shared table across the images; without the table
+            # (control) they leave the first image, as an export without XMOD1 does.
+            bundle_case(host, "cross", image_dir, 0, ("cross ok: published=1",))
+            bundle_case(host, "cross-off", image_dir, 0, ("cross ok: published=0",))
+            bundle_case(host, "cross-refuse", image_dir, 0, ("cross-refuse ok",))
+            check_xmod_guard(host, "cross-guard", image_dir)
+            cases += 4
         # A changed code word must stop the probe block in each image, the DLL included.
         for image in range(len(XMOD_MODULES)):
             check_xmod_guard(host, image, image_dir)
@@ -847,6 +866,9 @@ def main():
             identity_switches = dict(VARIANTS)["identity"]
             run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
                      identity_switches, source)
+            run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
+                     dict(identity_switches, SUYU_RECOMP_AB_INDIRECT_CHAIN="1",
+                          SUYU_RECOMP_AB_CROSS_CHAIN="1"), source, label="xmod-cross")
             return
         call([executable(export_build, "smoke_gaps_unit")])
         call([executable(export_build, "smoke_env_option_unit")])
@@ -925,6 +947,10 @@ def main():
                 run_bundle_host(root, run, find_one(run / "shared", IDENTITY_IMAGE_NAMES))
                 run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
                          switches, source)
+                # The same fixture with XMOD1 cross-module chaining on top of the indirect chain.
+                run_xmod(root, exporter, build, executable(export_build, "smoke_topology_unit"),
+                         dict(switches, SUYU_RECOMP_AB_INDIRECT_CHAIN="1",
+                              SUYU_RECOMP_AB_CROSS_CHAIN="1"), source, label="xmod-cross")
                 check_prebuild(root, args.cmake, source, generated[name],
                                executable(export_build, "smoke_topology_unit"), run,
                                compiler_options)

@@ -561,11 +561,16 @@ int xmod_exec_scenarios(RunSlice run[IMAGE_COUNT], LookupBlock lookup[IMAGE_COUN
 
 /* ---- the guard in each image ---- */
 
+/* The image whose probe block the abort must come from; -1 means the one running. */
+static int abort_image = -1;
+static uint64_t abort_x0 = 99; /* x0 when the probe block is entered */
+
 static void guard_aborted(int signal_number) {
+    const unsigned image = abort_image >= 0 ? (unsigned)abort_image : current_image;
     (void)signal_number;
     /* Intended only when the abort came from the probe block of the mutated image,
        before the block's add ran (x0 still 99). */
-    _Exit(context.pc == image_base[current_image] + XMOD_GUARD_PROBE && context.x[0] == 99
+    _Exit(context.pc == image_base[image] + XMOD_GUARD_PROBE && context.x[0] == abort_x0
               ? EXIT_GUARD_ABORT
               : EXIT_GUARD_OTHER);
 }
@@ -591,5 +596,176 @@ int xmod_exec_guard_probe(RunSlice run[IMAGE_COUNT], const uint64_t base[IMAGE_C
     step(image, XMOD_GUARD_PROBE);
     fprintf(stderr, "xmod_exec: image %u ran a block whose code changed (x0 %llu)\n", image,
             (unsigned long long)context.x[0]);
+    return 0;
+}
+
+/* ---- computed branches across images (XMOD1) ---- */
+
+#define RING_TABLE UINT64_C(0x10400)
+#define RING_MAX_TARGETS 8u
+#define RING_START_BUDGET 256
+
+/* Resets the scenario and loads the branch-target table and chain budget of a ring run. */
+static void ring_prepare(const uint64_t* targets, unsigned count, int budget) {
+    unsigned i;
+    reset_scenario();
+    for (i = 0; i < count && i < RING_MAX_TARGETS; ++i) model_write(RING_TABLE + 8 * i, 8, targets[i]);
+    context.x[5] = RING_TABLE;
+    context.chain_budget = budget;
+}
+
+/* Runs one slice from `offset` in `start`; context.pc is then where control left. */
+static void ring_go(unsigned start, unsigned offset) {
+    current_image = start;
+    context.pc = image_base[start] + offset;
+    context.mem_base_vaddr = image_base[start] + CODE_MODULE_OFFSET;
+    image_run[start](&context);
+}
+
+/* Ring block in `start`; x1 then counts the ring blocks executed. */
+static int ring_run(unsigned start, const uint64_t* targets, unsigned count, int budget) {
+    ring_prepare(targets, count, budget);
+    ring_go(start, XMOD_RING);
+    return 1;
+}
+
+/* Published: a computed branch follows its target into the owning module, one budget unit per hop.
+   Without the table (expect_cross == 0) it leaves the first module, as without XMOD1. */
+static int ring_cases(int expect_cross) {
+    const uint64_t a = image_base[0] + XMOD_RING, b = image_base[1] + XMOD_RING,
+                   c = image_base[2] + XMOD_RING;
+    const uint64_t out = image_base[2] + XMOD_BASE_SPACING + XMOD_RING;
+    const uint64_t loop[] = {b, c, a, b, c, a, out};
+    const uint64_t from_b[] = {c, a, out};
+
+    /* A -> B -> C -> A -> B -> C -> A -> out of the bundle: seven blocks, six hops. */
+    CHECK(ring_run(0, loop, 7, RING_START_BUDGET));
+    if (expect_cross) {
+        CHECK(context.x[1] == 7 && context.pc == out && context.chain_budget == RING_START_BUDGET - 6);
+    } else {
+        CHECK(context.x[1] == 1 && context.pc == b && context.chain_budget == RING_START_BUDGET);
+    }
+    /* The DLL as the starting image, and the budget bounds the chain across modules. */
+    CHECK(ring_run(1, from_b, 3, RING_START_BUDGET));
+    CHECK(context.x[1] == (expect_cross ? 3u : 1u) && context.pc == (expect_cross ? out : c));
+    CHECK(ring_run(0, loop, 7, 2));
+    CHECK(context.x[1] == (expect_cross ? 2u : 1u) && context.pc == (expect_cross ? c : b));
+    CHECK(context.chain_budget == (expect_cross ? 0 : 2));
+    CHECK(ring_run(0, loop, 7, 1));
+    CHECK(context.x[1] == 1 && context.pc == b && context.chain_budget == (expect_cross ? 0 : 1));
+    /* The block the budget stopped at is picked up where it left off, as the host does. */
+    CHECK(ring_run(0, loop, 7, 2));
+    context.chain_budget = RING_START_BUDGET;
+    image_run[expect_cross ? 2 : 1](&context);
+    CHECK(context.x[1] == (expect_cross ? 7u : 2u) && context.pc == (expect_cross ? out : c));
+
+    /* Targets no module owns, or that are not a block start, are a miss: nothing runs. */
+    {
+        const uint64_t below[] = {UINT64_C(0x500)};
+        const uint64_t unowned[] = {image_base[2] + XMOD_BASE_SPACING + 0x1000};
+        const uint64_t misaligned[] = {b + 2};
+        const uint64_t not_code[] = {image_base[1] + 0x800000};
+        CHECK(ring_run(0, below, 1, RING_START_BUDGET));
+        CHECK(context.x[1] == 1 && context.pc == below[0] && context.chain_budget == RING_START_BUDGET);
+        CHECK(ring_run(0, unowned, 1, RING_START_BUDGET));
+        CHECK(context.x[1] == 1 && context.pc == unowned[0]);
+        CHECK(ring_run(0, misaligned, 1, RING_START_BUDGET));
+        CHECK(context.x[1] == 1 && context.pc == misaligned[0]);
+        CHECK(ring_run(0, not_code, 1, RING_START_BUDGET));
+        CHECK(context.x[1] == 1 && context.pc == not_code[0]);
+    }
+    /* Another module's SVC and breakpoint blocks end the chain the way they do in-module. */
+    {
+        const uint64_t svc_target[] = {image_base[1] + XMOD_SVC};
+        const uint64_t halt_target[] = {image_base[2] + XMOD_GUARD_PROBE};
+        CHECK(ring_run(0, svc_target, 1, RING_START_BUDGET));
+        if (expect_cross) {
+            CHECK(context.pending_svc == XMOD_SVC_NUMBER && context.pc == svc_target[0] + 4);
+        } else {
+            CHECK(context.pending_svc == ~UINT64_C(0) && context.pc == svc_target[0]);
+        }
+        CHECK(ring_run(0, halt_target, 1, RING_START_BUDGET));
+        if (expect_cross) {
+            CHECK(context.halted == RECOMP_HALT_BREAKPOINT && context.x[0] == 1);
+        } else {
+            CHECK(context.halted == 0 && context.x[0] == 0 && context.pc == halt_target[0]);
+        }
+    }
+    return 1;
+}
+
+/* RET and BLR leave the first module through x30 and x2, as BR does through the table. */
+static int return_and_call_cases(int expect_cross) {
+    const uint64_t probe1 = image_base[1] + XMOD_GUARD_PROBE, probe2 = image_base[2] + XMOD_GUARD_PROBE;
+    ring_prepare(NULL, 0, RING_START_BUDGET);
+    context.x[30] = probe1;
+    ring_go(0, XMOD_RET);
+    if (expect_cross) {
+        CHECK(context.halted == RECOMP_HALT_BREAKPOINT && context.x[0] == 1 && context.x[30] == probe1);
+    } else {
+        CHECK(context.halted == 0 && context.x[0] == 0 && context.pc == probe1);
+    }
+    ring_prepare(NULL, 0, RING_START_BUDGET);
+    context.x[2] = probe2;
+    ring_go(0, XMOD_BLR);
+    CHECK(context.x[30] == image_base[0] + XMOD_BLR + 4);
+    if (expect_cross) {
+        CHECK(context.halted == RECOMP_HALT_BREAKPOINT && context.x[0] == 1);
+    } else {
+        CHECK(context.halted == 0 && context.x[0] == 0 && context.pc == probe2);
+    }
+    return 1;
+}
+
+/* The FP control and status registers live in the shared context, so a block reached through a
+   chain sees and updates the same FPSR as one the host entered directly. */
+static int fp_cases(int expect_cross) {
+    const uint64_t target[] = {image_base[2] + XMOD_FADD};
+    static const struct { uint64_t gate; uint32_t a, b, result; uint64_t fpsr; } rows[] = {
+        {0, FP_ONE, FP_HALF_ULP, FP_ONE, FPSR_IXC},
+        {FPSR_IXC, FP_ONE, FP_HALF_ULP, FP_ONE, FPSR_IXC},
+        {0, FP_ONE, FP_ONE, FP_TWO, 0},
+        {FPSR_IXC, FP_ONE, FP_ONE, FP_TWO, FPSR_IXC}};
+    unsigned i;
+    for (i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i) {
+        ring_prepare(target, 1, RING_START_BUDGET);
+        context.vreg[1][0] = rows[i].a;
+        context.vreg[2][0] = rows[i].b;
+        context.vreg[0][0] = ~UINT64_C(0);
+        context.fpcr = 0;
+        context.fpsr = rows[i].gate;
+        ring_go(0, XMOD_RING);
+        if (expect_cross) {
+            CHECK(context.vreg[0][0] == rows[i].result && context.vreg[0][1] == 0 &&
+                  context.fpsr == rows[i].fpsr);
+        } else {
+            CHECK(context.vreg[0][0] == ~UINT64_C(0) && context.fpsr == rows[i].gate);
+        }
+    }
+    return 1;
+}
+
+int xmod_exec_cross(RunSlice run[IMAGE_COUNT], const uint64_t base[IMAGE_COUNT], int expect_cross) {
+    set_images(run, base);
+    install_bridge();
+    return ring_cases(expect_cross) && return_and_call_cases(expect_cross) && fp_cases(expect_cross);
+}
+
+/* The code guard of a module reached through a chained branch still stops a changed block
+   before its effect (exit EXIT_GUARD_ABORT from guard_aborted); returns only on failure. */
+int xmod_exec_cross_guard(RunSlice run[IMAGE_COUNT], const uint64_t base[IMAGE_COUNT]) {
+    const uint64_t target[] = {base[2] + XMOD_GUARD_PROBE};
+    set_images(run, base);
+    install_bridge();
+    mutated_fetch_va = base[2] + XMOD_GUARD_PROBE;
+    printf("probe pc %llx expected %08x read %08x\n", (unsigned long long)mutated_fetch_va,
+           (unsigned)xmod_code[(XMOD_GUARD_PROBE - CODE_MODULE_OFFSET) / 4],
+           (unsigned)(xmod_code[(XMOD_GUARD_PROBE - CODE_MODULE_OFFSET) / 4] ^ 1u));
+    fflush(stdout);
+    signal(SIGABRT, guard_aborted);
+    abort_image = 2;
+    abort_x0 = 0;
+    ring_run(0, target, 1, RING_START_BUDGET);
+    fprintf(stderr, "xmod_exec: the chained branch ran a block whose code changed\n");
     return 0;
 }

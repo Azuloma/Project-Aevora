@@ -119,15 +119,13 @@ std::optional<std::vector<std::pair<size_t, u64>>> BindRecompBundleToInventory(
 void ApplyRecompBundleBases(const RecompBundle& bundle,
                             const std::vector<std::pair<size_t, u64>>& bases);
 
-/// XMOD1 only (a no-op returning true for a bundle without the feature). Call after
-/// ApplyRecompBundleBases, so every module's block index exists, and before any guest thread
-/// runs. Verifies every module, then hands every image the same immutable table; if any image
-/// refuses, all are cleared and nothing stays published. The table is never freed, because an
-/// image may still be reading it when it is unpublished. Errors name the module or base.
+/// XMOD1 only (a no-op for other bundles). Call after ApplyRecompBundleBases and before any guest
+/// thread runs; any refusal clears every image. The table is never freed (images may hold it).
 bool PublishRecompXmod(RecompBundle& bundle, const std::vector<std::pair<size_t, u64>>& bases,
                        std::string* error);
 
-/// Clears the table in every image. Call before a rebind or an unload; the table stays allocated.
+/// Clears the table in every image. Only while no guest thread runs: a reader that already
+/// loaded the pointer may still use the old table, which stays allocated.
 void UnpublishRecompXmod(RecompBundle& bundle);
 
 } // namespace Core

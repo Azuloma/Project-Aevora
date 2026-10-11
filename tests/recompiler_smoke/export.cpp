@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
     suyu::recomp::g_emit_direct_chain = EnvOn("SUYU_RECOMP_AB_DIRECT_CHAIN");
     suyu::recomp::g_emit_indirect_chain = EnvOn("SUYU_RECOMP_AB_INDIRECT_CHAIN");
     suyu::recomp::g_emit_chain_start = EnvOn("SUYU_RECOMP_AB_CHAIN_START");
+    suyu::recomp::g_emit_cross_chain = EnvOn("SUYU_RECOMP_AB_CROSS_CHAIN");
     if (xmod) return ExportXmod(argv[2]);
     const auto stats = suyu::recomp::EmitProject(
         "smoke", reinterpret_cast<const uint8_t*>(smoke_code), sizeof(smoke_code),

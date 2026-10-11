@@ -2230,7 +2230,10 @@ int main(int argc, char** argv) {
             }
             Core::UnpublishRecompXmod(*s_recomp_bundle);
             Core::ApplyRecompBundleBases(*s_recomp_bundle, *bases);
-            if (!Core::PublishRecompXmod(*s_recomp_bundle, *bases, &bind_error)) {
+            if (const char* hook = Core::ActiveRecompMissHookName()) {
+                LOG_WARNING(Frontend,
+                            "Cross-module table not published: {} acts at the dispatcher", hook);
+            } else if (!Core::PublishRecompXmod(*s_recomp_bundle, *bases, &bind_error)) {
                 LOG_CRITICAL(Frontend, "Recompiled cross-module table failed: {}", bind_error);
                 return false;
             }

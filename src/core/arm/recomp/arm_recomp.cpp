@@ -889,6 +889,18 @@ RecompLookupFn GetRecompLookup() {
     return g_recomp_lookup.load(std::memory_order_acquire);
 }
 
+const char* ActiveRecompMissHookName() {
+    for (const char* name :
+         {"SUYU_RECOMP_FORCE_MISS_AFTER", "SUYU_RECOMP_FORCE_MISS_AFTER_STATIC_BLOCKS",
+          "SUYU_RECOMP_FORCE_MISS_AT_MODULE_OFFSET", "SUYU_RECOMP_FORCE_MISS_AFTER_SEC",
+          "SUYU_RECOMP_MAIN_HOLE"}) {
+        if (std::getenv(name)) {
+            return name;
+        }
+    }
+    return nullptr;
+}
+
 namespace {
 /// Hosted generated code must never take its private exclusive/counter fallbacks (per-image state), so every
 /// callback it can reach must exist. Returns false and names the first missing one.

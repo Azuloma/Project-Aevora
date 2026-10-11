@@ -51,6 +51,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `TranslateAllForExport()` | `arm64_to_c.h:340` (v) | Strict static exports translate everything. |
 | `kChainBudget` | `arm64_to_c.h:351` (v) | Blocks run before control returns to the dispatcher. |
 | `ChainTo` / `ChainIndirect` | `arm64_to_c.h:299-302`, `:409-440` (v) | Default-on direct B/BL and independent indirect RET/BR/BLR tail-chain emitters; set the corresponding environment option to `0` to disable; indirect lookup subtracts the module base and preserves budget on misses. |
+| `XmodTypesText` / `EmitCrossChain` / `ChainIndirect` and `recomp_image_xmod_v1` | `arm64_to_c.h:409-419`, `:505-507`, `:6172-6177` (v, 2026-10-11) | XMOD1 generated table types, opt-in cross-module lookup fallback for indirect chains, and the image export. |
 | `g_emit_direct_chain` / `g_emit_indirect_chain` | `arm64_to_c.h:367-374` (v) | Independent default-on chain switches controlled by `SUYU_AOT_DIRECT_CHAIN=0` and `SUYU_AOT_INDIRECT_CHAIN=0`. |
 | `g_emit_chain_start` / `EmitChainStart()` | `arm64_to_c.h:400-404` | Opt-in chain-start switch; effective only when direct chaining is enabled. |
 | Chain-start target set and `_s` emission | `arm64_to_c.h:5428-5510` and `:5568-5578` | Finds direct B/BL targets at most `kChainStartMaxInsns` instructions, selects `_s` from `ChainTo`, and shares the expected-word array and GG1 slot. |
@@ -102,6 +103,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | Unit-limit environment overrides | `ReadPositiveSizeFromEnv()` ~`game_export.cpp:124`; read before `EmitProject()` ~`:3828` (v, 2026-10-05) | `SUYU_RECOMP_UNIT_BLOCKS`, `SUYU_RECOMP_UNIT_KB`. |
 | FMI export switch and manifest/cache rule | `game_export.cpp:3460-3469`, `:3548-3570`, `:4977` (v, 2026-10-09) | `SUYU_AOT_FM_INLINE` is on unless exactly `0`; manifests record `fm_inline`, and cache reuse requires a matching value (missing field means FMI off). |
 | Direct/indirect chain flags and manifest/cache identity | `game_export.cpp:3492-3528`, `:4172-4181`, `:4243`, `:4330-4335`, `:4396-4397`, `:6197-6198` (v, 2026-10-09) | `SUYU_AOT_DIRECT_CHAIN`/`SUYU_AOT_INDIRECT_CHAIN` are on unless exactly `0`; both fields affect generated code, `ComputeBundleId` inputs, manifest output, and reuse checks. |
+| Cross-chain option and manifest/cache wiring | `src/suyu/game_export.cpp:4268-4290`, `:5167` (v, 2026-10-11) | Reads `SUYU_AOT_CROSS_CHAIN`, enforces FM1/indirect-chain/split prerequisites, sets XMOD1, and records `cross_chain` in registry/cache identity. |
 | clang-cl module build and launcher link | ~`game_export.cpp:4400-4560` (v, 2026-10-05) | Configures `<build-dir>/recomp_clang`, builds `recomp_static_<module>`, then reconfigures the source build tree with `SUYU_CMD_RECOMP_DIR` etc. and links `suyu-cmd-static` at `--parallel 2`. Running from a source build therefore rebuilds and pollutes that tree. |
 | Recorded compiler name | `last_recomp_compiler`, ~`game_export.cpp:4560`, `:4790`, `:4985`, `:5370` | Known defect: reports record `O2` instead of the compiler. |
 
@@ -132,6 +134,10 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `src/dynarmic/src/dynarmic/backend/x64/emit_x64_memory.cpp.inc` | `EmitExclusiveReadMemoryInline`/`EmitExclusiveWriteMemoryInline`: inline spin lock, reservation record, fastmem access, `lock cmpxchg`, no write notification. (v, 2026-10-11) |
 | `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp` | `SpinLockImpl`: one 4 KB Xbyak page holding the shared `lock`/`unlock` stubs used by `Dynarmic::ExclusiveMonitor`; unlock is `xchg` without `mfence`. (v, 2026-10-11) |
 | `recomp_bundle.h/.cpp` | Production v1 bundle loading and transactional DLL validation (`LoadRecompBundleV1:444`, `BindRecompBundleToInventory`, `ApplyRecompBundleBases`, `GetRecompExecutableDirectory`); used by the v1 launcher and smoke tests. |
+| `SuyuRecompXmodTableV1` / `xmod_v1` | `src/core/recompiler/recomp_registry_v1.h:39,57-63,82` (v, 2026-10-11) | XMOD1 export name, immutable table layout, and registry-v1 image callback. |
+| `PublishRecompXmod` / `UnpublishRecompXmod` | `src/core/arm/recomp/recomp_bundle.h:124-129`, `recomp_bundle.cpp:580-648` (v, 2026-10-11) | Verify and publish one host table to every image, or clear image tables on refusal; unpublish while guest threads are stopped. |
+| `CrossModule1` / `kLegacyLoaderSupported` | `src/core/arm/recomp/recomp_image_features.h:30-37` (v, 2026-10-11) | XMOD1 feature bit `0x8`, host-supported features, and the legacy-loader mask that excludes XMOD1. |
+| `ActiveRecompMissHookName` | `src/core/arm/recomp/arm_recomp.h:143`, `arm_recomp.cpp:892` (v, 2026-10-11) | Names the active force-miss or main-hole hook that suppresses XMOD1 publication. |
 | `recomp_bridge_required.h` | Shared required host-bridge callback X-macro list and first-missing-callback helper (v, 2026-10-07). |
 | `recomp_image_features.h` | ABI 6 feature bits (FM1 `0x1`, GG1 `0x2`, FPX1 `0x4`). |
 | `recomp_guard_gen.h/.cpp` | GG1 generation-word code guard. |
@@ -261,6 +267,10 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_exec.c` | Cross-image reservation, counter, FPX, guard, bridge-null, and lookup-boundary fixture execution (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_host.cpp` | Production bundle host for xmod module loading, handshakes, and per-image checks (v, 2026-10-07). |
+| `tests/recompiler_smoke/xmod_exec.c` ring cases | `xmod_exec.c:476-582,748-778` (v, 2026-10-11) | Three-module A→B→C→A chain, cross-off behavior, and chained-module guard probe scenarios. |
+| `tests/recompiler_smoke/xmod_host.cpp` cases | `xmod_host.cpp:142-249` (v, 2026-10-11) | `cross`, `cross-off`, `cross-refuse`, and `cross-guard` host cases, including table refusal validation. |
+| `smoke_xmod_table_unit` | `tests/recompiler_smoke/CMakeLists.txt:137-140`, `run.py:884` (v, 2026-10-11) | Standalone XMOD1 table publication, validation, and unpublish unit. |
+| Export AOT cache cross-chain matrix block | `tests/export_integration/run_export_integration.py:941-969` (v, 2026-10-11) | Verifies cross-chain manifest/cache identity, prerequisite handling, export/run, and switching the option off. |
 | `tests/recompiler_smoke/bundle_stub_image.c` | Shared-image test stub without the required bundle entry points (v, 2026-10-07). |
 | `tests/recompiler_smoke/export.cpp --xmod` | Emits the synthetic static/DLL/static xmod images (v, 2026-10-07). |
 | `tests/recompiler_smoke/run.py --only-xmod` | Runs only the xmod export and host scenarios (v, 2026-10-07). |

@@ -138,6 +138,10 @@ bool BindRecompProcess(Kernel::KProcess& process, const RecompModules& inventory
 /// loaded and the JIT should be used.
 RecompLookupFn GetRecompLookup();
 
+/// Name of the first force-miss or main-hole diagnostic environment variable that is set, or
+/// null. Those hooks act at the dispatcher, so cross-module chaining must stay unpublished.
+const char* ActiveRecompMissHookName();
+
 /// What the CPU is actually doing, for display while a game is running.
 ///
 /// Whether execution is statically recompiled is otherwise only visible in a
