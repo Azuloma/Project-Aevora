@@ -25,6 +25,7 @@
 #include "core/arm/recomp/guest_fp_env.h"
 #include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
+#include "core/arm/recomp/recomp_lookup_stats.h"
 #include "core/arm/recomp/recomp_diagnostic_sampler.h"
 #include "core/arm/recomp/recomp_sharded_counters.h"
 #include "core/arm/recomp/recomp_thread_time.h"
@@ -391,6 +392,19 @@ void CountSvc(u32 svc_id) {
     HotCounters::Increment(t_hot_counters, kSvcCallsCounter);
     HotCounters::Increment(t_hot_counters,
                            svc_id < kSvcIdLimit ? kFirstSvcIdCounter + svc_id : kSvcOverflowCounter);
+}
+
+// SUYU_RECOMP_LOOKUP_STATS=1 counts dispatcher returns by reason; off unless exactly "1".
+const bool kLookupStats = [] {
+    const char* e = std::getenv("SUYU_RECOMP_LOOKUP_STATS");
+    return e && std::string_view{e} == "1";
+}();
+constexpr u64 kLookupStatsWindowNs = 10'000'000'000ULL;
+RecompLookupStats g_lookup_stats;
+
+RecompLookupStats::Counters::Slot& LookupStatsSlot() {
+    thread_local RecompLookupStats::Counters::Slot& slot = g_lookup_stats.Acquire();
+    return slot;
 }
 
 u64 TotalSvcCalls() {
@@ -2108,6 +2122,22 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             if (kSamplePc && (seen >> kSamplePcShift) != (after >> kSamplePcShift) &&
                 SampleWindowOpen()) {
                 g_counters.RecordSample(impl->ctx.pc);
+            }
+            if (kLookupStats) {
+                auto& stats_slot = LookupStatsSlot();
+                const DispatchReturn reason =
+                    ClassifyReturn(impl->ctx.halted != 0, impl->ctx.pending_svc != kNoPendingSvc,
+                                   impl->ctx.chain_budget);
+                if (reason == DispatchReturn::Exit) {
+                    // A second, diagnostic-only lookup: the unhooked answer for the next pc.
+                    RecompLookupStats::CountExit(stats_slot, impl->lookup(impl->ctx.pc) != nullptr);
+                }
+                if (RecompLookupStats::CountReturn(stats_slot, reason, after - seen + 1)) {
+                    if (const auto report =
+                            g_lookup_stats.TakeReport(SteadyNowNs(), kLookupStatsWindowNs)) {
+                        LOG_INFO(Core_ARM, "{}", *report);
+                    }
+                }
             }
         }
 

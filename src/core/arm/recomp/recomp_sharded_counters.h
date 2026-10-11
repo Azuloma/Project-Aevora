@@ -29,9 +29,13 @@ public:
     }
 
     // Only the owning thread may call this; the store is not an atomic read-modify-write.
-    static void Increment(Slot& slot, std::size_t counter) {
+    static void Add(Slot& slot, std::size_t counter, std::uint64_t amount) {
         auto& cell = slot.value[counter];
-        cell.store(cell.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+        cell.store(cell.load(std::memory_order_relaxed) + amount, std::memory_order_relaxed);
+    }
+
+    static void Increment(Slot& slot, std::size_t counter) {
+        Add(slot, counter, 1);
     }
 
     std::uint64_t Sum(std::size_t counter) const {
