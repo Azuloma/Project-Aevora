@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
+#include <string_view>
+
 #include "core/arm/dynarmic/dynarmic_exclusive_access.h"
 #include "core/arm/dynarmic/dynarmic_exclusive_monitor.h"
 #include "core/memory.h"
@@ -13,6 +16,12 @@ DynarmicExclusiveMonitor::DynarmicExclusiveMonitor(Memory::Memory& memory_, std:
 DynarmicExclusiveMonitor::~DynarmicExclusiveMonitor() = default;
 
 namespace {
+
+// SUYU_EXCL_LOCKFREE_MARK=1 marks reservations without the global lock; off unless exactly "1".
+const bool kLockFreeMarks = [] {
+    const char* e = std::getenv("SUYU_EXCL_LOCKFREE_MARK");
+    return e && std::string_view{e} == "1";
+}();
 
 // The translating accesses, which do their rasterizer handling and logging as they go. They run
 // under the monitor lock, so they are only for pages that GetPlainExclusivePointer declines.
@@ -53,7 +62,7 @@ T DynarmicExclusiveMonitor::ExclusiveRead(std::size_t core_index, VAddr addr) {
     // For a plain page the host pointer is resolved before the global monitor lock is taken, so
     // under it there is only the reservation and one load.
     if (const u8* const host = memory.GetPlainExclusivePointer(addr, sizeof(T))) {
-        return ExclusiveAccess::ReadMarked<T>(monitor, core_index, addr, host);
+        return ExclusiveAccess::ReadMarked<T>(monitor, core_index, addr, host, kLockFreeMarks);
     }
     return monitor.ReadAndMark<T>(core_index, addr,
                                   [&]() -> T { return ReadThroughMemory<T>(memory, addr); });

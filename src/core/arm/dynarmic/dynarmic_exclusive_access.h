@@ -21,8 +21,8 @@ namespace Core::ExclusiveAccess {
 
 template <typename T>
 T ReadMarked(Dynarmic::ExclusiveMonitor& monitor, std::size_t core_index, VAddr addr,
-             const u8* host) {
-    return monitor.ReadAndMark<T>(core_index, addr, [host]() -> T {
+             const u8* host, bool lock_free = false) {
+    const auto load = [host]() -> T {
         T value;
         if constexpr (std::is_same_v<T, u128>) {
             // Two 64-bit loads, as Memory::Read64 twice: no 16-byte atomic load is implied.
@@ -32,7 +32,9 @@ T ReadMarked(Dynarmic::ExclusiveMonitor& monitor, std::size_t core_index, VAddr 
             std::memcpy(&value, host, sizeof(T));
         }
         return value;
-    });
+    };
+    return lock_free ? monitor.ReadAndMarkLockFree<T>(core_index, addr, load)
+                     : monitor.ReadAndMark<T>(core_index, addr, load);
 }
 
 /// `attempted` (optional) is set when the reservation held and the compare-and-swap ran, whether

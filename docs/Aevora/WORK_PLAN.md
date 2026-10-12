@@ -23,6 +23,8 @@ The user-committed baseline `d1981da` is v0.0.1-dev21 and includes the XMOD1 wor
 - Lookup out-of-range binary-search misses are estimated at about 1.6 ms/frame.
 - XMOD1 measured about +1 to +1.5 FPS (1.7 to 2.7 ms/frame) from single user-readings; normal baseline was 23 FPS.
 - Chain-budget sweep 256/1024/2048 showed no change; readings during a host build were invalid.
+- Session 27 (dev22, `SUYU_RECOMP_EXCL_STATS`): guest exclusive callbacks cost about 4.5-4.7 s of thread time per 10 s window (about 20 core-ms/frame at 23 FPS, 110-122 ns per op incl. timer), about 20M loads and 20M stores per window, 0.5% stores failing; the JIT cost for the same work is not measured. Cross chain on (default since dev22): 23 FPS versus 20 FPS off, dispatches 31.5M -> 17.0M per 10 s; sdk<->main exits remain about 8M each way (likely direct calls, not chained).
+- Next candidate: `SUYU_EXCL_LOCKFREE_MARK=1` (opt-in, lock-free reservation mark for loads) needs a commit, reconfigure, full export and an A/B with `excl-stats`; TTAS spin lock stub (separate) not implemented.
 
 ## Contracts to preserve
 

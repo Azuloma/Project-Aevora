@@ -30,6 +30,13 @@ void Check(bool condition, const char* what) {
     }
 }
 
+bool g_lock_free = false;
+
+template <typename T>
+T MarkedRead(Dynarmic::ExclusiveMonitor& monitor, std::size_t core, VAddr addr, const std::uint8_t* host) {
+    return Core::ExclusiveAccess::ReadMarked<T>(monitor, core, addr, host, g_lock_free);
+}
+
 constexpr std::size_t kCores = 3;
 constexpr int kIncrementsPerCore = 200000;
 
@@ -38,7 +45,7 @@ template <typename T>
 void IncrementExclusive(Dynarmic::ExclusiveMonitor& monitor, std::size_t core, VAddr addr,
                         std::uint8_t* host) {
     for (;;) {
-        T value = Core::ExclusiveAccess::ReadMarked<T>(monitor, core, addr, host);
+        T value = MarkedRead<T>(monitor, core, addr, host);
         if constexpr (std::is_same_v<T, u128>) {
             value[0] += 1;
         } else {
@@ -101,7 +108,7 @@ void SameOldValueRace(bool use_reservation) {
     for (std::size_t core = 0; core < kCores; ++core) {
         threads.emplace_back([&, core] {
             const std::uint32_t old_value =
-                Core::ExclusiveAccess::ReadMarked<std::uint32_t>(monitor, core, 0x1000, memory.data());
+                MarkedRead<std::uint32_t>(monitor, core, 0x1000, memory.data());
             after_reads.arrive_and_wait();
             while (turn.load() != static_cast<int>(core)) {
                 std::this_thread::yield();
@@ -149,16 +156,16 @@ void ReservationSemantics() {
     Check(value == 0, "failed store left memory unchanged");
 
     // A store by another core clears this core's reservation of the same address.
-    ReadMarked<std::uint32_t>(monitor, 0, kAddrA, a);
-    ReadMarked<std::uint32_t>(monitor, 1, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 0, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 1, kAddrA, a);
     Check(WriteCompared<std::uint32_t>(monitor, 1, kAddrA, a, 5), "owner's store succeeds");
     Check(!WriteCompared<std::uint32_t>(monitor, 0, kAddrA, a, 9), "other core's reservation was cleared");
     std::memcpy(&value, a, sizeof(value));
     Check(value == 5, "only the winning store landed");
 
     // A store to a different address leaves the reservation alone.
-    ReadMarked<std::uint32_t>(monitor, 0, kAddrA, a);
-    ReadMarked<std::uint32_t>(monitor, 1, kAddrB, b);
+    MarkedRead<std::uint32_t>(monitor, 0, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 1, kAddrB, b);
     Check(WriteCompared<std::uint32_t>(monitor, 1, kAddrB, b, 3), "store to B succeeds");
     Check(WriteCompared<std::uint32_t>(monitor, 0, kAddrA, a, 6), "reservation of A survives a store to B");
 
@@ -167,7 +174,7 @@ void ReservationSemantics() {
     bool attempted = false;
     Check(!WriteCompared<std::uint32_t>(monitor, 2, kAddrA, a, 1, &attempted) && !attempted,
           "lost reservation does not attempt the store");
-    ReadMarked<std::uint32_t>(monitor, 2, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 2, kAddrA, a);
     const std::uint32_t moved = 0x4321;
     std::memcpy(a, &moved, sizeof(moved));
     attempted = false;
@@ -178,31 +185,31 @@ void ReservationSemantics() {
     Check(!WriteCompared<std::uint32_t>(monitor, 0, kAddrA, a, 8), "reservation is single-use");
 
     // ClearProcessor drops it.
-    ReadMarked<std::uint32_t>(monitor, 2, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 2, kAddrA, a);
     monitor.ClearProcessor(2);
     Check(!WriteCompared<std::uint32_t>(monitor, 2, kAddrA, a, 1), "cleared reservation fails");
 
     // A value that changed behind the monitor's back fails the compare even with the reservation.
-    ReadMarked<std::uint32_t>(monitor, 0, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 0, kAddrA, a);
     const std::uint32_t changed = 0x1234;
     std::memcpy(a, &changed, sizeof(changed));
     Check(!WriteCompared<std::uint32_t>(monitor, 0, kAddrA, a, 2), "stale value fails the compare");
 
     // 128-bit pair.
-    ReadMarked<u128>(monitor, 0, kAddrB, b);
+    MarkedRead<u128>(monitor, 0, kAddrB, b);
     Check(WriteCompared<u128>(monitor, 0, kAddrB, b, u128{11, 22}), "128-bit store succeeds");
-    const u128 pair = ReadMarked<u128>(monitor, 0, kAddrB, b);
+    const u128 pair = MarkedRead<u128>(monitor, 0, kAddrB, b);
     Check(pair[0] == 11 && pair[1] == 22, "128-bit value read back");
 
     // A change to only the upper half of a 128-bit value fails the compare.
-    ReadMarked<u128>(monitor, 0, kAddrB, b);
+    MarkedRead<u128>(monitor, 0, kAddrB, b);
     const std::uint64_t upper = 99;
     std::memcpy(b + sizeof(std::uint64_t), &upper, sizeof(upper));
     Check(!WriteCompared<u128>(monitor, 0, kAddrB, b, u128{1, 2}), "upper-half change fails the compare");
 
     // ClearProcessor drops only that core's reservation.
-    ReadMarked<std::uint32_t>(monitor, 0, kAddrA, a);
-    ReadMarked<std::uint32_t>(monitor, 1, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 0, kAddrA, a);
+    MarkedRead<std::uint32_t>(monitor, 1, kAddrA, a);
     monitor.ClearProcessor(1);
     Check(WriteCompared<std::uint32_t>(monitor, 0, kAddrA, a, 4), "other core's reservation survives ClearProcessor");
 }
@@ -210,14 +217,21 @@ void ReservationSemantics() {
 } // namespace
 
 int main() {
-    ReservationSemantics();
-    CounterTest<std::uint8_t>("u8");
-    CounterTest<std::uint16_t>("u16");
-    CounterTest<std::uint32_t>("u32");
-    CounterTest<std::uint64_t>("u64");
-    CounterTest<u128>("u128");
-    SameOldValueRace(true);
-    SameOldValueRace(false);
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    for (const bool lock_free : {false, true}) {
+        g_lock_free = lock_free;
+        std::printf("-- marks %s\n", lock_free ? "lock-free" : "locked");
+        // The deterministic checks come first: a monitor that never marks fails them before the
+        // counter loops, which would retry forever.
+        ReservationSemantics();
+        SameOldValueRace(true);
+        SameOldValueRace(false);
+        CounterTest<std::uint8_t>("u8");
+        CounterTest<std::uint16_t>("u16");
+        CounterTest<std::uint32_t>("u32");
+        CounterTest<std::uint64_t>("u64");
+        CounterTest<u128>("u128");
+    }
     std::printf(g_failures == 0 ? "PASS\n" : "FAILED (%d)\n", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

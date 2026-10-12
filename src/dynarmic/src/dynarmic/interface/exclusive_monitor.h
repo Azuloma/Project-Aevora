@@ -9,6 +9,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -64,6 +65,18 @@ public:
         Unlock();
         return value;
 #endif
+    }
+
+    /// ReadAndMark without the global lock, for every host. Exclusive stores still take the lock and
+    /// compare against the saved value, as the DYNARMIC_LOCKFREE_EXCLUSIVE_MARK path requires.
+    template<typename T, typename Function>
+    T ReadAndMarkLockFree(size_t processor_id, VAddr address, Function op) {
+        static_assert(std::is_trivially_copyable_v<T>);
+        std::atomic_ref<VAddr>{exclusive_addresses[processor_id]}.store(
+            address & RESERVATION_GRANULE_MASK, std::memory_order_seq_cst);
+        const T value = op();
+        std::memcpy(exclusive_values[processor_id].data(), &value, sizeof(T));
+        return value;
     }
 
     /// Checks to see if processor processor_id has exclusive access to the
