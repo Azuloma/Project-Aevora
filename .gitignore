@@ -98,3 +98,8 @@ CMakeUserPresets.json
 prod.keys
 title.keys
 dev.keys
+
+#Claude code
+/.claude/
+/CLAUDE.md
+/AGENTS.md
