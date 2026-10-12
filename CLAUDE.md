@@ -8,8 +8,8 @@ The current HEAD, host revision, measurements, and next action are maintained on
 
 ## Resuming work
 
-Dev19 delivered FPXV; dev20 added sharded counters, the two-line comment rule, and opt-in chain start; dev21 added the guest-time ledger, lookup diagnostics, and the implemented XMOD1 cross-module chain. The next choices are XMOD1 confirmation with exit counters, the separate lookup early-miss evaluation, or another AOT-JIT gap cost center; verified per-commit facts live only in WORK_PLAN.
-The resume procedure is: read CLAUDE.md and WORK_PLAN; run git status/log and verify host GIT_REV against HEAD before building or exporting; ask the user to choose the next target; use same-position averaged FPS and ms per frame; keep chain start, the ledger, lookup diagnostics, and the cross chain opt-in.
+Dev19 delivered FPXV; dev20 added sharded counters, the two-line comment rule, and opt-in chain start; dev21 added the guest-time ledger and lookup diagnostics; dev22 added `SUYU_RECOMP_EXCL_STATS`; dev23 made cross chain default-on, added opt-in `SUYU_EXCL_LOCKFREE_MARK`, and made monitor slots atomic. The next choices are the open issues in WORK_PLAN: lock-free default decision, SpinLock TTAS, bridge path shortening, or remaining sdk<->main exits; verified per-commit facts live only in WORK_PLAN.
+The resume procedure is: read CLAUDE.md and WORK_PLAN; run git status/log and verify host GIT_REV against HEAD before building or exporting; ask the user to choose the next target; use same-position averaged FPS and ms per frame; keep chain start, the ledger, lookup/exclusive diagnostics and the lock-free mark opt-in; the cross chain is default-on (`=0` disables).
 Agents never commit, tag, or push. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
@@ -56,7 +56,13 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `src/core/arm/recomp/recomp_sharded_counters.h` | Per-thread cache-line-aligned counters for dispatch-path diagnostics. |
 | `src/core/arm/recomp/recomp_lookup_stats.h` | Opt-in dispatcher-return, module-pair, and lookup-window statistics. |
 | `src/core/arm/recomp/recomp_exit_targets.h` | Opt-in per-thread exit-target hash tables and top-target reports. |
-| `src/core/arm/recomp/arm_recomp.cpp` | Lookup flags, per-thread module snapshots, generation tracking, and dispatch-loop diagnostic hooks. |
+| `src/core/arm/recomp/recomp_exclusive_stats.h` | Opt-in exclusive callback timing with `SUYU_RECOMP_EXCL_STATS=1`. |
+| `src/core/arm/recomp/arm_recomp.cpp` | Lookup flags, per-thread module snapshots, generation tracking, dispatch-loop hooks, exclusive timing wrappers, and the report hook. |
+| `src/core/arm/dynarmic/dynarmic_exclusive_access.h` | Reservation access helpers, including the `ReadMarked` lock-free parameter. |
+| `src/core/arm/dynarmic/dynarmic_exclusive_monitor.cpp` | Reservation monitor wiring and `SUYU_EXCL_LOCKFREE_MARK` (`kLockFreeMarks`). |
+| `src/dynarmic/src/dynarmic/interface/exclusive_monitor.h` | `ReadAndMarkLockFree` and saved-value compare-and-swap monitor contract. |
+| `src/dynarmic/src/dynarmic/backend/x64/exclusive_monitor.cpp` | x64 reservation slot atomics (`LoadSlot`/`StoreSlot`). |
+| `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp` | x64 SpinLock stub emitter (`EmitSpinLockLock`). |
 | `src/core/hle/kernel/guest_time_ledger.h` | Opt-in `GuestTimeLedger` (single-writer per core): splits core wall time into guest run, idle, and host (gap) time per guest thread and SVC number; hooked in `PhysicalCore::RunThread`/`Idle`, enabled only by `SUYU_GUEST_TIME=1`. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_thread_time_unit`. |
 | `tests/recompiler_smoke/guest_time_unit.cpp` | Standalone ledger unit test, registered as `smoke_guest_time_unit`. |
@@ -64,6 +70,8 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `tests/recompiler_smoke/chain_start_budget_unit.cpp` | Standalone chain-start estimator and per-image budget unit test, registered as `smoke_chain_start_budget_unit`. |
 | `tests/recompiler_smoke/lookup_stats_unit.cpp` | Dispatcher-return and module-pair statistics unit test, registered as `smoke_lookup_stats_unit`. |
 | `tests/recompiler_smoke/exit_targets_unit.cpp` | Exit-target table, overflow, rebase, and concurrency unit test, registered as `smoke_exit_targets_unit`. |
+| `tests/recompiler_smoke/exclusive_stats_unit.cpp` | Exclusive callback timing-counter unit test, registered as `smoke_exclusive_stats_unit`. |
+| `tests/exclusive_access/` | Real-monitor reservation/CAS test via `run.py`, in locked and lock-free modes. |
 | `tests/recompiler_smoke/xmod_*` | Three-module XMOD1 fixture and `smoke_xmod_table_unit` registration. |
 | `tests/export_integration/run_export_integration.py` | AOT cache matrix, including the cross-chain cases. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
@@ -158,6 +166,9 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - The host rebuild helper is `D:\HisuiWakeBuild\diag\buildsuyu.cmd`; run it through `cmd.exe /c` with an absolute path and keep logs outside the repository.
 - PLA samplers are local diagnostics; a recompiled image has no PDB, so attribute DLL samples by RVA. The JIT exclusive lock is inline and cannot be compared with the separate SpinLock page.
 - A new standalone test must fail under a deliberately weakened implementation, and that negative control must itself be data-race free.
+- Run `python tests/exclusive_access/run.py --build-dir D:\HisuiWakeBuild\msvc-release --work <folder outside the repo>` after vcvars64 via `cmd.exe /c` from PowerShell; rebuild the host first when dynarmic sources changed.
+- Copy each measured condition's log before the next run; only the current and one previous log are kept.
+- A negative control that makes a retry loop spin forever must fail fast by exiting early after deterministic checks.
 - A launcher carrying new runtime code needs commit, reconfigure, and a full export: relink-only is not feasible because the generated registration sources and ABI headers are deleted after an export and the cache keeps only the launcher, DLL, manifest, and recomp_modules.cmake.
 - Before a build or export overwrites them, copy the measured launcher or suyu.exe together with its PDB (verify GUID/Age equality) to a safe folder; sample with sample_raw_rip2.ps1, which records every module base. Run analysis Python with -I -X utf8 (isolated mode ignores PYTHONIOENCODING and the script directory).
 

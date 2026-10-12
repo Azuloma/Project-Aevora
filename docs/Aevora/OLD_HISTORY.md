@@ -1820,3 +1820,16 @@ For a fresh session: read `CLAUDE.md` and this file, run `git status`/`git log`,
 - Chain-budget sweep: `$env:SUYU_RECOMP_CHAIN_BUDGET=N; & "<export>\Pokﾃｩmon Legends_ Arceus.exe"` (read once at process start, confirmed only by FPS); remove it with `Remove-Item Env:SUYU_RECOMP_CHAIN_BUDGET` before exports or builds.
 - FPXV harness: `python tests/recompiler_fpx/run.py --cases 3000 --adv 3000 --legs 123 --controls --hits`; ABI5/ABI6 golden hashes in the smoke suite must stay unchanged.
 - Orca: write long specs to a file and pass `--spec "$(cat <file>)"`; `check --wait --json` output can hold several JSON objects (heartbeats first); parse each one.
+
+## Archived on 2026-10-12 from WORK_PLAN.md (session 27 cleanup)
+
+### Superseded WORK_PLAN material
+
+- Dev19 delivered FPXV; dev20 added sharded counters, the two-line comment rule, and opt-in chain start; dev21 added the guest-time ledger, lookup diagnostics, and the implemented XMOD1 cross-module chain.
+- AOT versus JIT (speed-limit-off) gap was about 17.2 ms/frame at session 24 (AOT 98.5 versus JIT 52.0/54.1 busy core-ms/frame); exact-FP bodies about 1.9 ms/frame; flat-index lookup about 5.5 ms/frame; dispatch about 2.1 ms/frame.
+- Main<->sdk exits were about 15.2M each way per 10 s and were dominated by tiny `nn::os` leaf calls. XMOD1 measured about +1 to +1.5 FPS (1.7 to 2.7 ms/frame) from single user readings; normal baseline was 23 FPS.
+- AOT session-24 profile (36,000 CPUCore samples): recompiled_image.dll 49.9%, ntdll 26.7% (mostly idle waits), launcher exe 17.8%, dynamic code 5.0% (one Dynarmic SpinLock stub page, 3 hot offsets); JIT dynamic code was spread over many pages (maximum about 1%). Exclusive-monitor host functions in the exe were about 4.4%.
+- XMOD1 with all diagnostics on, same position: 20 FPS off versus 23 FPS on; dispatches 31.5M -> 17.0M per 10 s; sdk<->main exits about 15.2M -> about 8M each way per 10 s (likely direct calls not chained).
+- Exclusive callbacks per 10 s were about 20.5M loads and 20.1M stores, with 0.5% stores failing. Ledger-lock timing was about 4.7 s thread time (load 110 ns, store 122 ns average, including about two TSC reads), about 20 core-ms/frame at 23 FPS. With lock-free marking: load 53 ns, store 98 ns, 3.3 s/window (load 1.16 s + store 2.11 s), about 13.6 core-ms/frame, FPS 23 -> 24 (about 1.8 ms/frame; single integer readings may be noise). JIT cost for the same exclusive work was not measured.
+- Lookup early-miss estimate was about 1.6 ms/frame. Chain-budget sweep 256/1024/2048 showed no change; readings during a host build were invalid.
+- Old session-26 Status: the user-committed baseline `d1981da` was v0.0.1-dev21 and included XMOD1; repository HEAD was `2740fee` (the docs measurement commit), and host `D:\HisuiWakeBuild\msvc-release` still had embedded `GIT_REV d1981da` at that time.
