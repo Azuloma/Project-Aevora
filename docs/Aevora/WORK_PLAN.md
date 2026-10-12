@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `165fc8f` on `main`, with the stage 3-4 XMOD1 work uncommitted. Host `D:\HisuiWakeBuild\msvc-release` was built and cleaned up successfully; its embedded `GIT_REV` remains `165fc8f`. The working tree contains the source and test changes for this batch; the user will commit them. No XMOD1 PLA export or FPS/ms-per-frame measurement has been made.
+HEAD is `d1981da` on `main`, with the stage 3-4 XMOD1 work committed by the user. Host `D:\HisuiWakeBuild\msvc-release` was built and cleaned up successfully; its embedded `GIT_REV` is `d1981da`. The user exported PLA at HEAD with `SUYU_AOT_CROSS_CHAIN=1` and measured the FPS difference.
 
 ## Key observations
 
@@ -17,6 +17,7 @@ HEAD is `165fc8f` on `main`, with the stage 3-4 XMOD1 work uncommitted. Host `D:
 - In `recomp_lookup`, 578/1,521 samples were after the flat-index load (about 2.1 ms/frame estimate); about 440 were out-of-range binary-search misses over 661 segments (about 1.6 ms/frame estimate). The generated fallback is in `arm64_to_c.h`.
 - With lookup diagnostics, steady 10-second windows from about 52 s show about 31.5M dispatches, 30.4M covered exits (96%), 0.70M SVC, 0.55M budget exhausted, 0 halted/uncovered per window. Main↔sdk pairs dominate (about 15.2M each way); sdk leaf targets dominate the top target list, but the table overflowed, so shares are lower bounds.
 - Interpretation only: tiny sdk leaf calls may cost two host dispatcher round trips (~70 ns each). Cross-module chaining could reduce this, conditional on dependency assumptions; it is not proof.
+- The user-read PLA measurement was 23 FPS with no chain and with the existing chain, and 24.5 FPS in the first cross-chain run or 24 FPS at budget 256 later (about 1 to 1.5 FPS, or 1.7 to 2.7 ms/frame); the budget sweep found no change at 256, 1024, or 2048, so the default 256 remains. These are single readings, not same-position averaged A/B measurements; readings during a host rebuild were discarded because of CPU contention.
 
 ## Current investigation
 
@@ -38,14 +39,13 @@ Keep opt-in diagnostics execution-neutral when off, FP_SHARED/FPXV ABI/result/ca
 
 ## Open issues, in priority order
 
-1. The user should commit the stage 3-4 work, then reconfigure and perform a full rebuild; after that, the user should run a PLA export with `SUYU_AOT_CROSS_CHAIN=1`.
-2. Measure the same position under three conditions (no chain, existing chain, and cross chain), recording ms per frame and lookup-stat exit counters.
-3. Evaluate the separate lookup early-miss change and add the untested XMOD1 items above.
+1. The user-committed stage 3-4 work is built and exported at HEAD `d1981da`; the cross-chain PLA measurement is recorded above. Remaining optional confirmation is a same-position averaged A/B with the existing chain and exit counters to confirm and attribute the 1 to 2.7 ms/frame difference.
+2. Evaluate the separate lookup early-miss change and add the untested XMOD1 items above; a positive XMOD1 table-publication log line is also an optional follow-up.
 4. Held: opcode host-size totals, SVC attribution, Stage F, automatic all-static re-plan, MSVC `cl` real-title support, U2 only with explicit approval, two-lifetime seam, real loader/refusal paths, export_regression Qt-root lookup, old-manifest reuse, six tracked `.pyc` files; `RecordMiss`/ `RecordUnhandled` remain mutex+map. Carried: FMI-off/FP_SHARED-off/default A/B exports with cache fields, chain budget 256/512, chain-start-off A/B. Optional: JIT built-in-cost attribution and final sdk+0x346040 callee.
 
 ## Immediate next action
 
-Ask the user to commit the stage 3-4 work; then verify `GIT_REV` against HEAD, reconfigure, and build. The user exports with `SUYU_AOT_CROSS_CHAIN=1` and measures the three same-position conditions.
+Ask the user to choose the next target: confirm the cross-chain result with exit counters, evaluate the separate lookup early miss, or investigate other cost centers from the AOT-JIT gap.
 
 ## Milestones and cache rule
 
