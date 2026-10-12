@@ -9,6 +9,7 @@
 #include "code.h"
 #include "bl_code.h"
 #include "loop_code.h"
+#include "lookup_code.h"
 #include "xmod_code.h"
 
 static bool EnvOn(const char* name) {
@@ -90,9 +91,31 @@ static int ExportBl(const char* out_dir) {
     return 0;
 }
 
+// --lookup <dir>: lookup_code.h split into units of two blocks, so the module has several
+// segments and gaps between its blocks.
+static int ExportLookup(const char* out_dir) {
+    constexpr size_t kBlocksPerUnit = 2;
+    const auto stats = suyu::recomp::EmitProject(
+        "lookup", reinterpret_cast<const uint8_t*>(lookup_code), sizeof(lookup_code), LOOKUP_BASE,
+        out_dir, true, nullptr, 0, nullptr, 0, 0, {}, nullptr,
+        suyu::recomp::kDefaultUnitSourceBytes, kBlocksPerUnit);
+    if (stats.unhandled != 0 || stats.emitted != LOOKUP_COVERED_WORDS ||
+        stats.blocks != LOOKUP_FUNCS) {
+        std::fprintf(stderr, "lookup export: %llu blocks, %llu instructions emitted, %llu unhandled\n",
+                     static_cast<unsigned long long>(stats.blocks),
+                     static_cast<unsigned long long>(stats.emitted),
+                     static_cast<unsigned long long>(stats.unhandled));
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc >= 3 && !std::strcmp(argv[1], "--loop")) {
         return ExportLoop(argv[2], argc >= 4 ? argv[3] : nullptr);
+    }
+    if (argc == 3 && !std::strcmp(argv[1], "--lookup")) {
+        return ExportLookup(argv[2]);
     }
     if (argc == 3 && !std::strcmp(argv[1], "--bl")) {
         return ExportBl(argv[2]);

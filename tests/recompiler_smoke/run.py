@@ -16,15 +16,16 @@ import tempfile
 # Aevora v0.0.1-dev8: all three recomputed after the v0.0.1-dev4 change to
 # the generated CMake job-pool text (shared by every variant). smoke_export is
 # now built with /utf-8 on MSVC, as suyu is, so these match clang-cl builds.
-ABI5_GOLDEN = "a325a2d05566f9d2efaeead9a855d963cf7e143efef14a0095f505ff92d090e7"
+# dev24: all three recomputed for the recomp_lookup rewrite (only src/recompiled_<module>.c moved).
+ABI5_GOLDEN = "6e12faa023c96469258343596f51a9f843d715a9f50eed9867c094e56156d947"
 # The same for ABI 6 with FM1 alone (GG1 and FPX1 both off), which neither
 # feature may move, and with FM1 and FPX1 (exact native FP) on, tracked so any
 # change is deliberate. Recomputed against this integration tree, since the FP
 # exactness fixes touch the shared emitter and so this text too; GG1's own
 # switch-off contract (DESIGN.md sec 0) guarantees it does not move these.
 # FPX_GOLDEN also covers the FZ-aware FPX1 helpers (v0.0.1-dev8).
-FM1_GOLDEN = "e2785f0c4e839b23186a2865ef6b241b4b8565524ee71c3bea4b9154b0daefad"
-FPX_GOLDEN = "1ef792bc6fb4b7a666c455f71b24e74a08b9170fb66b2d77c1a385134d1c35a5"
+FM1_GOLDEN = "a5c019cb80147a76d264f61ed7cd87ceaed88dda3a063c13060f6cc4d8d93f04"
+FPX_GOLDEN = "0353fa3c84885c8cd41fcf41f3a48cf83db42db8027ed9d9d8b69491efe93000"
 
 # ABI 6 changes only these files; the block sources must be identical.
 ABI6_CHANGED = {"CMakeLists.txt", "recomp_export.c", "recomp_runtime.c", "recomp_runtime.h"}
@@ -771,6 +772,17 @@ def check_direct_chain_bl(root, exporter, build):
     print("Chain execution checks passed.")
 
 
+def check_lookup_index(root, exporter, build):
+    """recomp_lookup against the segment search over a multi-segment module with gaps."""
+    env = dict(os.environ)
+    for key in AB_SWITCHES:
+        env.pop(key, None)
+    out = root / "lookup-index"
+    call([exporter, "--lookup", out], env=env)
+    run = build("run-lookup-index", f"-DLOOKUP_DIR={out.as_posix()}")
+    call([executable(run, "smoke_lookup")], timeout=15)
+
+
 def check_coverage_loop(root, exporter, build):
     """recomp_gaps.json end to end: record a miss, re-export with it, run statically."""
     env = dict(os.environ)
@@ -886,6 +898,7 @@ def main():
         call([executable(export_build, "smoke_aot_cache_unit"), root / "aot-cache-unit"])
         check_coverage_loop(root, exporter, build)
         check_direct_chain_bl(root, exporter, build)
+        check_lookup_index(root, exporter, build)
         generated = {}
         for name, switches in VARIANTS:
             generated[name] = root / f"generated-{name}"
