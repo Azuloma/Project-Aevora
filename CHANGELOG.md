@@ -9,6 +9,8 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Added
 - Added the opt-in `SUYU_RECOMP_EXCL_STATS=1` diagnostic (`src/core/arm/recomp/recomp_exclusive_stats.h`, wired in `arm_recomp.cpp`): the four guest exclusive bridge callbacks are replaced by timed wrappers, and every 10 s a line `excl-stats window_ms loads stores stores_failed load_ms store_ms load_avg_ns store_avg_ns` is logged (TSC ticks, rate measured per window, lock waits included, summed over threads). Off unless the value is exactly `1`; when off the bridge keeps the untimed callbacks.
 - Added `smoke_exclusive_stats_unit` (`tests/recompiler_smoke/exclusive_stats_unit.cpp`) registered in `CMakeLists.txt` and `run.py`.
+### Changed
+- `SUYU_AOT_CROSS_CHAIN` (XMOD1) is now on by default like the other AOT options (set `=0` to disable). Where FM1, the indirect chain, or a split export is missing it is skipped quietly; only an explicit `=1` that cannot be met warns. The export-integration baseline pins it off, and the defaults case checks `cross_chain` true when unset and false when `0`. Exports made with the default now carry feature bit `0x8` and a different bundle id than before.
 ### Verified
 - `exclusive_stats_unit` passed (MSVC standalone) and failed with failed stores deliberately not counted; host `suyu` and `suyu-cmd` built with exit 0. The full smoke suite, an export, and a PLA measurement have not been run. Motivation: AOT samples show about 4.4% of core samples in exclusive-monitor host functions plus about 5% in the Dynarmic SpinLock stub page (WORK_PLAN to follow).
 

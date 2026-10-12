@@ -136,7 +136,7 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 
 - Standing export procedure: the AOT and overlay defaults are on. Set an option to `=0` to disable it; in particular, use `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` when comparing against an all-static or feature-disabled export. Chain experiments now mean switching a chain off to compare. The other procedure rules below are unchanged.
 - `SUYU_AOT_CHAIN_START=1` is an opt-in experiment that requires the direct chain; exports are refused when the projected image approaches the 2 GiB limit.
-- `SUYU_AOT_CROSS_CHAIN=1` is opt-in and requires FM1, the indirect chain, and a split export; otherwise it is ignored with a warning.
+- `SUYU_AOT_CROSS_CHAIN` is on by default (set `=0` to disable) and requires FM1, the indirect chain, and a split export; where those are missing it is skipped quietly, and an explicit `=1` that cannot be met warns.
 - Do not run builds, exports, or other CPU-heavy work while the user measures FPS; a rebuild during measurement produced invalid 16 FPS readings.
 
 - Suyu's log tail is lost at export exit; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` status fields, never the log tail, as cache evidence.

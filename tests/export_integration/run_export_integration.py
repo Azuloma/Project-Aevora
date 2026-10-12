@@ -150,7 +150,8 @@ def registry_dump():
 
 # On-by-default export options (see common/env_option.h) that the baseline environment pins off.
 OPTIONS_PINNED_OFF = ('SUYU_AOT_FM_INLINE', 'SUYU_AOT_DIRECT_CHAIN', 'SUYU_AOT_INDIRECT_CHAIN',
-                      'SUYU_AOT_FP_SHARED', 'SUYU_AOT_FPX_VEC', 'SUYU_AOT_SPLIT_MAIN')
+                      'SUYU_AOT_FP_SHARED', 'SUYU_AOT_FPX_VEC', 'SUYU_AOT_SPLIT_MAIN',
+                      'SUYU_AOT_CROSS_CHAIN')
 
 
 class Run:
@@ -417,6 +418,8 @@ class Run:
                             recorded.get('fp_shared') is True, 'fp_shared=%s' % recorded.get('fp_shared'))
                 self.record('defaults: unset means vector FPX1 on',
                             recorded.get('fpx_vec') is True, 'fpx_vec=%s' % recorded.get('fpx_vec'))
+                self.record('defaults: unset means cross-module chaining on',
+                            recorded.get('cross_chain') is True, 'cross_chain=%s' % recorded.get('cross_chain'))
                 self.record('defaults: unset means main is split into a DLL',
                             recorded.get('module_bindings', {}).get('main') == 'dll',
                             str(recorded.get('module_bindings')))
@@ -449,6 +452,8 @@ class Run:
                                 recorded.get('indirect_chain')))
                 self.record('defaults: 0 switches shared exact FP bodies off',
                             recorded.get('fp_shared') is False, 'fp_shared=%s' % recorded.get('fp_shared'))
+                self.record('defaults: 0 switches cross-module chaining off',
+                            recorded.get('cross_chain') is False, 'cross_chain=%s' % recorded.get('cross_chain'))
                 self.record('defaults: 0 keeps main in the launcher (no split)',
                             'dll' not in (recorded.get('module_bindings') or {}).values(),
                             str(recorded.get('module_bindings')))
@@ -938,7 +943,7 @@ class Run:
                     manifest_record().get('chain_start') is False)
         export('chain start off, reused', expect_reused=True)
 
-        # Cross-module chaining (SUYU_AOT_CROSS_CHAIN=1, opt-in) needs the indirect chain: asked for
+        # Cross-module chaining (SUYU_AOT_CROSS_CHAIN, default on, pinned off here) needs the indirect chain: asked for
         # without it nothing changes; with it the manifest, bundle id and image features record it,
         # the launcher publishes the shared table and runs the guest chain through every module.
         original_id = manifest_record().get('bundle_id')
@@ -962,7 +967,7 @@ class Run:
             finally:
                 restart_with('SUYU_AOT_INDIRECT_CHAIN', '0')
         finally:
-            restart_with('SUYU_AOT_CROSS_CHAIN', None)
+            restart_with('SUYU_AOT_CROSS_CHAIN', '0')
         export('cross chain switched off again', expect_log='cross_chain')
         self.record('matrix: cross chain off again: the original bundle id returns',
                     manifest_record().get('bundle_id') == original_id and

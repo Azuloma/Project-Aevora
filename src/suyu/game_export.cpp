@@ -4265,18 +4265,20 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         suyu::recomp::g_emit_chain_start = false;
     }
     const bool chain_start = suyu::recomp::EmitChainStart();
-    // Cross-module chaining (SUYU_AOT_CROSS_CHAIN=1, opt-in) needs FM1, the indirect chain and a
-    // split export (registry v1 carries its handshake).
+    // Cross-module chaining (SUYU_AOT_CROSS_CHAIN, on unless "0") needs FM1, the indirect chain
+    // and a split export (registry v1 carries its handshake).
     static_assert(suyu::recomp::kFeatureCrossModule1 ==
                   Core::RecompImageFeature::CrossModule1);
     static_assert(suyu::recomp::kXmodV1Version == SUYU_RECOMP_XMOD_V1_VERSION &&
                   suyu::recomp::kXmodV1MaxModules == SUYU_RECOMP_XMOD_V1_MAX_MODULES);
-    suyu::recomp::g_emit_cross_chain =
-        Common::EnvFlagDefaultOff(qEnvironmentVariable("SUYU_AOT_CROSS_CHAIN").toStdString());
+    suyu::recomp::g_emit_cross_chain = enabled("SUYU_AOT_CROSS_CHAIN");
     if (suyu::recomp::g_emit_cross_chain && (!suyu::recomp::EmitCrossChain() || !split_main)) {
-        LOG_WARNING(Frontend, "Cross-module chaining (SUYU_AOT_CROSS_CHAIN) needs FM1, "
-                              "SUYU_AOT_INDIRECT_CHAIN and SUYU_AOT_SPLIT_MAIN; exporting "
-                              "without it");
+        // Quiet when another option or the topology made this impossible; only an explicit request warns.
+        if (qEnvironmentVariable("SUYU_AOT_CROSS_CHAIN") == QStringLiteral("1")) {
+            LOG_WARNING(Frontend, "Cross-module chaining (SUYU_AOT_CROSS_CHAIN) needs FM1, "
+                                  "SUYU_AOT_INDIRECT_CHAIN and SUYU_AOT_SPLIT_MAIN; exporting "
+                                  "without it");
+        }
         suyu::recomp::g_emit_cross_chain = false;
     }
     const bool cross_chain = suyu::recomp::EmitCrossChain();
