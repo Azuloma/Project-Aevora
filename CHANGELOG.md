@@ -2,6 +2,16 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev22 - Unreleased
+
+*Development entry 22 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added the opt-in `SUYU_RECOMP_EXCL_STATS=1` diagnostic (`src/core/arm/recomp/recomp_exclusive_stats.h`, wired in `arm_recomp.cpp`): the four guest exclusive bridge callbacks are replaced by timed wrappers, and every 10 s a line `excl-stats window_ms loads stores stores_failed load_ms store_ms load_avg_ns store_avg_ns` is logged (TSC ticks, rate measured per window, lock waits included, summed over threads). Off unless the value is exactly `1`; when off the bridge keeps the untimed callbacks.
+- Added `smoke_exclusive_stats_unit` (`tests/recompiler_smoke/exclusive_stats_unit.cpp`) registered in `CMakeLists.txt` and `run.py`.
+### Verified
+- `exclusive_stats_unit` passed (MSVC standalone) and failed with failed stores deliberately not counted; host `suyu` and `suyu-cmd` built with exit 0. The full smoke suite, an export, and a PLA measurement have not been run. Motivation: AOT samples show about 4.4% of core samples in exclusive-monitor host functions plus about 5% in the Dynarmic SpinLock stub page (WORK_PLAN to follow).
+
 ## v0.0.1-dev21 - Unreleased
 
 *Development entry 21 toward v0.0.1. Not a release; no build artifacts are published.*

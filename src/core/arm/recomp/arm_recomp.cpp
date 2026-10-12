@@ -25,6 +25,7 @@
 #include "core/arm/recomp/guest_fp_env.h"
 #include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
+#include "core/arm/recomp/recomp_exclusive_stats.h"
 #include "core/arm/recomp/recomp_exit_targets.h"
 #include "core/arm/recomp/recomp_lookup_stats.h"
 #include "core/arm/recomp/recomp_diagnostic_sampler.h"
@@ -418,6 +419,20 @@ RecompExitTargets::Slot& ExitTargetsSlot() {
     return slot;
 }
 RecompLookupStats g_lookup_stats;
+
+// SUYU_RECOMP_EXCL_STATS=1 times the guest exclusive callbacks; off unless exactly "1".
+const bool kExclusiveStats = [] {
+    const char* e = std::getenv("SUYU_RECOMP_EXCL_STATS");
+    return e && std::string_view{e} == "1";
+}();
+constexpr u64 kExclusiveStatsWindowNs = 10'000'000'000ULL;
+constexpr u64 kExclusiveStatsTickMask = 0xFFF;
+RecompExclusiveStats g_exclusive_stats;
+
+RecompExclusiveStats::Counters::Slot& ExclusiveStatsSlot() {
+    thread_local RecompExclusiveStats::Counters::Slot& slot = g_exclusive_stats.Acquire();
+    return slot;
+}
 
 // Per-thread copy of the module bases and names, so an exit does not take the module-map lock.
 struct ModuleSnapshot {
@@ -924,12 +939,14 @@ struct ArmRecomp::Impl {
         bridge.user = this;
         bridge.load = &Impl::HostLoad;
         bridge.store = &Impl::HostStore;
-        bridge.excl_load = &Impl::HostExclusiveLoad;
-        bridge.excl_store = &Impl::HostExclusiveStore;
+        bridge.excl_load = kExclusiveStats ? &Impl::HostExclusiveLoadTimed : &Impl::HostExclusiveLoad;
+        bridge.excl_store = kExclusiveStats ? &Impl::HostExclusiveStoreTimed : &Impl::HostExclusiveStore;
         bridge.clear_excl = &Impl::HostClearExclusive;
         bridge.read_cntpct = &Impl::HostReadCntpct;
-        bridge.excl_load_pair = &Impl::HostExclusiveLoadPair;
-        bridge.excl_store_pair = &Impl::HostExclusiveStorePair;
+        bridge.excl_load_pair =
+            kExclusiveStats ? &Impl::HostExclusiveLoadPairTimed : &Impl::HostExclusiveLoadPair;
+        bridge.excl_store_pair =
+            kExclusiveStats ? &Impl::HostExclusiveStorePairTimed : &Impl::HostExclusiveStorePair;
         // Filled in by RefreshPageTable once a process exists; until then the
         // fields stay null and every access takes the callback path.
         bridge.page_entries = nullptr;
@@ -1019,6 +1036,35 @@ struct ArmRecomp::Impl {
                 core, va, static_cast<u32>(lo) | (static_cast<u64>(static_cast<u32>(hi)) << 32));
         }
         return ok ? 0u : 1u;
+    }
+
+    static u64 HostExclusiveLoadTimed(void* user, u64 va, u32 size) {
+        const u64 start = RecompExclusiveStats::ReadTicks();
+        const u64 value = HostExclusiveLoad(user, va, size);
+        RecompExclusiveStats::CountLoad(ExclusiveStatsSlot(), RecompExclusiveStats::ReadTicks() - start);
+        return value;
+    }
+
+    static u32 HostExclusiveStoreTimed(void* user, u64 va, u32 size, u64 value) {
+        const u64 start = RecompExclusiveStats::ReadTicks();
+        const u32 status = HostExclusiveStore(user, va, size, value);
+        RecompExclusiveStats::CountStore(ExclusiveStatsSlot(), status == 0,
+                                         RecompExclusiveStats::ReadTicks() - start);
+        return status;
+    }
+
+    static void HostExclusiveLoadPairTimed(void* user, u64 va, u32 size, u64* lo, u64* hi) {
+        const u64 start = RecompExclusiveStats::ReadTicks();
+        HostExclusiveLoadPair(user, va, size, lo, hi);
+        RecompExclusiveStats::CountLoad(ExclusiveStatsSlot(), RecompExclusiveStats::ReadTicks() - start);
+    }
+
+    static u32 HostExclusiveStorePairTimed(void* user, u64 va, u32 size, u64 lo, u64 hi) {
+        const u64 start = RecompExclusiveStats::ReadTicks();
+        const u32 status = HostExclusiveStorePair(user, va, size, lo, hi);
+        RecompExclusiveStats::CountStore(ExclusiveStatsSlot(), status == 0,
+                                         RecompExclusiveStats::ReadTicks() - start);
+        return status;
     }
 
     /// Re-reads the page table description into the bridge on each run entry; the table belongs to the process
@@ -2154,6 +2200,12 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             WriteRecompCoverageFile(FormatRecompCoverage());
             // Time-limited inside; teardown is not guaranteed, as above.
             RecompGaps::Flush(true, false);
+        }
+        if (kExclusiveStats && (seen & kExclusiveStatsTickMask) == kExclusiveStatsTickMask) {
+            if (const auto report = g_exclusive_stats.TakeReport(
+                    SteadyNowNs(), RecompExclusiveStats::ReadTicks(), kExclusiveStatsWindowNs)) {
+                LOG_INFO(Core_ARM, "{}", *report);
+            }
         }
         // Generated code calls a direct branch's target itself, so one call can run a chain of blocks; the budget left
         // afterwards gives the number of blocks that actually ran.
