@@ -46,12 +46,15 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `g_emit_standalone_runner` | `arm64_to_c.h:310` (v) | Defaults to `true` for synthetic tests. The comment says the game exporter turns it off so game code runs only inside suyu against the user's files. |
 | `g_emit_fastmem` / `g_emit_guard_gen` / `g_emit_fpx` / `g_emit_fpx_shadow` | `arm64_to_c.h:316-337` (v) | ABI 6 feature switches (FM1 page-table fastmem, GG1 generation guard, FPX1 exact native FP, FPX shadow instrumentation). FM1 remains on unless `SUYU_AOT_FASTMEM=0`; the other emitter switches retain their existing defaults. |
 | `g_emit_fm_inline` / `EmitFmInline()` | `arm64_to_c.h:346-348` (v) | FMI is on unless `SUYU_AOT_FM_INLINE=0`; it is emitted only when FM1 is also enabled. |
-| `FastmemInlineH()` / `RuntimeH()` | `arm64_to_c.h:6341`, `:7187-7201` (v) | Appends the FMI static inline fast paths, including the GG1 watch-word store entry, to generated `recomp_runtime.h`; variants are selected with FM1, GG1, and FPX settings. |
+| `FastmemInlineH()` / `BuildRuntimeH()` | `arm64_to_c.h:6668`, `:7241` (v, 2026-10-12) | Appends the FMI static inline fast paths, including the GG1 watch-word store entry, to generated `recomp_runtime.h`; variants are selected with FM1, GG1, and FPX settings. |
+| `recomp_fmi_entry()` / `recomp_fm_entry()` | `arm64_to_c.h:6676`, `:7698` (v, 2026-10-12) | Generated FMI and FM1 page-table entry checks used by the fastmem accessors. |
 | `FmInlineRuntimeC()` / `RuntimeC()` | `arm64_to_c.h:8111`, `:8116-8131` (v) | Renames generated-unit fastmem calls to FMI functions while keeping `recomp_runtime.c` definitions under their original names. |
 | `TranslateAllForExport()` | `arm64_to_c.h:340` (v) | Strict static exports translate everything. |
 | `kChainBudget` | `arm64_to_c.h:351` (v) | Blocks run before control returns to the dispatcher. |
 | `ChainTo` / `ChainIndirect` | `arm64_to_c.h:299-302`, `:409-440` (v) | Default-on direct B/BL and independent indirect RET/BR/BLR tail-chain emitters; set the corresponding environment option to `0` to disable; indirect lookup subtracts the module base and preserves budget on misses. |
 | `XmodTypesText` / `EmitCrossChain` / `ChainIndirect` and `recomp_image_xmod_v1` | `arm64_to_c.h:409-419`, `:505-507`, `:6172-6177` (v, 2026-10-11) | XMOD1 generated table types, opt-in cross-module lookup fallback for indirect chains, and the image export. |
+| Generated `recomp_lookup()` / `_lookup_search()` | `arm64_to_c.h:5724`, `:5739-5744` (v, 2026-10-12) | Emits the segment-search fallback and flat-index lookup used by each generated module; the search runs only when index allocation fails. |
+| `ChainIndirect()` / `SetFlags()` | `arm64_to_c.h:505`, `:521` (v, 2026-10-12) | Indirect RET/BR/BLR chaining and ARM64 condition-flag emission. |
 | `g_emit_direct_chain` / `g_emit_indirect_chain` | `arm64_to_c.h:367-374` (v) | Independent default-on chain switches controlled by `SUYU_AOT_DIRECT_CHAIN=0` and `SUYU_AOT_INDIRECT_CHAIN=0`. |
 | `g_emit_chain_start` / `EmitChainStart()` | `arm64_to_c.h:400-404` | Opt-in chain-start switch; effective only when direct chaining is enabled. |
 | Chain-start target set and `_s` emission | `arm64_to_c.h:5428-5510` and `:5568-5578` | Finds direct B/BL targets at most `kChainStartMaxInsns` instructions, selects `_s` from `ChainTo`, and shares the expected-word array and GG1 slot. |
@@ -270,6 +273,10 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/lookup_stats_unit.cpp` **(v, 2026-10-11)** | Dispatcher-return, module-index, per-window, and exit-pair unit; registered as `smoke_lookup_stats_unit`. |
 | `tests/recompiler_smoke/exit_targets_unit.cpp` **(v, 2026-10-11)** | Exit-target hash-table, overflow, rebase, and concurrency unit; registered as `smoke_exit_targets_unit`. |
 | `tests/recompiler_smoke/run.py` | The build-identity test requires `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or use a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`. |
+| `tests/recompiler_smoke/lookup_code.h` / `lookup_c.c` | `lookup_code.h:1-15`, `lookup_c.c:1-65` (v, 2026-10-12) | Eight two-instruction blocks with zero-word gaps, plus exhaustive comparison of `recomp_lookup` and `_lookup_search` with and without the index. |
+| `tests/recompiler_smoke/export.cpp --lookup` | `export.cpp:94-117` (v, 2026-10-12) | Exports the multi-segment lookup fixture with two blocks per generated unit. |
+| `tests/recompiler_smoke/CMakeLists.txt` `LOOKUP_DIR` / `smoke_lookup` | `CMakeLists.txt:3`, `:41-51` (v, 2026-10-12) | Builds the generated lookup fixture executable. |
+| `tests/recompiler_smoke/run.py` `check_lookup_index` | `run.py:775-783`, target `smoke_lookup` (v, 2026-10-12) | Runs the `--lookup` export and checks the generated index against the segment search. |
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_exec.c` | Cross-image reservation, counter, FPX, guard, bridge-null, and lookup-boundary fixture execution (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_host.cpp` | Production bundle host for xmod module loading, handshakes, and per-image checks (v, 2026-10-07). |

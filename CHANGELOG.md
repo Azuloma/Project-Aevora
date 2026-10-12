@@ -2,6 +2,17 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## Next development entry (number not yet assigned) - Unreleased
+
+*Development entry number will be assigned by the user at commit time. Not a release; no build artifacts are published.*
+
+### Changed
+- Rewrote generated `recomp_lookup` to use the flat index for in-range, 4-byte-aligned addresses and added `_lookup_search` as the allocation-failure fallback; shortened the generated index comment and recomputed the ABI5, FM1, and FPX goldens.
+- This changes generated code and therefore the AOT cache identity; a reconfigure and full export are required. No speed effect has been measured.
+
+### Added
+- Added the `smoke_lookup` synthetic test, `export.cpp --lookup` mode, and the CMake `LOOKUP_DIR` branch.
+
 ## v0.0.1-dev23 - Unreleased
 
 *Development entry 23 toward v0.0.1. Not a release; no build artifacts are published.*

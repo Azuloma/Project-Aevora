@@ -16,7 +16,7 @@ import tempfile
 # Aevora v0.0.1-dev8: all three recomputed after the v0.0.1-dev4 change to
 # the generated CMake job-pool text (shared by every variant). smoke_export is
 # now built with /utf-8 on MSVC, as suyu is, so these match clang-cl builds.
-# dev24: all three recomputed for the recomp_lookup rewrite (only src/recompiled_<module>.c moved).
+# All three recomputed for the recomp_lookup rewrite (only src/recompiled_<module>.c moved).
 ABI5_GOLDEN = "6e12faa023c96469258343596f51a9f843d715a9f50eed9867c094e56156d947"
 # The same for ABI 6 with FM1 alone (GG1 and FPX1 both off), which neither
 # feature may move, and with FM1 and FPX1 (exact native FP) on, tracked so any
