@@ -1676,6 +1676,30 @@ For a fresh session, read `CLAUDE.md` and this file, run `git status`/`git log`,
 - FPXV harness: `python tests/recompiler_fpx/run.py --cases 3000 --adv 3000 --legs 123 --controls --hits`; ABI5/ABI6 golden hashes in the smoke suite must stay unchanged.
 - Orca `check --wait --json` output can hold several JSON objects (heartbeats first); parse each one.
 
+## Archived on 2026-10-12 from WORK_PLAN.md (session 26 cleanup)
+
+### Superseded WORK_PLAN material
+
+The session-24/25 measurement detail, lookup-diagnostics implementation notes, and the implemented XMOD1 design proposal were removed from the day-to-day plan. The verified short-form facts and preserved XMOD1 contract remain in the current [WORK_PLAN.md](WORK_PLAN.md); the preceding session-25 archive contains the full measurement tables and investigation narrative.
+
+#### Archived key observations
+
+- Session-24 Kotobuki measurements: JIT 30 FPS with the limit on, 38 with it off, AOT 23; busy core time was AOT 98.5 ms/frame versus JIT 52.0/54.1, giving about a 17.2 ms/frame AOT-versus-JIT-limit-off gap.
+- AOT DLL low-RVA helpers were 7.53% (9.8 ms/frame), including flat-index lookup 4.22% (5.5 ms), dispatch 1.59% (2.1 ms), exact-FP bodies 1.45% (1.9 ms), and other 0.3% (0.4 ms); the earlier 65% runtime-services claim was retracted.
+- Lookup diagnostics found 578/1,521 samples after the flat-index load and about 440 out-of-range binary-search misses over 661 segments, estimated at about 1.6 ms/frame.
+- Steady 10-second windows from about 52 s showed about 31.5M dispatches, 30.4M covered exits, 0.70M SVC, 0.55M budget exhausted, and no halted/uncovered exits; main<->sdk pairs were about 15.2M each way and tiny sdk leaf targets dominated the top list, with overflow making shares lower bounds.
+- XMOD1 user-readings were 23 FPS without/with the existing chain and 24.5 FPS in the first cross-chain run or 24 FPS at budget 256; the 256/1024/2048 sweep showed no change. Readings during a host rebuild were discarded.
+
+#### Archived lookup-diagnostics implementation
+
+The lookup diagnostics were implemented behind exact-`1` `SUYU_RECOMP_LOOKUP_STATS` and `SUYU_RECOMP_LOOKUP_TARGETS` (targets requires stats), with per-thread return counters, module-pair and target reports; target collection adds a second host lookup per exit. The standalone targets were `smoke_lookup_stats_unit` and `smoke_exit_targets_unit`.
+
+#### Archived XMOD1 design proposal (implemented)
+
+Cross-module indirect chaining is feature bit XMOD1 (`0x8`), enabled only by `SUYU_AOT_CROSS_CHAIN=1` and requiring FM1, the indirect chain, and a split export. Manifest/cache/bundle identity records `cross_chain` only when enabled, while off output remains unchanged. A shared immutable table uses ascending load bases, last-base ownership, normal block entries, and no `_s` entries; all images verify version/size/count and lookup, and publication is cleared on refusal. Force-miss and main-hole hooks suppress publication, and registry v1 is the supported loader.
+
+Fixture coverage included `smoke_xmod_table_unit`, the three-module `cross`/`cross-off`/`cross-refuse`/`cross-guard` cases with budgets 1/2/256, and AOT cache matrix cases. Real `ArmRecomp` accounting, `RecordMiss`, `RecompGaps`, IC IVAU through the chain, and the 256-budget stop remained untested at this archive point.
+
 
 ## Archived on 2026-10-11 from WORK_PLAN.md (session 25 cleanup)
 

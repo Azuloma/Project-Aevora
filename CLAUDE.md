@@ -8,8 +8,8 @@ The current HEAD, host revision, measurements, and next action are maintained on
 
 ## Resuming work
 
-Dev19 delivered FPXV, dev20 per-thread sharded counters, the two-line comment rule, and opt-in chain start; none gave a user-observed FPS gain. Dev21 added the opt-in SUYU_GUEST_TIME ledger, and session 25's lookup diagnostics show that almost all exits are main<->sdk transitions dominated by tiny nn::os leaf calls. A cross-module chain is under review; exact-FP helpers are a small measured share, and the verified evidence is in WORK_PLAN.
-The resume procedure is: read CLAUDE.md, then WORK_PLAN (Status, Current investigation, Open issues, Immediate next action); run git status/log and verify GIT_REV against HEAD before building or exporting; ask the user to choose the next target before any implementation; use same-position averaged FPS for every A/B and compare backends in ms per frame; keep chain start and the ledger options opt-in.
+Dev19 delivered FPXV; dev20 added sharded counters, the two-line comment rule, and opt-in chain start; dev21 added the guest-time ledger, lookup diagnostics, and the implemented XMOD1 cross-module chain. The next choices are XMOD1 confirmation with exit counters, the separate lookup early-miss evaluation, or another AOT-JIT gap cost center; verified per-commit facts live only in WORK_PLAN.
+The resume procedure is: read CLAUDE.md and WORK_PLAN; run git status/log and verify host GIT_REV against HEAD before building or exporting; ask the user to choose the next target; use same-position averaged FPS and ms per frame; keep chain start, the ledger, lookup diagnostics, and the cross chain opt-in.
 Agents never commit, tag, or push. The main agent investigates, designs, implements, and verifies; the Orca Code reviewer reviews code, Code Explorer performs read-only surveys, and the md Implementer handles Markdown in milestone batches.
 
 The first target is Windows x64. Planned improvements are up to 4K rendering, ultrawide support, correctly timed 60 FPS, improved ambient occlusion, increased LoD/draw distances, and additional vegetation. These are development goals.
@@ -49,6 +49,9 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `src/core/recompiler/arm64_to_c.h` | ARM64-to-C emitter, unit splitting, and the generated module CMake (job pool sizing). |
 | `src/core/recompiler/chain_start_budget.h` | Chain-start host-size projection and per-image 2 GiB safety-margin budget. |
 | `src/core/arm/recomp/` | Recompiled CPU execution, guards, gaps, and diagnostics. |
+| `src/core/arm/recomp/recomp_bundle.{h,cpp}` | Bundle loading plus `PublishRecompXmod`/`UnpublishRecompXmod`. |
+| `src/core/recompiler/recomp_registry_v1.h` | Registry v1 and the XMOD1 table layout. |
+| `src/core/arm/recomp/recomp_image_features.h` | Recompiled-image feature bits, including XMOD1 `0x8`. |
 | `src/core/arm/recomp/recomp_thread_time.h` | Opt-in per-guest-thread, per-core `RecompThreadTimeLedger` diagnostic. |
 | `src/core/arm/recomp/recomp_sharded_counters.h` | Per-thread cache-line-aligned counters for dispatch-path diagnostics. |
 | `src/core/arm/recomp/recomp_lookup_stats.h` | Opt-in dispatcher-return, module-pair, and lookup-window statistics. |
@@ -61,6 +64,8 @@ Aevora's improvements (Milestone 5 and later QoL features) depend on a recompila
 | `tests/recompiler_smoke/chain_start_budget_unit.cpp` | Standalone chain-start estimator and per-image budget unit test, registered as `smoke_chain_start_budget_unit`. |
 | `tests/recompiler_smoke/lookup_stats_unit.cpp` | Dispatcher-return and module-pair statistics unit test, registered as `smoke_lookup_stats_unit`. |
 | `tests/recompiler_smoke/exit_targets_unit.cpp` | Exit-target table, overflow, rebase, and concurrency unit test, registered as `smoke_exit_targets_unit`. |
+| `tests/recompiler_smoke/xmod_*` | Three-module XMOD1 fixture and `smoke_xmod_table_unit` registration. |
+| `tests/export_integration/run_export_integration.py` | AOT cache matrix, including the cross-chain cases. |
 | `src/dynarmic/` | JIT integration; inspect when investigating Hybrid fallback. |
 | `src/core/` | Game loading, memory, and system-service runtime. |
 | `src/suyu_cmd/overlay/` | Dear ImGui Vulkan debug overlay, input/statistics logic, build identity, and diagnostics; acquired process-wide by `SuyuCmd::AcquireDebugOverlay`. |
@@ -131,6 +136,8 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 
 - Standing export procedure: the AOT and overlay defaults are on. Set an option to `=0` to disable it; in particular, use `SUYU_AOT_FM_INLINE=0`, `SUYU_AOT_DIRECT_CHAIN=0`, `SUYU_AOT_INDIRECT_CHAIN=0`, or `SUYU_AOT_SPLIT_MAIN=0` when comparing against an all-static or feature-disabled export. Chain experiments now mean switching a chain off to compare. The other procedure rules below are unchanged.
 - `SUYU_AOT_CHAIN_START=1` is an opt-in experiment that requires the direct chain; exports are refused when the projected image approaches the 2 GiB limit.
+- `SUYU_AOT_CROSS_CHAIN=1` is opt-in and requires FM1, the indirect chain, and a split export; otherwise it is ignored with a warning.
+- Do not run builds, exports, or other CPU-heavy work while the user measures FPS; a rebuild during measurement produced invalid 16 FPS readings.
 
 - Suyu's log tail is lost at export exit; use `aot_cache_outcome`, `aot_cache_publish`, and `aot_cache_reused` status fields, never the log tail, as cache evidence.
 - Never run two `rebuild-suyu.bat` or ninja invocations on one build tree concurrently.
@@ -138,9 +145,12 @@ Claude Code auto memory is disabled for this project (`autoMemoryEnabled: false`
 - Run the full integration suite once per finished set of review fixes, not after every small edit; a test-only expectation fix needs syntax checking and the affected case only.
 - When a long test is re-run, delete or truncate its log first; a monitor waiting for the `exit` line otherwise reads the previous run's line and reports a stale result.
 - `orca orchestration check --wait` redelivers the previous message unless the last `delivery_*` id is passed with `--ack`; a message with only `heartbeat` content is not a result.
+- For Orca waits, read JSON from the output file and parse with `raw_decode`, because keepalive lines can precede the JSON.
 - Do not generate Python or Markdown through shell heredocs with `\\n` escapes (they become literal newlines); use Edit/Write tools, and syntax-check Python edits with `ast.parse`.
 - Python edit scripts that contain `\n` must use raw strings or files, because tool-passed escapes become real newlines.
+- Python edit scripts must not put `\n` into C/C++ string literals via heredoc; it became a real newline twice in this session.
 - Scripts in Bash must be run through PowerShell with `cmd.exe /c`, since `vcvars` fails under Bash (`vswhere` not found).
+- The export-integration work folder must not exist before the run; use a new empty folder.
 - A negative control (deliberately breaking the model or production list) is required before trusting a new test that passed on the first run.
 - The persistent AOT cache identifies its producer by git commit hash plus branch and stores the launcher: an uncommitted runtime-only change reuses the old launcher, while a new commit makes the cache unusable and requires a full rebuild/export. Plan relink-only or commit plus full export before exporting.
 - `(JIT-capable)` in the title bar is a strict-static qualifier, not Hybrid.
