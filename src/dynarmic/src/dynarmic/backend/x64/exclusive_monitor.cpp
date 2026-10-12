@@ -9,10 +9,23 @@
 #include "dynarmic/interface/exclusive_monitor.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include "common/assert.h"
 
 namespace Dynarmic {
+
+namespace {
+// A core's lock-free ReadAndMarkLockFree publishes its slot without the lock, so every locked
+// access to a slot is atomic too (a plain mov on x64).
+VAddr LoadSlot(VAddr& slot) {
+    return std::atomic_ref<VAddr>{slot}.load(std::memory_order_relaxed);
+}
+
+void StoreSlot(VAddr& slot, VAddr value) {
+    std::atomic_ref<VAddr>{slot}.store(value, std::memory_order_relaxed);
+}
+}  // namespace
 
 ExclusiveMonitor::ExclusiveMonitor(std::size_t processor_count)
         : exclusive_addresses(processor_count, INVALID_EXCLUSIVE_ADDRESS), exclusive_values(processor_count) {}
@@ -32,25 +45,26 @@ void ExclusiveMonitor::Unlock() {
 bool ExclusiveMonitor::CheckAndClear(std::size_t processor_id, VAddr address) {
     const VAddr masked_address = address & RESERVATION_GRANULE_MASK;
     Lock();
-    if (exclusive_addresses[processor_id] != masked_address) {
+    if (LoadSlot(exclusive_addresses[processor_id]) != masked_address) {
         Unlock();
         return false;
     }
     for (VAddr& other_address : exclusive_addresses)
-        if (other_address == masked_address)
-            other_address = INVALID_EXCLUSIVE_ADDRESS;
+        if (LoadSlot(other_address) == masked_address)
+            StoreSlot(other_address, INVALID_EXCLUSIVE_ADDRESS);
     return true;
 }
 
 void ExclusiveMonitor::Clear() {
     Lock();
-    std::fill(exclusive_addresses.begin(), exclusive_addresses.end(), INVALID_EXCLUSIVE_ADDRESS);
+    for (VAddr& address : exclusive_addresses)
+        StoreSlot(address, INVALID_EXCLUSIVE_ADDRESS);
     Unlock();
 }
 
 void ExclusiveMonitor::ClearProcessor(size_t processor_id) {
     Lock();
-    exclusive_addresses[processor_id] = INVALID_EXCLUSIVE_ADDRESS;
+    StoreSlot(exclusive_addresses[processor_id], INVALID_EXCLUSIVE_ADDRESS);
     Unlock();
 }
 

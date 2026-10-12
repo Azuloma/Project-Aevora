@@ -226,6 +226,10 @@ int main() {
         ReservationSemantics();
         SameOldValueRace(true);
         SameOldValueRace(false);
+        if (g_failures != 0) {
+            std::printf("FAILED (%d)\n", g_failures);
+            return 1;
+        }
         CounterTest<std::uint8_t>("u8");
         CounterTest<std::uint16_t>("u16");
         CounterTest<std::uint32_t>("u32");

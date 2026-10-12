@@ -2,6 +2,21 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev23 - Unreleased
+
+*Development entry 23 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added the opt-in `SUYU_EXCL_LOCKFREE_MARK=1` (exact `1`): `DynarmicExclusiveMonitor::ExclusiveRead` marks the reservation with `Dynarmic::ExclusiveMonitor::ReadAndMarkLockFree` (seq_cst store of the address, then the load) instead of taking the global monitor lock. Exclusive stores still take the lock and compare-and-swap against the saved value, so JIT inline paths stay consistent. Off by default; the locked path is unchanged. `tests/exclusive_access/exclusive_access_test.cpp` now runs every case with locked and lock-free marks.
+### Fixed
+- Review of the lock-free mark (Orca Code reviewer): the x64 monitor's locked `CheckAndClear`, `Clear` and `ClearProcessor` now access the reservation slots through relaxed `std::atomic_ref` loads/stores, so they no longer race with `ReadAndMarkLockFree` as plain accesses (the same machine code on x64). The exclusive-access test returns non-zero right after the deterministic reservation checks fail instead of looping in the counter cases.
+### Changed
+- `SUYU_AOT_CROSS_CHAIN` (XMOD1) is now on by default like the other AOT options (set `=0` to disable). Where FM1, the indirect chain, or a split export is missing it is skipped quietly; only an explicit `=1` that cannot be met warns. The export-integration baseline pins it off, and the defaults case checks `cross_chain` true when unset and false when `0`. Exports made with the default now carry feature bit `0x8` and a different bundle id than before.
+### Verified
+- Same-position PLA readings with `SUYU_GUEST_TIME`, `SUYU_RECOMP_EXCL_STATS` and `SUYU_RECOMP_LOOKUP_STATS` on: AOT without cross chain 20 FPS, with it 23 FPS (user averages). Exclusive callbacks took about 4.5 s (no cross chain) and 4.7 s (cross chain) of thread time per 10 s window (about 20 core-ms/frame at 23 FPS; 110/122 ns average per load/store, including about two TSC reads); about 20.5M loads and 20.1M stores per window, 0.5% of stores failing. Dispatches fell from 31.5M to 17.0M per 10 s with cross chain, while sdk<->main exits stay about 8M each way.
+- Smoke suite exited 0 (`SMOKE_EXIT=0`). `exclusive_access_test` passed in both modes after the review fixes; the never-marking negative control now ends with `FAILED (9)` and exit 1 without hanging.
+- `exclusive_access_test` passed in both modes; with a lock-free read that does not mark, the reservation cases failed (8 checks), so the lock-free cases do detect it. Host build exit 0.
+
 ## v0.0.1-dev22 - Unreleased
 
 *Development entry 22 toward v0.0.1. Not a release; no build artifacts are published.*
@@ -9,12 +24,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Added
 - Added the opt-in `SUYU_RECOMP_EXCL_STATS=1` diagnostic (`src/core/arm/recomp/recomp_exclusive_stats.h`, wired in `arm_recomp.cpp`): the four guest exclusive bridge callbacks are replaced by timed wrappers, and every 10 s a line `excl-stats window_ms loads stores stores_failed load_ms store_ms load_avg_ns store_avg_ns` is logged (TSC ticks, rate measured per window, lock waits included, summed over threads). Off unless the value is exactly `1`; when off the bridge keeps the untimed callbacks.
 - Added `smoke_exclusive_stats_unit` (`tests/recompiler_smoke/exclusive_stats_unit.cpp`) registered in `CMakeLists.txt` and `run.py`.
-- Added the opt-in `SUYU_EXCL_LOCKFREE_MARK=1` (exact `1`): `DynarmicExclusiveMonitor::ExclusiveRead` marks the reservation with `Dynarmic::ExclusiveMonitor::ReadAndMarkLockFree` (seq_cst store of the address, then the load) instead of taking the global monitor lock. Exclusive stores still take the lock and compare-and-swap against the saved value, so JIT inline paths stay consistent. Off by default; the locked path is unchanged. `tests/exclusive_access/exclusive_access_test.cpp` now runs every case with locked and lock-free marks.
-### Changed
-- `SUYU_AOT_CROSS_CHAIN` (XMOD1) is now on by default like the other AOT options (set `=0` to disable). Where FM1, the indirect chain, or a split export is missing it is skipped quietly; only an explicit `=1` that cannot be met warns. The export-integration baseline pins it off, and the defaults case checks `cross_chain` true when unset and false when `0`. Exports made with the default now carry feature bit `0x8` and a different bundle id than before.
 ### Verified
-- Same-position PLA readings with `SUYU_GUEST_TIME`, `SUYU_RECOMP_EXCL_STATS` and `SUYU_RECOMP_LOOKUP_STATS` on: AOT without cross chain 20 FPS, with it 23 FPS (user averages). Exclusive callbacks took about 4.5 s (no cross chain) and 4.7 s (cross chain) of thread time per 10 s window (about 20 core-ms/frame at 23 FPS; 110/122 ns average per load/store, including about two TSC reads); about 20.5M loads and 20.1M stores per window, 0.5% of stores failing. Dispatches fell from 31.5M to 17.0M per 10 s with cross chain, while sdk<->main exits stay about 8M each way.
-- `exclusive_access_test` passed in both modes; with a lock-free read that does not mark, the reservation cases failed (8 checks), so the lock-free cases do detect it. Host build exit 0.
 - `exclusive_stats_unit` passed (MSVC standalone) and failed with failed stores deliberately not counted; host `suyu` and `suyu-cmd` built with exit 0. The full smoke suite, an export, and a PLA measurement have not been run. Motivation: AOT samples show about 4.4% of core samples in exclusive-monitor host functions plus about 5% in the Dynarmic SpinLock stub page (WORK_PLAN to follow).
 
 ## v0.0.1-dev21 - Unreleased

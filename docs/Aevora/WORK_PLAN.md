@@ -30,7 +30,7 @@ The user-committed baseline `d1981da` is v0.0.1-dev21 and includes the XMOD1 wor
 
 Keep opt-in diagnostics execution-neutral when off, FP_SHARED/FPXV ABI/result/cache contracts, exactly-`0` default-on semantics, overlay and fallback wording, comment limit, and same-position averaged FPS with ms/frame comparisons.
 
-XMOD1 is feature bit `0x8`, on by default since dev22 (`SUYU_AOT_CROSS_CHAIN=0` disables it), and requires FM1, the indirect chain, and a split export. All images verify and share one immutable table; publication is cleared on refusal, and old/non-registry-v1 loaders refuse the feature. Cross-chain output is recorded in manifest/cache/bundle identity only when enabled; off output is preserved.
+XMOD1 is feature bit `0x8`, on by default since dev23 (`SUYU_AOT_CROSS_CHAIN=0` disables it), and requires FM1, the indirect chain, and a split export. All images verify and share one immutable table; publication is cleared on refusal, and old/non-registry-v1 loaders refuse the feature. Cross-chain output is recorded in manifest/cache/bundle identity only when enabled; off output is preserved.
 
 ## Open issues in priority order
 
