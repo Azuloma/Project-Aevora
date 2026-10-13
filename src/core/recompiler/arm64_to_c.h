@@ -17,6 +17,7 @@
 #include <utility>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -33,6 +34,7 @@
 #include <vector>
 
 #include "chain_start_budget.h"
+#include "recomp_image_index.h"
 #include "recomp_topology.h"
 
 #ifdef _WIN32
@@ -414,6 +416,32 @@ inline constexpr unsigned kFeatureCrossModule1 = 8u;
 // Must equal SUYU_RECOMP_XMOD_V1_VERSION / _MAX_MODULES (checked in game_export.cpp).
 inline constexpr unsigned kXmodV1Version = 1u;
 inline constexpr unsigned kXmodV1MaxModules = 16u;
+
+// The CMake symbol renames (suyu_cmd, the build kit) spell the export name literally.
+static_assert(std::string_view(RECOMP_EXPORT_INDEX32_V1) == "recomp_image_index32",
+              "update the recomp_image_index32 renames in the CMake files that spell it out");
+
+// The image side of recomp_image_index.h: every field offset comes from the shared struct,
+// so a layout mismatch fails the compile of the generated unit.
+inline std::string Index32TypesText() {
+    const auto n = [](size_t value) { return std::to_string(value); };
+    std::string checks = "sizeof(SuyuRecompIndex32V1)==" + n(sizeof(SuyuRecompIndex32V1));
+    const std::pair<const char*, size_t> fields[] = {
+        {"version", offsetof(SuyuRecompIndex32V1, version)},
+        {"struct_size", offsetof(SuyuRecompIndex32V1, struct_size)},
+        {"lo", offsetof(SuyuRecompIndex32V1, lo)},
+        {"hi", offsetof(SuyuRecompIndex32V1, hi)},
+        {"table", offsetof(SuyuRecompIndex32V1, table)},
+        {"anchor", offsetof(SuyuRecompIndex32V1, anchor)},
+        {"unavailable_reason", offsetof(SuyuRecompIndex32V1, unavailable_reason)}};
+    for (const auto& [field, offset] : fields) {
+        checks += std::string(" && offsetof(SuyuRecompIndex32V1,") + field + ")==" + n(offset);
+    }
+    return "typedef struct SuyuRecompIndex32V1{uint32_t version;uint32_t struct_size;"
+           "uint64_t lo;uint64_t hi;const int32_t* table;uint64_t anchor;"
+           "const char* unavailable_reason;} SuyuRecompIndex32V1;\n"
+           "typedef char recomp_layout_index32[(" + checks + ") ? 1 : -1];\n";
+}
 
 // The table layout and lookup shared by every generated unit and the image export.
 inline std::string XmodTypesText() {
@@ -5682,41 +5710,63 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
         }
         rc += "};\n";
     }
+    const std::string idx_offset_range = std::to_string(SUYU_RECOMP_INDEX32_OFFSET_RANGE);
+    const std::string idx_offset_zero = std::to_string(SUYU_RECOMP_INDEX32_OFFSET_ZERO);
     rc += "#define _NSEG (sizeof(_segs)/sizeof(_segs[0]))\n"
-          "/* Flat block index: (pc - lo) >> 2 selects the block; built once at load, read-only after.\n"
-          "   One pointer per instruction word; the segment search runs only if that allocation failed. */\n"
-          "static BlockFn* _idx = 0;\n"
+          "/* Flat block index (recomp_image_index.h): (pc - lo) >> 2 selects an int32 offset from the anchor.\n"
+          "   Built once at load; on any failure there is no table and lookups use the segment search. */\n"
+          "static int32_t* _idx32 = 0;\n"
+          "static const char* _idx_why = \"" SUYU_RECOMP_INDEX32_WHY_NOT_BUILT "\";\n"
           "static uint64_t _idx_lo = 0, _idx_hi = 0;\n"
           "static int _idx_tried = 0;\n"
-          "static void _build_idx(void){\n"
+          "#ifndef _IDX_ANCHOR /* a test may predefine another anchor */\n"
+          "#define _IDX_ANCHOR ((uint64_t)(uintptr_t)&recomp_build_index)\n"
+          "#endif\n"
+          "static int _idx_offset(uint64_t anchor, uint64_t target, int32_t* offset){\n"
+          "  int64_t distance=(int64_t)(target-anchor);\n"
+          "  if(distance<INT32_MIN || distance>INT32_MAX) return " + idx_offset_range + ";\n"
+          "  if(distance==0) return " + idx_offset_zero + ";\n"
+          "  *offset=(int32_t)distance;\n"
+          "  return 0;\n"
+          "}\n"
+          "/* Builds into a local table and publishes it only when every block fits; returns why not. */\n"
+          "static const char* _build_idx_for(uint64_t anchor){\n"
           "  size_t i, j, n;\n"
-          "  if(_idx_tried) return;\n"
-          "  _idx_tried = 1;\n"
-          "  if(_NSEG == 0 || *_segn[0] == 0) return;\n"
-          "  _idx_lo = _segs[0][0].lo;\n"
-          "  _idx_hi = _seg_hi[_NSEG-1];\n"
-          "  if(_idx_hi < _idx_lo) return;\n"
-          "  n = (size_t)((_idx_hi - _idx_lo) >> 2) + 1;\n"
-          "  _idx = (BlockFn*)calloc(n, sizeof(BlockFn));\n"
-          "  if(!_idx) return;\n"
+          "  uint64_t lo, hi;\n"
+          "  int32_t* table;\n"
+          "  if(_NSEG == 0 || *_segn[0] == 0) return \"" SUYU_RECOMP_INDEX32_WHY_EMPTY "\";\n"
+          "  lo = _segs[0][0].lo;\n"
+          "  hi = _seg_hi[_NSEG-1];\n"
+          "  if(hi < lo) return \"" SUYU_RECOMP_INDEX32_WHY_EMPTY "\";\n"
+          "  n = (size_t)((hi - lo) >> 2) + 1;\n"
+          "  table = (int32_t*)calloc(n, sizeof(int32_t));\n"
+          "  if(!table) return \"" SUYU_RECOMP_INDEX32_WHY_ALLOC "\";\n"
           "  for(i=0;i<_NSEG;i++){\n"
           "    const struct _recomp_ent* t=_segs[i];\n"
           "    unsigned m=*_segn[i];\n"
-          "    for(j=0;j<m;j++){ uint64_t k,count=((t[j].hi-t[j].lo)>>2)+1;\n"
-          "      for(k=0;k<count;k++) _idx[(size_t)(((t[j].lo+4*k)-_idx_lo)>>2)]=t[j].fn; }\n"
+          "    for(j=0;j<m;j++){ uint64_t k,count=((t[j].hi-t[j].lo)>>2)+1; int32_t off; int bad;\n"
+          "      bad=_idx_offset(anchor,(uint64_t)(uintptr_t)t[j].fn,&off);\n"
+          "      if(bad){ free(table); return bad==" + idx_offset_range + " ? \"" SUYU_RECOMP_INDEX32_WHY_RANGE "\""
+          " : \"" SUYU_RECOMP_INDEX32_WHY_ZERO "\"; }\n"
+          "      for(k=0;k<count;k++) table[(size_t)(((t[j].lo+4*k)-lo)>>2)]=off; }\n"
           "  }\n"
+          "  free(_idx32);\n"
+          "  _idx32 = table; _idx_lo = lo; _idx_hi = hi;\n"
+          "  return 0;\n"
           "}\n"
-          "/* Called from recomp_image_set_base, which the loader runs once per\n"
-          "   module before any guest thread exists - so the build below is not\n"
-          "   racing anything. */\n"
+          "static void _build_idx(void){\n"
+          "  if(_idx_tried) return;\n"
+          "  _idx_tried = 1;\n"
+          "  _idx_why = _build_idx_for(_IDX_ANCHOR);\n"
+          "}\n"
+          "/* Run by recomp_image_set_base before any guest thread exists, so the build races nothing. */\n"
           "void recomp_build_index(void){ _build_idx(); }\n"
-          "/* Module-relative view of the block index, for the host dispatcher.\n"
-          "   The index itself is static to this unit, so the exported wrapper in\n"
-          "   recomp_export.c has to come through here. */\n"
-          "int _recomp_index_view(uint64_t* lo, uint64_t* hi, BlockFn** idx){\n"
+          "/* The index table for the host (module-relative range); the export in recomp_export.c adds the base. */\n"
+          "int _recomp_index32_view(uint64_t* lo, uint64_t* hi, const int32_t** table, uint64_t* anchor,\n"
+          "                         const char** why){\n"
           "  _build_idx();\n"
-          "  if(!_idx) return 0;\n"
-          "  *lo = _idx_lo; *hi = _idx_hi; *idx = _idx;\n"
+          "  if(!_idx32){ *why = _idx_why; return 0; }\n"
+          "  *lo = _idx_lo; *hi = _idx_hi; *table = _idx32; *anchor = _IDX_ANCHOR;\n"
           "  return 1;\n"
           "}\n"
           "\n"
@@ -5737,9 +5787,13 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
           "\n"
           "/* With the index built, an address outside its range or off a 4-byte boundary owns no block. */\n"
           "BlockFn recomp_lookup(uint64_t pc){\n"
-          "  if(_idx){\n"
+          "  if(_idx32){\n"
           "    uint64_t off=pc-_idx_lo;\n"
-          "    return (off<=_idx_hi-_idx_lo && (off&3ULL)==0) ? _idx[(size_t)(off>>2)] : 0;\n"
+          "    if(off<=_idx_hi-_idx_lo && (off&3ULL)==0){\n"
+          "      int32_t entry=_idx32[(size_t)(off>>2)];\n"
+          "      return entry ? (BlockFn)(uintptr_t)(_IDX_ANCHOR+(uint64_t)(int64_t)entry) : 0;\n"
+          "    }\n"
+          "    return 0;\n"
           "  }\n"
           "  return _lookup_search(pc);\n"
           "}\n";
@@ -6062,8 +6116,9 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
     }
     cm << " recomp_lookup=recomp_lookup_" << mod
        << " recomp_build_index=recomp_build_index_" << mod
-       << " _recomp_index_view=_recomp_index_view_" << mod
+       << " _recomp_index32_view=_recomp_index32_view_" << mod
        << " recomp_image_index=recomp_image_index_" << mod
+       << " " RECOMP_EXPORT_INDEX32_V1 "=" RECOMP_EXPORT_INDEX32_V1 "_" << mod
        << " recomp_image_lookup=recomp_image_lookup_" << mod
        << " recomp_image_run_slice=recomp_image_run_slice_" << mod
        << " recomp_image_set_base=recomp_image_set_base_" << mod
@@ -6194,16 +6249,23 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
           "    first=0; f(c);\n"
           "  }\n"
           "}\n\n"
-          /* Hands the block index out so a host dispatcher can do the lookup
-             itself. Going through recomp_image_lookup costs three nested calls
-             across the shared-object boundary on every block edge; with this it
-             is a bounds check and one load. Addresses are absolute so the caller
-             needs to know nothing about the module base. Only valid once
-             recomp_image_set_base has run, which is when the index is built. */
-          "extern int _recomp_index_view(uint64_t*, uint64_t*, BlockFn**);\n"
+          "extern int _recomp_index32_view(uint64_t*, uint64_t*, const int32_t**, uint64_t*, const char**);\n"
+       << Index32TypesText()
+       << "/* Legacy 64-bit view: this image publishes only the 32-bit table, so an older host uses lookup. */\n"
           "RECOMP_API int recomp_image_index(uint64_t* lo, uint64_t* hi, BlockFn** idx){\n"
-          "  if(!_recomp_index_view(lo, hi, idx)) return 0;\n"
-          "  *lo += g_module_base; *hi += g_module_base;\n"
+          "  (void)lo; (void)hi; (void)idx;\n"
+          "  return 0;\n"
+          "}\n"
+          "/* The 32-bit block index (recomp_image_index.h), absolute range; valid once set_base has built it. */\n"
+          "RECOMP_API int " RECOMP_EXPORT_INDEX32_V1 "(SuyuRecompIndex32V1* out){\n"
+          "  uint64_t lo, hi, anchor; const int32_t* table; const char* why = 0;\n"
+          "  if(!out || out->version != "
+       << SUYU_RECOMP_INDEX32_V1_VERSION
+       << "u || out->struct_size != sizeof(*out)) return 0;\n"
+          "  out->table = 0; out->unavailable_reason = 0;\n"
+          "  if(!_recomp_index32_view(&lo, &hi, &table, &anchor, &why)){ out->unavailable_reason = why; return 0; }\n"
+          "  out->lo = lo + g_module_base; out->hi = hi + g_module_base;\n"
+          "  out->table = table; out->anchor = anchor;\n"
           "  return 1;\n"
           "}\n"
           "\n"

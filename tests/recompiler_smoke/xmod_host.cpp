@@ -132,6 +132,18 @@ int CaseOk(const std::filesystem::path& dir) {
         }
     }
     HOST_CHECK(bundle->modules[0].lookup(kBases[kDllModuleIndex] + 0x100000) == nullptr);
+    // Every module, static or DLL, reports a usable 32-bit block index.
+    {
+        std::vector<std::pair<size_t, u64>> bound;
+        for (size_t i = 0; i < kModuleCount; ++i) {
+            bound.emplace_back(i, kBases[i]);
+        }
+        const auto notes = Core::DescribeRecompBlockIndexes(*bundle, bound);
+        HOST_CHECK(notes.size() == kModuleCount);
+        for (const auto& note : notes) {
+            HOST_CHECK(!note.warning && note.text.find("32-bit block index of ") != std::string::npos);
+        }
+    }
     std::printf("bundle ok: %s(static) %s(DLL) %s(static)\n", kNames[0], kNames[1], kNames[2]);
     return 0;
 }

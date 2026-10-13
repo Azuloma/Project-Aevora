@@ -15,12 +15,8 @@
 #include "core/arm/recomp/recomp_guard_gen.h"
 #include "core/recompiler/recomp_registry_v1.h"
 
-// Loading and base binding of a split (static + shared image) recompiled bundle
-// described by a registry v1 (core/recompiler/recomp_registry_v1.h).
-//
-// Deliberately free of System, KProcess and ArmRecomp, so a test host can compile
-// this unit with the registry alone: every input is a plain value, and nothing is
-// published to the emulator from here. The launcher publishes the result.
+// Loading and base binding of a split recompiled bundle described by a registry v1. Free of System,
+// KProcess and ArmRecomp so a test host can compile it alone; the launcher publishes the result.
 namespace Core {
 
 /// Same type as Core::RecompBlockFn (arm_recomp.h), repeated so this unit does
@@ -58,18 +54,13 @@ struct RecompBundleModule {
     unsigned image_abi{};
     unsigned (*guard_v2)(unsigned){};
     unsigned (*xmod_v1)(const SuyuRecompXmodTableV1*){}; ///< XMOD1 bundles only
+    SuyuRecompIndex32V1Fn index32_v1{}; ///< null for an image without the block index export
     bool is_dll{};
     std::string dll_file; ///< shared-image modules only; for logs
 };
 
-/// A loaded bundle: every module in NSO load order plus the results of the
-/// handshakes. Move-only.
-///
-/// Shared-image handles are retained for the process lifetime: the lookup, GG1
-/// word/base and set_base pointers published from this bundle point into those
-/// images, so the destructor never unloads a successfully loaded image. Only a
-/// load that fails part-way releases the handles it had taken (inside
-/// LoadRecompBundleV1).
+/// A loaded bundle: every module in NSO load order plus the handshake results. Move-only.
+/// Shared-image handles live for the process (published pointers point into them); only a failed load frees its own.
 class RecompBundle {
 public:
     RecompBundle() = default;
@@ -93,25 +84,19 @@ public:
     const SuyuRecompXmodTableV1* xmod_table{};
 };
 
-/// Directory of the running executable (where the shared images live). On
-/// Windows it uses a growing-buffer GetModuleFileNameW loop that errors on a
-/// failed call or a path it cannot fit; other platforms report an error, because
-/// shared images are a Windows-only feature.
+/// Directory of the running executable, where the shared images live. Windows only: other platforms
+/// report an error because shared images are a Windows-only feature.
 bool GetRecompExecutableDirectory(std::filesystem::path* directory, std::string* error);
 
-/// Validates `registry`, loads every shared image from `image_dir`, resolves their
-/// exports and runs the per-module checks and handshakes (identity, ABI, features,
-/// GG1, FM1, FPX1, guard v2). Any failure releases the images loaded by this call
-/// and returns nullopt with a message naming the module and the step.
+/// Validates `registry`, loads the shared images from `image_dir` and runs the per-module checks and
+/// handshakes. Any failure releases this call's images and returns nullopt naming the module and step.
 std::optional<RecompBundle> LoadRecompBundleV1(const SuyuRecompRegistryV1& registry,
                                                const std::filesystem::path& image_dir,
                                                const RecompHostHandshake& host,
                                                std::string* error);
 
-/// Matches the loader's canonical inventory (load address -> NSO name) against the
-/// bundle: every module must be present exactly once and nothing else. Returns
-/// (module index, base) for each module in module order; errors name the
-/// offending module(s). Pure: does not call set_base.
+/// Matches the loader's inventory (load address -> NSO name) against the bundle: every module exactly
+/// once, nothing else. Returns (module index, base) in module order; pure, does not call set_base.
 std::optional<std::vector<std::pair<size_t, u64>>> BindRecompBundleToInventory(
     const RecompBundle& bundle, const std::map<u64, std::string>& inventory, std::string* error);
 
@@ -127,5 +112,16 @@ bool PublishRecompXmod(RecompBundle& bundle, const std::vector<std::pair<size_t,
 /// Clears the table in every image. Only while no guest thread runs: a reader that already
 /// loaded the pointer may still use the old table, which stays allocated.
 void UnpublishRecompXmod(RecompBundle& bundle);
+
+/// One line for the launcher's log; warning is set when a module's block index is unusable.
+struct RecompIndexNote {
+    bool warning{};
+    std::string text;
+};
+
+/// What each module's block index is. `bases` comes from BindRecompBundleToInventory; call after
+/// ApplyRecompBundleBases, which builds the index.
+std::vector<RecompIndexNote> DescribeRecompBlockIndexes(
+    const RecompBundle& bundle, const std::vector<std::pair<size_t, u64>>& bases);
 
 } // namespace Core

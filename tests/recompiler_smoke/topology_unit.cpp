@@ -216,6 +216,10 @@ int RegistryV1Text() {
     CHECK(Contains(text, ".binding = SUYU_RECOMP_BINDING_DLL"));
     CHECK(Count(text, ".binding = SUYU_RECOMP_BINDING_STATIC") == 2);
     CHECK(Contains(text, ".dll_file_utf8 = \"recompiled_image.dll\""));
+    // Static entries hand over their block index reporter; the DLL entry has none (resolved by name).
+    CHECK(Count(text, ".index32_v1 = recomp_image_index32_") == 2);
+    CHECK(Contains(text, "extern int recomp_image_index32_sdk(SuyuRecompIndex32V1*);\n"));
+    CHECK(!Contains(text, "recomp_image_index32_main"));
     CHECK(Count(text, ".dll_file_utf8 = (const char*)0") == 2);
     CHECK(Count(text, ".image_abi = 6u") == 3);
     CHECK(Count(text, ".expected_features = 7u") == 3);

@@ -35,6 +35,8 @@ Snapshot of the source tree at `36a1a40` (2026-10-11), updated from a read-only 
 
 `src/core/recompiler/arm64_to_c.h` is a header-only translator of about 7,600 lines. It is the only code generator.
 
+| `recomp_image_index.h` | `src/core/recompiler/recomp_image_index.h:14-59` (v, 2026-10-13) | Shared C/C++ `SuyuRecompIndex32V1` layout, `recomp_image_index32` export name, signed offset conversion, and refusal reasons. |
+
 The shared topology and image identity contracts are defined in `src/core/recompiler/recomp_topology.h` (versioned module bindings, load ordering, image names, validation, bundle-byte conversion, and `recomp_modules.cmake` output; `kRecompTopologyVersion:31`, `BuildRecompTopology:160`, `WriteRecompModulesCMake:234`) and `src/core/recompiler/recomp_image_identity.h` (v1 symbol and raw 32-byte bundle digest contract; `RECOMP_IMAGE_IDENTITY_V1_SYMBOL:15`, `RecompImageIdentityV1Fn:24`). Registry v1 is defined once in `src/core/recompiler/recomp_registry_v1.h:64` (`SuyuRecompRegistryV1`, entries, ABI/features, and DLL export-name macros); `WriteRecompRegistryV1C:299` and `WriteRecompTopologyV1Marker:396` in `recomp_topology.h` emit the registry and marker.
 
 `src/core/recompiler/pe_image_size.h:64` parses validated PE32+ headers and reads `SizeOfImage` from files (`:114`), rejecting truncated, zero-sized, or out-of-range headers. `src/core/loader/nso_module_names.h:19` defines the 13-name canonical NSO order shared by the loader, topology, and exporter.
@@ -53,7 +55,8 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `kChainBudget` | `arm64_to_c.h:351` (v) | Blocks run before control returns to the dispatcher. |
 | `ChainTo` / `ChainIndirect` | `arm64_to_c.h:299-302`, `:409-440` (v) | Default-on direct B/BL and independent indirect RET/BR/BLR tail-chain emitters; set the corresponding environment option to `0` to disable; indirect lookup subtracts the module base and preserves budget on misses. |
 | `XmodTypesText` / `EmitCrossChain` / `ChainIndirect` and `recomp_image_xmod_v1` | `arm64_to_c.h:409-419`, `:505-507`, `:6172-6177` (v, 2026-10-11) | XMOD1 generated table types, opt-in cross-module lookup fallback for indirect chains, and the image export. |
-| Generated `recomp_lookup()` / `_lookup_search()` | `arm64_to_c.h:5724`, `:5739-5744` (v, 2026-10-12) | Emits the segment-search fallback and flat-index lookup used by each generated module; the search runs only when index allocation fails. |
+| Generated `recomp_lookup()` / `_lookup_search()` | `arm64_to_c.h:5733`, `:5789` (v, 2026-10-13) | Emits the segment-search fallback and flat-index lookup used by each generated module; the search runs only when index allocation fails. |
+| Generated 32-bit index | `arm64_to_c.h:426-442`, `:5733-5808`, `:6121`, `:6253-6264` (v, 2026-10-13) | `_build_idx_for`, `recomp_lookup`, `Index32TypesText`, and the `recomp_image_index32` export text; failed builds retain a reason and use segment search. |
 | `ChainIndirect()` / `SetFlags()` | `arm64_to_c.h:505`, `:521` (v, 2026-10-12) | Indirect RET/BR/BLR chaining and ARM64 condition-flag emission. |
 | `g_emit_direct_chain` / `g_emit_indirect_chain` | `arm64_to_c.h:367-374` (v) | Independent default-on chain switches controlled by `SUYU_AOT_DIRECT_CHAIN=0` and `SUYU_AOT_INDIRECT_CHAIN=0`. |
 | `g_emit_chain_start` / `EmitChainStart()` | `arm64_to_c.h:400-404` | Opt-in chain-start switch; effective only when direct chaining is enabled. |
@@ -143,7 +146,11 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `src/dynarmic/src/dynarmic/backend/x64/emit_x64_memory.cpp.inc` | `EmitExclusiveReadMemoryInline`/`EmitExclusiveWriteMemoryInline`: inline spin lock, reservation record, fastmem access, `lock cmpxchg`, no write notification. (v, 2026-10-11) |
 | `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp:25` | `EmitSpinLockLock` and the shared x64 lock stub emitter used by JIT and the exclusive monitor. |
 | `recomp_bundle.h/.cpp` | Production v1 bundle loading and transactional DLL validation (`LoadRecompBundleV1:444`, `BindRecompBundleToInventory`, `ApplyRecompBundleBases`, `GetRecompExecutableDirectory`); used by the v1 launcher and smoke tests. |
+| `recomp_index_view.h` | `src/core/arm/recomp/recomp_index_view.h:18-82` (v, 2026-10-13) | `RecompIndexView` and `AcquireRecompIndexView` prefer a valid 32-bit export, then legacy 64-bit, then the caller's `lookup`, with decline notes. |
+| `DescribeRecompBlockIndexes` | `src/core/arm/recomp/recomp_bundle.cpp:652-680` and `src/suyu_cmd/suyu.cpp:2233-2235` (v, 2026-10-13) | Reports served, declined, absent, and out-of-range module indexes after bundle bases are applied. |
+| `main.cpp` index view use | `src/suyu/main.cpp:7101-7162`, `:7538-7549`, `:7661-7692` (v, 2026-10-13) | Binds image index callbacks and uses `RecompIndexView::Covers`/`BlockAt` at both dispatch sites. |
 | `SuyuRecompXmodTableV1` / `xmod_v1` | `src/core/recompiler/recomp_registry_v1.h:39,57-63,82` (v, 2026-10-11) | XMOD1 export name, immutable table layout, and registry-v1 image callback. |
+| `index32_v1` registry member/emission | `src/core/recompiler/recomp_registry_v1.h:76` and `src/core/recompiler/recomp_topology.h:342-343` (v, 2026-10-13) | Optional last registry member and generated extern/initializer for every static image. |
 | `PublishRecompXmod` / `UnpublishRecompXmod` | `src/core/arm/recomp/recomp_bundle.h:124-129`, `recomp_bundle.cpp:580-648` (v, 2026-10-11) | Verify and publish one host table to every image, or clear image tables on refusal; unpublish while guest threads are stopped. |
 | `CrossModule1` / `kLegacyLoaderSupported` | `src/core/arm/recomp/recomp_image_features.h:30-37` (v, 2026-10-11) | XMOD1 feature bit `0x8`, host-supported features, and the legacy-loader mask that excludes XMOD1. |
 | `ActiveRecompMissHookName` | `src/core/arm/recomp/arm_recomp.h:143`, `arm_recomp.cpp:892` (v, 2026-10-11) | Names the active force-miss or main-hole hook that suppresses XMOD1 publication. |
@@ -273,10 +280,12 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/lookup_stats_unit.cpp` **(v, 2026-10-11)** | Dispatcher-return, module-index, per-window, and exit-pair unit; registered as `smoke_lookup_stats_unit`. |
 | `tests/recompiler_smoke/exit_targets_unit.cpp` **(v, 2026-10-11)** | Exit-target hash-table, overflow, rebase, and concurrency unit; registered as `smoke_exit_targets_unit`. |
 | `tests/recompiler_smoke/run.py` | The build-identity test requires `nlohmann/json.hpp`; pass `--nlohmann-include`, set `NLOHMANN_INCLUDE_DIR`, or use a `CPM_SOURCE_CACHE` containing `nlohmann_json/*/include`. |
-| `tests/recompiler_smoke/lookup_code.h` / `lookup_c.c` | `lookup_code.h:1-15`, `lookup_c.c:1-65` (v, 2026-10-12) | Eight two-instruction blocks with zero-word gaps, plus exhaustive comparison of `recomp_lookup` and `_lookup_search` with and without the index. |
-| `tests/recompiler_smoke/export.cpp --lookup` | `export.cpp:94-117` (v, 2026-10-12) | Exports the multi-segment lookup fixture with two blocks per generated unit. |
-| `tests/recompiler_smoke/CMakeLists.txt` `LOOKUP_DIR` / `smoke_lookup` | `CMakeLists.txt:3`, `:41-51` (v, 2026-10-12) | Builds the generated lookup fixture executable. |
-| `tests/recompiler_smoke/run.py` `check_lookup_index` | `run.py:775-783`, target `smoke_lookup` (v, 2026-10-12) | Runs the `--lookup` export and checks the generated index against the segment search. |
+| `tests/recompiler_smoke/lookup_code.h` / `lookup_c.c` | `lookup_code.h:1-15`, `lookup_c.c:1-170` (v, 2026-10-13) | Eight two-instruction blocks with zero-word gaps, signed offset/range and allocation-failure cases, plus exhaustive comparison of `recomp_lookup` and `_lookup_search`. |
+| `tests/recompiler_smoke/export.cpp --lookup` | `export.cpp:94-117` (v, 2026-10-13) | Exports the multi-segment lookup fixture with two blocks per generated unit. |
+| `tests/recompiler_smoke/CMakeLists.txt` `LOOKUP_DIR` / `smoke_lookup` | `CMakeLists.txt:3`, `:41-51` (v, 2026-10-13) | Builds the generated lookup fixture executable. |
+| `tests/recompiler_smoke/run.py` `check_lookup_index` | `run.py:785-797`, target `smoke_lookup` (v, 2026-10-13) | Runs the `--lookup` export and checks the generated index against the segment search. |
+| `tests/recompiler_smoke/index_view_unit.cpp` / `index_report_unit.cpp` | `index_view_unit.cpp:116-247`, `index_report_unit.cpp:67-93` (v, 2026-10-13) | Host preference/fallback and launcher report unit tests, including refusal reasons, absent exports, subsets, and bounds checks. |
+| `tests/recompiler_smoke` 32-bit lookup fixtures | `lookup_c.c:23-170`, `bundle_host.cpp:312`, `run.py:404,903-904` (v, 2026-10-13) | Generated lookup/offset and real-DLL optional-export cases, including `dll-without-index-export`, plus registered smoke units. |
 | `tests/recompiler_smoke/xmod_code.h` | Three-module fixture instruction words and scenario addresses (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_exec.c` | Cross-image reservation, counter, FPX, guard, bridge-null, and lookup-boundary fixture execution (v, 2026-10-07). |
 | `tests/recompiler_smoke/xmod_host.cpp` | Production bundle host for xmod module loading, handshakes, and per-image checks (v, 2026-10-07). |

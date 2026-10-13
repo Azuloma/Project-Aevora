@@ -1,15 +1,8 @@
 /* SPDX-FileCopyrightText: Copyright 2026 suyu Emulator Project */
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
-/* Registry v1: the single definition of the layout a split (static + shared
-   image) export's generated recomp_registration.c fills in and the launcher
-   reads, usable from C and C++. The exporter writes only values (see
-   WriteRecompRegistryV1C in recomp_topology.h); no struct is spelled out in a
-   second place.
-
-   Entries are in NSO load order and may mix statically linked modules (function
-   pointers filled in) and shared-image modules (pointers NULL; the launcher loads
-   dll_file_utf8 and resolves the exports below by name). */
+/* Registry v1: the single definition (C and C++) of the layout recomp_registration.c fills in and the
+   launcher reads. Entries are in NSO load order; DLL entries have NULL pointers, resolved by name. */
 
 #ifndef RECOMP_REGISTRY_V1_H
 #define RECOMP_REGISTRY_V1_H
@@ -17,16 +10,15 @@
 #include <stdint.h>
 
 #include "recomp_image_identity.h"
+#include "recomp_image_index.h"
 
 #define SUYU_RECOMP_REGISTRY_V1_VERSION 1u
 
 #define SUYU_RECOMP_BINDING_STATIC 0u
 #define SUYU_RECOMP_BINDING_DLL 1u
 
-/* Export names of a shared image, as the generator emits them (unrenamed). A
-   static module's same functions carry a per-module suffix instead
-   (recomp_image_lookup_<module>, ...). The identity export is named by
-   RECOMP_IMAGE_IDENTITY_V1_SYMBOL. */
+/* Export names of a shared image, unrenamed; a static module's same functions carry a _<module> suffix.
+   The identity export is RECOMP_IMAGE_IDENTITY_V1_SYMBOL. */
 #define RECOMP_EXPORT_LOOKUP "recomp_image_lookup"
 #define RECOMP_EXPORT_SET_BASE "recomp_image_set_base"
 #define RECOMP_EXPORT_RUN_SLICE "recomp_image_run_slice"
@@ -80,6 +72,8 @@ typedef struct SuyuRecompRegistryEntryV1 {
     unsigned (*fpx_v1)(uint32_t, uint32_t, uint64_t);                         /* NULL unless FPX1 */
     /* Takes the table (NULL clears it); returns 1 when accepted. NULL unless XMOD1. */
     unsigned (*xmod_v1)(const SuyuRecompXmodTableV1*);
+    /* The block index of recomp_image_index.h, for the launcher's diagnostics; NULL on an image without it. */
+    SuyuRecompIndex32V1Fn index32_v1;
 } SuyuRecompRegistryEntryV1;
 
 typedef struct SuyuRecompRegistryV1 {

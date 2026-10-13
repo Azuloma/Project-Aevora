@@ -150,6 +150,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "core/arm/recomp/arm_recomp.h"
 #include "core/arm/recomp/recomp_gap_session.h"
 #include "core/arm/recomp/recomp_image_features.h"
+#include "core/arm/recomp/recomp_index_view.h"
 #include "core/core_timing.h"
 #include "core/crypto/key_manager.h"
 #include "core/file_sys/card_image.h"
@@ -7094,9 +7095,10 @@ namespace {
         Core::RecompLookupFn lookup;
         void (*set_base)(u64);
         Core::RecompBlockFn run_slice;
-        // Hands out the image's block index so the dispatcher can do the lookup
-        // itself instead of calling across the shared-object boundary for it.
+        // Hand out the image's block index so the dispatcher can do the lookup itself instead of
+        // calling across the shared-object boundary. The 32-bit export is null on older images.
         int (*get_index)(u64*, u64*, Core::RecompBlockFn**);
+        SuyuRecompIndex32V1Fn get_index32 = nullptr;
         u64 base = 0;
         unsigned (*guard_v2)(unsigned) = nullptr;
         unsigned image_abi = 0;
@@ -7133,20 +7135,16 @@ void RecordMiss(const std::string& module, u64 offset) {
     LOG_INFO(Frontend, "uncovered entry point {}+{:#x}", module, offset);
 }
 
-// A compact, sorted view of the records above. The dispatcher runs tens of
-// millions of times a second, and a RecompImage is ~56 bytes with a std::string
-// at the front, so walking the records themselves touches a cache line per
-// image. These entries are 24 bytes and contiguous.
+// A compact sorted view of the records above, so the dispatcher (tens of millions of calls a second)
+// walks contiguous entries instead of touching a cache line per RecompImage.
+static_assert(std::is_same_v<Core::RecompIndexBlock, Core::RecompBlockFn>);
+
 struct OwnerEntry {
     u64 base;
     Core::RecompLookupFn lookup;
     Core::RecompBlockFn run_slice;
-    // A direct view of the image's block index. Hitting it is a bounds check and
-    // one load; missing it falls back to `lookup`, which also covers addresses
-    // outside the indexed range.
-    u64 idx_lo;
-    u64 idx_hi;
-    Core::RecompBlockFn* idx;
+    // The image's block index: a hit is a bounds check and one load; `lookup` covers the rest.
+    Core::RecompIndexView index;
     int record;
 };
 std::array<OwnerEntry, 16> owner_entries{};
@@ -7160,15 +7158,13 @@ void RebuildOwnerTable() {
         if (r.base == 0 || !r.lookup) {
             continue;
         }
-        u64 lo = 0, hi = 0;
-        Core::RecompBlockFn* idx = nullptr;
-        if (!r.get_index || !r.get_index(&lo, &hi, &idx)) {
-            lo = 1;   // An empty range no pc can satisfy.
-            hi = 0;
-            idx = nullptr;
+        std::string index_note;
+        const auto index = Core::AcquireRecompIndexView(r.get_index32, r.get_index, &index_note);
+        if (!index_note.empty()) {
+            LOG_WARNING(Frontend, "{}: {}", r.name, index_note);
         }
         owner_entries[n++] =
-            OwnerEntry{r.base, r.lookup, r.run_slice, lo, hi, idx, static_cast<int>(k)};
+            OwnerEntry{r.base, r.lookup, r.run_slice, index, static_cast<int>(k)};
     }
     std::sort(owner_entries.begin(), owner_entries.begin() + n,
               [](const OwnerEntry& a, const OwnerEntry& b) { return a.base < b.base; });
@@ -7539,6 +7535,8 @@ int GMainWindow::LoadRecompiledImagesFrom(const QString& dir, bool require_curre
         }
         auto* get_index = reinterpret_cast<int (*)(u64*, u64*, Core::RecompBlockFn**)>(
             lib->resolve("recomp_image_index"));
+        auto* get_index32 =
+            reinterpret_cast<SuyuRecompIndex32V1Fn>(lib->resolve(RECOMP_EXPORT_INDEX32_V1));
         if (require_current_abi && (!set_base || !get_index || !run_slice)) {
             lib->unload();
             lib->deleteLater();
@@ -7547,8 +7545,8 @@ int GMainWindow::LoadRecompiledImagesFrom(const QString& dir, bool require_curre
                                      .arg(image_path));
         }
         records.push_back(
-            RecompImage{owner.dirName().toStdString(), fn, set_base, run_slice, get_index, 0,
-                        guard_v2, abi});
+            RecompImage{owner.dirName().toStdString(), fn, set_base, run_slice, get_index,
+                        get_index32, 0, guard_v2, abi});
     }
 
     if (found.empty()) {
@@ -7660,11 +7658,9 @@ int GMainWindow::LoadRecompiledImagesFrom(const QString& dir, bool require_curre
         const int n = owner_count;
         if (hint >= 0 && hint < n && owner_entries[hint].base <= pc) {
             const auto& e = owner_entries[hint];
-            if (pc >= e.idx_lo && pc <= e.idx_hi && ((pc - e.idx_lo) & 3) == 0) {
-                // The index covers every 4-byte slot in the module's range and
-                // holds null where no block starts, so a null here means the
-                // same thing the call would have returned.
-                if (auto* block = e.idx[(pc - e.idx_lo) >> 2]) {
+            if (e.index.Covers(pc)) {
+                // The index holds null where no block starts, which is what lookup would say.
+                if (auto* block = e.index.BlockAt(pc)) {
                     return e.run_slice ? e.run_slice : block;
                 }
             } else if (auto* block = e.lookup(pc)) {
@@ -7691,8 +7687,8 @@ int GMainWindow::LoadRecompiledImagesFrom(const QString& dir, bool require_curre
             // blocks and silently ran everything on the JIT instead.
             const auto& e = owner_entries[owner_slot];
             Core::RecompBlockFn block = nullptr;
-            if (pc >= e.idx_lo && pc <= e.idx_hi && ((pc - e.idx_lo) & 3) == 0) {
-                block = e.idx[(pc - e.idx_lo) >> 2];
+            if (e.index.Covers(pc)) {
+                block = e.index.BlockAt(pc);
             } else {
                 block = e.lookup(pc);
             }

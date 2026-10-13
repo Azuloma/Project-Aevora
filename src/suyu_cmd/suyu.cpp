@@ -2230,6 +2230,13 @@ int main(int argc, char** argv) {
             }
             Core::UnpublishRecompXmod(*s_recomp_bundle);
             Core::ApplyRecompBundleBases(*s_recomp_bundle, *bases);
+            for (const auto& note : Core::DescribeRecompBlockIndexes(*s_recomp_bundle, *bases)) {
+                if (note.warning) {
+                    LOG_WARNING(Frontend, "{}", note.text);
+                } else {
+                    LOG_INFO(Frontend, "{}", note.text);
+                }
+            }
             if (const char* hook = Core::ActiveRecompMissHookName()) {
                 LOG_WARNING(Frontend,
                             "Cross-module table not published: {} acts at the dispatcher", hook);

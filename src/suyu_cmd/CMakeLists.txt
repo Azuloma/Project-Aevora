@@ -260,7 +260,8 @@ if (SUYU_CMD OR YUZU_CMD)
                 # (recomp_modules/CMakeLists.txt repeats this.)
                 target_compile_definitions(recomp_static_${_m} PRIVATE
                     recomp_image_index=recomp_image_index_${_m}
-                    _recomp_index_view=_recomp_index_view_${_m}
+                    recomp_image_index32=recomp_image_index32_${_m}
+                    _recomp_index32_view=_recomp_index32_view_${_m}
                     recomp_build_index=recomp_build_index_${_m})
                 list(APPEND _recomp_libs "recomp_static_${_m}")
             endif()

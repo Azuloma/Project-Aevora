@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD `884af21` (user commit: recomp lookup early miss), with one uncommitted comment-only edit in `tests/recompiler_smoke/run.py`. Host `D:\HisuiWakeBuild\msvc-release` was rebuilt before and after the integration run (suyu and suyu-cmd, exit 0); its current `GIT_REV 884af2182e0311157a33ce23351b2ff68a14f42b` matches HEAD. The PLA export was produced at `3b3e244` and does not contain this lookup change. Same-position user baseline with XMOD1 on, diagnostics off, and `SUYU_EXCL_LOCKFREE_MARK=0` is 24.6 FPS (about 40.7 ms/frame); the lookup change has not been measured for speed.
+HEAD `8dd61a1` (user commit: record the AOT/JIT block comparison and the recomp_lookup change), on `884af21` (recomp lookup early miss). The uncommitted change set adds the 32-bit flat block index and launcher diagnostics. Host `D:\HisuiWakeBuild\msvc-release` was rebuilt after the change set and after the last integration run (suyu and suyu-cmd exit 0), but its `GIT_REV` remains `8dd61a1` because the tree was not reconfigured. The PLA export at `D:\HisuiWakeExports\_NEW\Pokémon Legends_ Arceus` was produced at `8dd61a1` and has the 64-bit index only; no PLA run or FPS measurement of the 32-bit index exists yet.
 
 
 ## What was done so far
@@ -20,6 +20,7 @@ HEAD `884af21` (user commit: recomp lookup early miss), with one uncommitted com
 - Dev23: a262080 enabled `SUYU_AOT_CROSS_CHAIN` by default (export-integration baseline pins it off; defaults checks both values); feb17ad added opt-in `SUYU_EXCL_LOCKFREE_MARK=1` and locked/lock-free `tests/exclusive_access`; 3b3e244 applied Orca-review fixes (x64 locked slot checks/clears use relaxed atomic_ref; the negative monitor test exits early with FAILED (9), exit 1). Verification: smoke SMOKE_EXIT=0, AOT cache matrix 279 passed/0 failed, `--only-defaults` 29 passed/0 failed (both on a262080), exclusive_access passes in both modes, host builds exit 0.
 - AOT-vs-JIT short-block investigation compared production-configuration emitters with Dynarmic x64 JIT dumps; no repository change or production-DLL measurement was made. Block A was about 71 AOT instructions plus about 10 in `recomp_lookup`, versus about 39 JIT fastmem and 48 JIT without fastmem; Block B's taken path was about 54 AOT plus the run-slice return versus about 23 JIT.
 - Commit `884af21` changed generated `recomp_lookup` to use the flat index for in-range aligned addresses and call `_lookup_search` only when index allocation failed. The new `smoke_lookup` fixture passed as part of `SMOKE_EXIT=0`; the full integration run had 212 passes and 2 unrelated `cryptography`-package failures. No speed effect has been measured.
+- Dev24: Commit `884af21` changed generated `recomp_lookup` to use the flat index for in-range aligned addresses and call `_lookup_search` only when index allocation failed; the 32-bit flat block-index change adds the shared `recomp_image_index.h` contract, generated image tables and fallback reasons, host `RecompIndexView`, registry `index32_v1`, and launcher index diagnostics. It changes generated code and AOT cache identity; no speed effect has been established.
 
 ## Key observations
 
@@ -33,29 +34,32 @@ HEAD `884af21` (user commit: recomp lookup early miss), with one uncommitted com
 - The roughly 41-instruction AOT Block A difference is approximately memory checks 28, block entry 16 (GG1 generation compare 4, halted 2, entry-point 5, frame 5), and RET 8. AOT memory access checks cost about 18-22 instructions each; JIT fastmem costs about 5-6 and omits the page-cross and watch-word checks. AOT CMP stores all four flags in the context (about 15 instructions); the earlier claim that it stored fewer flags was incorrect, while JIT packs them with `lahf/seto`.
 - AOT conditional branches return to `recomp_image_run_slice` (lookup, budget decrement, indirect call); only unconditional B/BL chain. The earlier chaining experiment (2.00 versus 1.80 ms/frame, with unexplained JIT-transition and lookup-miss increases) is not a settled refutation of the current emitter.
 - `recomp_lookup` now avoids the segment search on flat-index misses: the old path could perform about 10 probes over 661 PLA segments, while the new miss path is about 6 instructions versus roughly 90-190 by instruction count. Earlier session-24 lookup samples and the estimated 1.6 ms/frame were from a different configuration and do not measure this change; generated code changed, so reconfigure and a full export are required before an FPS comparison.
+- First lookup-change reading: the same-position user-reported reading was 25.2 FPS (about 39.7 ms/frame) versus 24.6 FPS (about 40.7 ms/frame) for the baseline, +0.6 FPS (+2.4%) and about -1.0 ms/frame. This is one reading per build; earlier same-condition readings varied by about 1-1.5 FPS, so the difference is within observed spread and does not establish an effect. The old export folder may no longer be available for a repeat baseline reading; this is unverified.
+- From `aot_manifest.json` (computed, not measured), PLA main text is 53,106,320 bytes (~13.3M instruction words; ~106 MB as 8-byte entries versus ~53 MB as 4-byte entries) and sdk text is 5,822,640 bytes (~11.6 MB versus ~5.8 MB), about 118 MB versus 59 MB together. Session-24's 578 of 1,521 samples immediately after flat-index load motivate the cache/TLB hypothesis, but do not measure this change.
+- Full smoke exited 0; full integration after final fixes was 212 passed and 2 failed because Python lacks `cryptography`. The one-off split-failure integration result did not reproduce in two later full runs or the 25-pass split-only run; its cause is unknown. Reviewer should-fix findings and all listed negative controls were addressed.
 
 ## Contracts to preserve
 
-Keep opt-in diagnostics execution-neutral when off, FP_SHARED/FPXV ABI/result/cache contracts, exactly-`0` default-on semantics, overlay and fallback wording, comment limit, and same-position averaged FPS with ms/frame comparisons. XMOD1 is on by default since dev23; `SUYU_AOT_CROSS_CHAIN=0` disables it. `SUYU_RECOMP_EXCL_STATS` and `SUYU_EXCL_LOCKFREE_MARK` are exact-`1` opt-ins and execution-neutral when off. Stores keep the saved-value compare-and-swap; every locked access to the monitor's reservation slots is an `atomic_ref`.
+Keep opt-in diagnostics execution-neutral when off, FP_SHARED/FPXV ABI/result/cache contracts, exactly-`0` default-on semantics, overlay and fallback wording, comment limit, and same-position averaged FPS with ms/frame comparisons. XMOD1 is on by default since dev23; `SUYU_AOT_CROSS_CHAIN=0` disables it. `SUYU_RECOMP_EXCL_STATS` and `SUYU_EXCL_LOCKFREE_MARK` are exact-`1` opt-ins and execution-neutral when off. Stores keep the saved-value compare-and-swap; every locked access to the monitor's reservation slots is an `atomic_ref`. The 32-bit index has one C/C++ definition in `recomp_image_index.h`; offset 0 means no block and is rejected for a real block, failed builds publish no partial table, and the legacy export answers "no table". Registry v1's optional `index32_v1` layout is accepted only when `entry_size` equals the current struct size.
 
 ## Open issues in priority order
 
-1. Measure an FPS A/B of `884af21` after reconfigure and a full export, at the same position and conditions as the 24.6 FPS baseline.
+1. After the user commits, run `reconf_build.cmd`, verify `GIT_REV`, and perform a full export; then take at least three same-position FPS readings per build for the 32-bit index A/B. The baseline is 24.6 FPS; the recomp_lookup change has one 25.2 FPS reading, within observed noise.
 2. Evaluate the nested naturally-aligned page-cross check candidate; the `&&` form did not reduce instructions, and whole-helper inlining was worse on MK8D (image 100 to 222 MB, -14% FPS).
-3. Evaluate a 32-bit flat index to halve its roughly 24 MB table; the 578/1,521 post-index-load samples are only a hypothesis and are unmeasured.
-4. Re-experiment with conditional-branch chaining only after explaining the old regression and its increased JIT-transition/lookup-miss counts.
-5. Design how to remove per-block GG1 generation, halted, entry-point, frame, and page-table-walk costs; fault handling is needed before removing the page-table walk.
-6. Decide whether `SUYU_EXCL_LOCKFREE_MARK` becomes default-on (needs a long PLA soak; if so, `=0` disables per the default-on rule).
-7. Test-and-test-and-set for the Dynarmic SpinLock stub (`spin_lock_x64.cpp` `EmitSpinLockLock`); gate it behind an opt-in and keep JIT unchanged unless measured.
-8. Shorten the bridge path of exclusive ops (switch in `HostExclusive*`, out-of-line `GetPlainExclusivePointer`, `NoteExclusiveWrite`).
-9. Remaining sdk<->main exits (about 8M each way per 10 s).
-10. XMOD1 untested items: real ArmRecomp accounting, `RecordMiss`, `RecompGaps`, IC IVAU through the chain, 256-budget stop; optional positive table-publication log line.
-11. Integration environment note: the two portable unsealing checks need the missing Python `cryptography` package; the same failures appeared in earlier logs.
+3. Older all-static launcher path and legacy DLL path do not report 32-bit index status; dispatch remains on `lookup` and is correct.
+4. Integration environment note: the two portable unsealing checks need the missing Python `cryptography` package; the same failures appeared in earlier logs.
+5. Re-experiment with conditional-branch chaining only after explaining the old regression and its increased JIT-transition/lookup-miss counts.
+6. Design how to remove per-block GG1 generation, halted, entry-point, frame, and page-table-walk costs; fault handling is needed before removing the page-table walk.
+7. Decide whether `SUYU_EXCL_LOCKFREE_MARK` becomes default-on (needs a long PLA soak; if so, `=0` disables per the default-on rule).
+8. Test-and-test-and-set for the Dynarmic SpinLock stub (`spin_lock_x64.cpp` `EmitSpinLockLock`); gate it behind an opt-in and keep JIT unchanged unless measured.
+9. Shorten the bridge path of exclusive ops (switch in `HostExclusive*`, out-of-line `GetPlainExclusivePointer`, `NoteExclusiveWrite`).
+10. Remaining sdk<->main exits (about 8M each way per 10 s).
+11. XMOD1 untested items: real ArmRecomp accounting, `RecordMiss`, `RecompGaps`, IC IVAU through the chain, 256-budget stop; optional positive table-publication log line.
 12. Held: opcode host-size totals, SVC attribution, Stage F, automatic all-static re-plan, MSVC `cl` real-title support, U2 only with explicit approval, two-lifetime seam, real loader/refusal paths, export_regression Qt-root lookup, old-manifest reuse, six tracked `.pyc` files, mutex+map `RecordMiss`/`RecordUnhandled`; carried FMI-off/FP_SHARED-off/default A/B exports, chain-start-off A/B, optional JIT built-in-cost attribution, and final sdk+0x346040 callee.
 
 ## Immediate next action
 
-The user has committed `884af21`. After the user's go-ahead, reconfigure with `reconf_build.cmd`, verify `GIT_REV` equals HEAD, and have the user run the full export; then measure same-position average FPS and ms/frame against the 24.6 FPS baseline with identical conditions. Ask the user which open issue to take next. Do not build or export without go-ahead.
+The user commits; reconfigure with `reconf_build.cmd`; verify `GIT_REV` equals HEAD; the user runs the full export; then take repeated same-position FPS readings. Ask which open issue to take next. Do not build or export without the user's go-ahead.
 
 ## How to proceed
 
@@ -66,6 +70,7 @@ Read `CLAUDE.md`, this file, and indexed source locations; run `git status`/`git
 - Run `.cmd` scripts through `cmd.exe /c` from PowerShell (vcvars fails under Bash); keep logs, builds, exports, caches, and game outputs outside the repository. Overwrite logs with `*>` if `Remove-Item` is blocked.
 - Smoke: `python tests/recompiler_smoke/run.py --source <repo> --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include`; export matrix: `python tests/export_integration/run_export_integration.py --suyu-dir D:\HisuiWakeBuild\msvc-release\bin --work <new short folder> --only-aot-cache-matrix`, via `cmd.exe /c` after vcvars64 and with a new empty work folder.
 - Host rebuild: `D:\HisuiWakeBuild\diag\reconf_build.cmd` with the three export variables cleared; never run concurrent builds or exports.
+- Do not chain scripts that each call `vcvars64.bat` in one `cmd` session; start each stage as its own process and check that it is running.
 - AOT-vs-JIT diagnostic tools are outside the repository in `D:\HisuiWakeBuild\diag\block_diff\`; lookup negative controls and comparison scripts are in `D:\HisuiWakeBuild\diag\lookup_work\`.
 - The export integration test uses the host's compiled-in generator; rebuild the host before running integration after generator changes.
 - Fixture-only smoke uses `python tests/recompiler_smoke/run.py --only-xmod --source <repo> --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include`; full suite takes about 10 to 15 minutes and may run in background.
@@ -85,3 +90,12 @@ Read `CLAUDE.md`, this file, and indexed source locations; run `git status`/`git
 - Exclusive measurement: `$env:SUYU_GUEST_TIME="1"; $env:SUYU_RECOMP_EXCL_STATS="1"; $env:SUYU_RECOMP_LOOKUP_STATS="1"` (and `$env:SUYU_EXCL_LOCKFREE_MARK="1"` for lock-free) in a fresh non-elevated shell; stand still ~30 s, record averaged FPS, exit normally, read `excl-stats` from ~52 s. Keep only `suyu_log.txt` and `suyu_log.txt.old.txt`, so copy the log after EACH condition; remove `Env:SUYU_EXCL_LOCKFREE_MARK` before the other condition. LOOKUP_STATS adds a second lookup per exit and costs FPS; FPS-only runs have diagnostics off.
 - Exclusive test: `python tests/exclusive_access/run.py --build-dir D:\HisuiWakeBuild\msvc-release --work <folder outside the repo>` after vcvars64 (via `cmd.exe /c`); it links host dynarmic.lib, so rebuild after dynarmic changes. Weakened ReadAndMarkLockFree storing INVALID_EXCLUSIVE_ADDRESS must exit 1; restore in finally.
 - Tooling lessons: Python edit scripts putting `\n` escapes into C++ string literals produced real newlines twice (use Edit for string literals); Start-Process needs its log file created first; Orca `check --wait` replays until its `delivery_*` id is acked.
+
+## Design notes
+
+- The flat index replaces two binary searches over roughly 600k main-image entries; it is read-only after load, needs no locking or per-thread state, and costs 4 bytes per instruction word. A thread-local cache cost 34% in the race phase because the title's thread footprint is not free.
+- Static `recomp_registration.c` entries use the v4 writer's renamed symbols and each generated definition has a prototype for `-Werror=missing-declarations`.
+- Shared-image handles remain live for the process because published function pointers point into them; only a partially failed load frees its own handles.
+- Guard v2 requires all modules to answer alike: agreement on 2 enables v2, and any other agreed answer means not negotiated everywhere.
+- `Utf8ToWide` calls `MultiByteToWideChar` directly so malformed UTF-8 is an error without extra common sources.
+- The compact dispatcher `OwnerEntry` table keeps the hot path's tens of millions of calls per second on contiguous entries instead of one cache line per `RecompImage`.

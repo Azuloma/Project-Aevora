@@ -100,6 +100,22 @@ int LoadOrRefuse(const SuyuRecompRegistryV1& registry, const std::filesystem::pa
     return *bundle ? 0 : Refused(error);
 }
 
+// A DLL without the optional block index export loads, with no reporter, and is described so.
+int CaseDllWithoutIndexExport(const std::filesystem::path& dir) {
+    std::optional<Core::RecompBundle> bundle;
+    if (int rc = LoadOrRefuse(*suyu_recomp_registry_v1(), dir, &bundle)) {
+        return rc;
+    }
+    HOST_CHECK(bundle->modules.size() == 2);
+    HOST_CHECK(bundle->modules[0].index32_v1 != nullptr);
+    HOST_CHECK(bundle->modules[1].is_dll && bundle->modules[1].index32_v1 == nullptr);
+    const auto notes = Core::DescribeRecompBlockIndexes(*bundle, {{0, kSmokeBase}, {1, kSecondBase}});
+    HOST_CHECK(notes.size() == 2 && !notes[1].warning);
+    HOST_CHECK(notes[1].text.find("second: no 32-bit block index export") != std::string::npos);
+    std::printf("dll without index export ok\n");
+    return 0;
+}
+
 int CaseOk(const std::filesystem::path& dir) {
     const SuyuRecompRegistryV1& registry = *suyu_recomp_registry_v1();
     {
@@ -133,6 +149,26 @@ int CaseOk(const std::filesystem::path& dir) {
         HOST_CHECK((*bases)[0] == std::make_pair(size_t{0}, kSmokeBase));
         HOST_CHECK((*bases)[1] == std::make_pair(size_t{1}, kSecondBase));
         Core::ApplyRecompBundleBases(*bundle, *bases);
+
+        // The launcher's block index report: the static module's reporter comes from the registry
+        // and the DLL's from its export; both describe a 32-bit index.
+        HOST_CHECK(bundle->modules[0].index32_v1 && bundle->modules[1].index32_v1);
+        for (const auto& note : Core::DescribeRecompBlockIndexes(*bundle, *bases)) {
+            HOST_CHECK(!note.warning && note.text.find("32-bit block index of ") != std::string::npos);
+        }
+        // An entry without the reporter still loads, and is reported as an image without it.
+        {
+            RegistryCopy older;
+            older.entries[0].index32_v1 = nullptr;
+            std::optional<Core::RecompBundle> older_bundle;
+            if (int rc = LoadOrRefuse(older.header, dir, &older_bundle)) {
+                return rc;
+            }
+            HOST_CHECK(older_bundle->modules[0].index32_v1 == nullptr);
+            const auto older_notes = Core::DescribeRecompBlockIndexes(*older_bundle, *bases);
+            HOST_CHECK(older_notes.size() == 2 && !older_notes[0].warning);
+            HOST_CHECK(older_notes[0].text.find("no 32-bit block index export") != std::string::npos);
+        }
 
         const auto& smoke = bundle->modules[0];
         const auto& second = bundle->modules[1];
@@ -273,6 +309,9 @@ int CaseExec(const std::filesystem::path& dir) {
 }
 
 int RunCase(const std::string& name, const std::filesystem::path& dir) {
+    if (name == "dll-without-index-export") {
+        return CaseDllWithoutIndexExport(dir);
+    }
     if (name == "ok" || name == "dll-in-unicode-dir") {
         return CaseOk(dir);
     }

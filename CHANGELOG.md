@@ -2,16 +2,20 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
-## Next development entry (number not yet assigned) - Unreleased
+## v0.0.1-dev24 - Unreleased
 
-*Development entry number will be assigned by the user at commit time. Not a release; no build artifacts are published.*
+*Development entry 24 toward v0.0.1. Not a release; no build artifacts are published.*
 
 ### Changed
 - Rewrote generated `recomp_lookup` to use the flat index for in-range, 4-byte-aligned addresses and added `_lookup_search` as the allocation-failure fallback; shortened the generated index comment and recomputed the ABI5, FM1, and FPX goldens.
-- This changes generated code and therefore the AOT cache identity; a reconfigure and full export are required. No speed effect has been measured.
+- This changes generated code and therefore the AOT cache identity; a reconfigure and full export are required. One user reading is 25.2 FPS versus the 24.6 FPS baseline (single readings, within the observed spread), so no speed effect is established.
+- The legacy `recomp_image_index` export returns no table in new images; the registry entry grew and old registrations are refused by the `entry_size` check. Host dispatch prefers the 32-bit table, and goldens were recomputed.
+- The generated-code comments touched by this change were shortened to two lines or fewer. The older all-static launcher and legacy DLL paths still omit index-status diagnostics; dispatch remains correct through `lookup`.
 
 ### Added
 - Added the `smoke_lookup` synthetic test, `export.cpp --lookup` mode, and the CMake `LOOKUP_DIR` branch.
+- Added the 32-bit block-index contract and `recomp_image_index32`, host `recomp_index_view.h`, registry `index32_v1`, launcher index reporting, and smoke units/fixtures for lookup, view, reporting, static registration, XMOD, and a DLL without the optional export.
+- This changes generated code and AOT cache identity; no speed effect is established.
 
 ## v0.0.1-dev23 - Unreleased
 

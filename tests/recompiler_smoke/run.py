@@ -16,16 +16,14 @@ import tempfile
 # Aevora v0.0.1-dev8: all three recomputed after the v0.0.1-dev4 change to
 # the generated CMake job-pool text (shared by every variant). smoke_export is
 # now built with /utf-8 on MSVC, as suyu is, so these match clang-cl builds.
-# All three recomputed for the recomp_lookup rewrite (only src/recompiled_<module>.c moved).
-ABI5_GOLDEN = "6e12faa023c96469258343596f51a9f843d715a9f50eed9867c094e56156d947"
-# The same for ABI 6 with FM1 alone (GG1 and FPX1 both off), which neither
-# feature may move, and with FM1 and FPX1 (exact native FP) on, tracked so any
-# change is deliberate. Recomputed against this integration tree, since the FP
-# exactness fixes touch the shared emitter and so this text too; GG1's own
-# switch-off contract (DESIGN.md sec 0) guarantees it does not move these.
+# All three recomputed for the recomp_lookup rewrite and the 32-bit block index: only the index unit,
+# recomp_export.c and the CMake symbol renames moved.
+ABI5_GOLDEN = "23fe58d0e115018cc1f12545e100a33c940f9e306a10e16b3deaf70e801b373b"
+# The same for ABI 6 with FM1 alone (GG1, FPX1 off) and with FM1 and FPX1 on, tracked so any change is
+# deliberate; GG1's switch-off contract (DESIGN.md sec 0) guarantees it does not move these.
 # FPX_GOLDEN also covers the FZ-aware FPX1 helpers (v0.0.1-dev8).
-FM1_GOLDEN = "a5c019cb80147a76d264f61ed7cd87ceaed88dda3a063c13060f6cc4d8d93f04"
-FPX_GOLDEN = "0353fa3c84885c8cd41fcf41f3a48cf83db42db8027ed9d9d8b69491efe93000"
+FM1_GOLDEN = "e820e2b5553f05861694754504eab06624cf3a07638bc0841d9c3db7fac17fb7"
+FPX_GOLDEN = "2c904d0a21d8176d92a5da8f20c0eb5329410c761548e0dc34d9459afff2c4bd"
 
 # ABI 6 changes only these files; the block sources must be identical.
 ABI6_CHANGED = {"CMakeLists.txt", "recomp_export.c", "recomp_runtime.c", "recomp_runtime.h"}
@@ -393,6 +391,18 @@ def run_bundle_host(root, run, image):
         shutil.copy2(image, copy_dir / image.name)
         bundle_case(host, "dll-in-unicode-dir", copy_dir, 0, ("bundle ok",))
         cases += 2
+        # The same image with only the optional index export renamed away (same length, so the export
+        # table stays sorted): it must still load, with no index reporter.
+        no_index_dir = root / "bundle-no-index-export"
+        no_index_dir.mkdir(parents=True, exist_ok=True)
+        marker = b"recomp_image_index32\0"
+        image_bytes = image.read_bytes()
+        if marker not in image_bytes:
+            raise RuntimeError(f"{image.name} has no {marker!r} to rename")
+        (no_index_dir / image.name).write_bytes(
+            image_bytes.replace(marker, b"recomp_image_index33\0"))
+        bundle_case(host, "dll-without-index-export", no_index_dir, 0, ("dll without index export ok",))
+        cases += 1
         cases += bundle_stub_cases(host, root, run, on_windows)
         cases += bundle_path_cases(host, root, image)
     else:
@@ -890,6 +900,8 @@ def main():
         call([executable(export_build, "smoke_lookup_stats_unit")])
         call([executable(export_build, "smoke_exclusive_stats_unit")])
         call([executable(export_build, "smoke_exit_targets_unit")])
+        call([executable(export_build, "smoke_index_view_unit")])
+        call([executable(export_build, "smoke_index_report_unit")])
         call([executable(export_build, "smoke_chain_start_budget_unit")])
         call([executable(export_build, "smoke_overlay_logic_unit")])
         call([executable(export_build, "smoke_build_identity_unit")])

@@ -18,6 +18,7 @@
 
 #include "core/arm/recomp/recomp_bundle.h"
 #include "core/arm/recomp/recomp_image_features.h"
+#include "core/arm/recomp/recomp_index_view.h"
 #include "core/recompiler/recomp_image_identity.h"
 #include "core/recompiler/recomp_topology.h"
 
@@ -79,6 +80,7 @@ struct ResolvedEntry {
     u32* (*guard_gen_v1)(u32, u64*, u64*, const u64**){};
     unsigned (*fpx_v1)(u32, u32, u64){};
     unsigned (*xmod_v1)(const SuyuRecompXmodTableV1*){};
+    SuyuRecompIndex32V1Fn index32_v1{};
 };
 
 /// Shared-image handles taken by one load; released on every path except the one
@@ -249,14 +251,14 @@ bool ResolveStaticEntry(const SuyuRecompRegistryEntryV1& entry, ResolvedEntry* o
     out->guard_gen_v1 = entry.guard_gen_v1;
     out->fpx_v1 = entry.fpx_v1;
     out->xmod_v1 = entry.xmod_v1;
+    out->index32_v1 = entry.index32_v1;
     return true;
 }
 
 #ifdef _WIN32
 
-/// The registry's UTF-8 file name as UTF-16. MultiByteToWideChar is used directly
-/// (rather than Common::UTF8ToUTF16W) so malformed UTF-8 is an error instead of
-/// being replaced, and so this unit needs no other common sources.
+/// The registry's UTF-8 file name as UTF-16, via MultiByteToWideChar directly so malformed UTF-8
+/// is an error and this unit needs no other common sources.
 bool Utf8ToWide(const std::string& utf8, std::wstring* wide) {
     if (utf8.empty()) {
         return false;
@@ -324,7 +326,8 @@ bool LoadAndResolveDllEntry(const SuyuRecompRegistryV1& registry,
         !ResolveExport(image, name, RECOMP_EXPORT_FASTMEM_V1, fm1, &out->fastmem_v1, error) ||
         !ResolveExport(image, name, RECOMP_EXPORT_GUARD_GEN_V1, gg1, &out->guard_gen_v1, error) ||
         !ResolveExport(image, name, RECOMP_EXPORT_FPX_V1, fpx1, &out->fpx_v1, error) ||
-        !ResolveExport(image, name, RECOMP_EXPORT_XMOD_V1, xmod1, &out->xmod_v1, error)) {
+        !ResolveExport(image, name, RECOMP_EXPORT_XMOD_V1, xmod1, &out->xmod_v1, error) ||
+        !ResolveExport(image, name, RECOMP_EXPORT_INDEX32_V1, false, &out->index32_v1, error)) {
         return false;
     }
 
@@ -492,6 +495,7 @@ std::optional<RecompBundle> LoadRecompBundleV1(const SuyuRecompRegistryV1& regis
         module.image_abi = entry.image_abi;
         module.guard_v2 = resolved[i].guard_v2;
         module.xmod_v1 = resolved[i].xmod_v1;
+        module.index32_v1 = resolved[i].index32_v1;
         module.is_dll = entry.binding == SUYU_RECOMP_BINDING_DLL;
         if (module.is_dll) {
             module.dll_file = entry.dll_file_utf8;
@@ -499,10 +503,8 @@ std::optional<RecompBundle> LoadRecompBundleV1(const SuyuRecompRegistryV1& regis
         bundle.modules.push_back(std::move(module));
     }
 
-    // Guard v2: every module must give the same answer to the query. Disagreement
-    // refuses the bundle (the images were not built against one guard contract);
-    // agreement on 2 enables v2 on all of them, agreement on anything else leaves
-    // it "not negotiated" on all of them.
+    // Guard v2: all modules must answer the query alike or the bundle is refused; agreement on 2
+    // enables v2 everywhere, any other agreed answer leaves it "not negotiated".
     const unsigned query_answer = bundle.modules.front().guard_v2(0);
     for (const auto& module : bundle.modules) {
         const unsigned answer = module.guard_v2(0);
@@ -645,6 +647,36 @@ void UnpublishRecompXmod(RecompBundle& bundle) {
         }
     }
     bundle.xmod_table = nullptr;
+}
+
+std::vector<RecompIndexNote> DescribeRecompBlockIndexes(
+    const RecompBundle& bundle, const std::vector<std::pair<size_t, u64>>& bases) {
+    std::vector<RecompIndexNote> notes;
+    for (const auto& entry : bases) {
+        if (entry.first >= bundle.modules.size()) {
+            notes.push_back({true, "block index report: module index " + std::to_string(entry.first) +
+                                       " is outside the bundle's " +
+                                       std::to_string(bundle.modules.size()) + " modules"});
+            continue;
+        }
+        const RecompBundleModule& module = bundle.modules[entry.first];
+        if (!module.index32_v1) {
+            notes.push_back({false, module.name + ": no 32-bit block index export; dispatch uses "
+                                                  "the image's lookup export"});
+            continue;
+        }
+        std::string note;
+        const RecompIndexView view = AcquireRecompIndexView(module.index32_v1, nullptr, &note);
+        if (view.kind == RecompIndexView::Kind::Index32) {
+            const u64 words = ((view.hi - view.lo) >> 2) + 1;
+            notes.push_back({false, module.name + ": 32-bit block index of " +
+                                        std::to_string(words) + " words (" +
+                                        std::to_string(words * 4 / 1024) + " KiB)"});
+        } else {
+            notes.push_back({true, module.name + ": " + note});
+        }
+    }
+    return notes;
 }
 
 } // namespace Core
