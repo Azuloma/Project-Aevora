@@ -23,6 +23,7 @@
 #include "common/fs/path_util.h"
 #include "core/arm/recomp/arm_recomp.h"
 #include "core/arm/recomp/guest_fp_env.h"
+#include "core/arm/recomp/recomp_access_stats.h"
 #include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
 #include "core/arm/recomp/recomp_exclusive_stats.h"
@@ -133,6 +134,13 @@ static_assert(offsetof(GuestContextView, fm_limit) == 880);
 static_assert(sizeof(Common::PageTable::PageEntryData) == 32);
 static_assert(Common::PageTable::ATTRIBUTE_BITS == 2);
 static_assert(Memory::YUZU_PAGEBITS == 12);
+// RecompAccessStats classifies the raw page word with these attribute values.
+static_assert(static_cast<u64>(Common::PageType::Unmapped) == RecompAccessStats::kTypeUnmapped &&
+              static_cast<u64>(Common::PageType::Memory) == RecompAccessStats::kTypeMemory &&
+              static_cast<u64>(Common::PageType::DebugMemory) == RecompAccessStats::kTypeDebug &&
+              static_cast<u64>(Common::PageType::RasterizerCachedMemory) ==
+                  RecompAccessStats::kTypeRasterizer &&
+              (u64{1} << Common::PageTable::ATTRIBUTE_BITS) - 1 == RecompAccessStats::kAttributeMask);
 // GG1: the generated store helpers read the watch word at this offset.
 static_assert(offsetof(Common::PageTable::PageEntryData, recomp_watch) ==
               RecompGuardGen::kWatchOffset);
@@ -431,6 +439,20 @@ RecompExclusiveStats g_exclusive_stats;
 
 RecompExclusiveStats::Counters::Slot& ExclusiveStatsSlot() {
     thread_local RecompExclusiveStats::Counters::Slot& slot = g_exclusive_stats.Acquire();
+    return slot;
+}
+
+// SUYU_RECOMP_ACCESS_STATS=1 classifies guest loads and stores that reach the host callbacks; off unless exactly "1".
+const bool kAccessStats = [] {
+    const char* e = std::getenv("SUYU_RECOMP_ACCESS_STATS");
+    return e && std::string_view{e} == "1";
+}();
+constexpr u64 kAccessStatsWindowNs = 10'000'000'000ULL;
+constexpr u64 kAccessStatsTickMask = 0xFFF;
+RecompAccessStats g_access_stats;
+
+RecompAccessStats::Counters::Slot& AccessStatsSlot() {
+    thread_local RecompAccessStats::Counters::Slot& slot = g_access_stats.Acquire();
     return slot;
 }
 
@@ -937,8 +959,8 @@ struct ArmRecomp::Impl {
         ctx.pending_svc = kNoPendingSvc;
         // Point the recompiled code at the emulator's address space.
         bridge.user = this;
-        bridge.load = &Impl::HostLoad;
-        bridge.store = &Impl::HostStore;
+        bridge.load = kAccessStats ? &Impl::HostLoadCounted : &Impl::HostLoad;
+        bridge.store = kAccessStats ? &Impl::HostStoreCounted : &Impl::HostStore;
         bridge.excl_load = kExclusiveStats ? &Impl::HostExclusiveLoadTimed : &Impl::HostExclusiveLoad;
         bridge.excl_store = kExclusiveStats ? &Impl::HostExclusiveStoreTimed : &Impl::HostExclusiveStore;
         bridge.clear_excl = &Impl::HostClearExclusive;
@@ -1157,6 +1179,37 @@ struct ArmRecomp::Impl {
                       r, self->ctx.x[r], r + 1, self->ctx.x[r + 1], r + 2, self->ctx.x[r + 2],
                       r + 3, self->ctx.x[r + 3]);
         }
+    }
+
+    // Counts why an access left the inline fast path; size 0 is the guard's instruction read, not an access.
+    static void CountAccess(void* user, u64 va, u32 size, bool is_store) {
+        const auto& bridge_view = static_cast<Impl*>(user)->bridge;
+        const auto* const entries = static_cast<const u8*>(bridge_view.page_entries);
+        const auto reason = RecompAccessStats::Classify(
+            va, size, is_store, static_cast<u32>(bridge_view.page_bits), bridge_view.address_space_max,
+            [&](u64 page) {
+                if (entries == nullptr) {
+                    return RecompAccessStats::Entry{};
+                }
+                const u8* const entry = entries + page * bridge_view.page_entry_stride;
+                return RecompAccessStats::Entry{
+                    reinterpret_cast<const std::atomic<u64>*>(entry)->load(std::memory_order_relaxed),
+                    reinterpret_cast<const std::atomic<u64>*>(entry + RecompGuardGen::kWatchOffset)
+                        ->load(std::memory_order_relaxed)};
+            });
+        RecompAccessStats::Count(AccessStatsSlot(), is_store, reason);
+    }
+
+    static u64 HostLoadCounted(void* user, u64 va, u32 size) {
+        if (size != 0) {
+            CountAccess(user, va, size, false);
+        }
+        return HostLoad(user, va, size);
+    }
+
+    static void HostStoreCounted(void* user, u64 va, u32 size, u64 value) {
+        CountAccess(user, va, size, true);
+        HostStore(user, va, size, value);
     }
 
     static u64 HostLoad(void* user, u64 va, u32 size) {
@@ -2204,6 +2257,11 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
         if (kExclusiveStats && (seen & kExclusiveStatsTickMask) == kExclusiveStatsTickMask) {
             if (const auto report = g_exclusive_stats.TakeReport(
                     SteadyNowNs(), RecompExclusiveStats::ReadTicks(), kExclusiveStatsWindowNs)) {
+                LOG_INFO(Core_ARM, "{}", *report);
+            }
+        }
+        if (kAccessStats && (seen & kAccessStatsTickMask) == kAccessStatsTickMask) {
+            if (const auto report = g_access_stats.TakeReport(SteadyNowNs(), kAccessStatsWindowNs)) {
                 LOG_INFO(Core_ARM, "{}", *report);
             }
         }
