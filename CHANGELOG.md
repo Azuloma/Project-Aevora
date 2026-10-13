@@ -8,7 +8,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 
 ### Changed
 - Rewrote generated `recomp_lookup` to use the flat index for in-range, 4-byte-aligned addresses and added `_lookup_search` as the allocation-failure fallback; shortened the generated index comment and recomputed the ABI5, FM1, and FPX goldens.
-- This changes generated code and therefore the AOT cache identity; a reconfigure and full export are required. One user reading is 25.2 FPS versus the 24.6 FPS baseline (single readings, within the observed spread), so no speed effect is established.
+- The 32-bit index measured 24.5 FPS (24.5/25.0/24.0) against a 24.6 FPS baseline, no speed effect established; index memory was about 65 MiB lower on PLA (computed).
 - The legacy `recomp_image_index` export returns no table in new images; the registry entry grew and old registrations are refused by the `entry_size` check. Host dispatch prefers the 32-bit table, and goldens were recomputed.
 - The generated-code comments touched by this change were shortened to two lines or fewer. The older all-static launcher and legacy DLL paths still omit index-status diagnostics; dispatch remains correct through `lookup`.
 
