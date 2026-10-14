@@ -119,33 +119,40 @@ int EntryIsNotReadForOutOfRangeAddresses() {
 int ReportsWindowDeltasPerReason() {
     RecompAccessStats stats;
     auto& slot = stats.Acquire();
-    RecompAccessStats::Count(slot, false, Reason::Unmapped);
-    CHECK(!stats.TakeReport(0, 1000));
+    RecompAccessStats::Count(slot, false, Reason::Unmapped, 7);
+    CHECK(!stats.TakeReport(0, 0, 1000));
     // Counts from before the window opened must not be reported.
-    RecompAccessStats::Count(slot, false, Reason::Rasterizer);
-    RecompAccessStats::Count(slot, false, Reason::Rasterizer);
-    RecompAccessStats::Count(slot, true, Reason::Rasterizer);
-    RecompAccessStats::Count(slot, true, Reason::Watched);
-    CHECK(!stats.TakeReport(999, 1000));
-    const auto report = stats.TakeReport(2'000'000'000ULL, 1000);
+    // 2 ticks per ns over the window: 6e6 rasterizer ticks = 3e6 ns for 3 accesses = 1e6 ns each.
+    RecompAccessStats::Count(slot, false, Reason::Rasterizer, 1'000'000);
+    RecompAccessStats::Count(slot, false, Reason::Rasterizer, 2'000'000);
+    RecompAccessStats::Count(slot, true, Reason::Rasterizer, 3'000'000);
+    RecompAccessStats::Count(slot, true, Reason::Watched, 4'000'000);
+    CHECK(!stats.TakeReport(999, 1999, 1000));
+    const auto report = stats.TakeReport(2'000'000'000ULL, 4'000'000'000ULL, 1000);
     CHECK(report);
     CHECK(report->find("window_ms=2000 ") != std::string::npos);
     CHECK(report->find("loads=2 ") != std::string::npos);
     CHECK(report->find("stores=2 ") != std::string::npos);
     CHECK(report->find("per_s=2 ") != std::string::npos);
+    CHECK(report->find("load_ms=1 ") != std::string::npos);
+    CHECK(report->find("store_ms=3 ") != std::string::npos);
     CHECK(report->find("load_rasterizer=2 ") != std::string::npos);
     CHECK(report->find("load_unmapped=0 ") != std::string::npos);
     CHECK(report->find("store_rasterizer=1 ") != std::string::npos);
     CHECK(report->find("store_watched=1 ") != std::string::npos);
-    const auto next = stats.TakeReport(4'000'000'000ULL, 1000);
+    CHECK(report->find("avg_ns_rasterizer=1000000") != std::string::npos);
+    CHECK(report->find("avg_ns_watched=2000000") != std::string::npos);
+    CHECK(report->find("avg_ns_unmapped") == std::string::npos);
+    const auto next = stats.TakeReport(4'000'000'000ULL, 8'000'000'000ULL, 1000);
     CHECK(next);
     CHECK(next->find("loads=0 stores=0 ") != std::string::npos);
+    CHECK(next->find("avg_ns_") == std::string::npos);
     return 0;
 }
 
 int CountsFromThreadsThatAlreadyExited() {
     RecompAccessStats stats;
-    CHECK(!stats.TakeReport(0, 1000));
+    CHECK(!stats.TakeReport(0, 1, 1000));
     std::vector<std::thread> workers;
     for (int i = 0; i < 4; ++i) {
         workers.emplace_back([&] {
@@ -159,7 +166,7 @@ int CountsFromThreadsThatAlreadyExited() {
     for (auto& worker : workers) {
         worker.join();
     }
-    const auto report = stats.TakeReport(1000, 1000);
+    const auto report = stats.TakeReport(1000, 1001, 1000);
     CHECK(report);
     CHECK(report->find("load_page_cross=4000 ") != std::string::npos);
     CHECK(report->find("store_debug=4000") != std::string::npos);

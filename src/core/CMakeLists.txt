@@ -12,6 +12,8 @@ add_library(core STATIC
     arm/recomp/recomp_bridge_required.h
     arm/recomp/recomp_bundle.cpp
     arm/recomp/recomp_bundle.h
+    arm/recomp/recomp_host_frames.cpp
+    arm/recomp/recomp_host_frames.h
     arm/recomp/recomp_gap_session.cpp
     arm/recomp/recomp_gap_session.h
     arm/recomp/recomp_gaps.cpp

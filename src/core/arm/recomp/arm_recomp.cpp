@@ -17,13 +17,22 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#define RECOMP_CALLER_ADDRESS() _ReturnAddress()
+#else
+#define RECOMP_CALLER_ADDRESS() __builtin_return_address(0)
+#endif
+
 #include "common/logging/log.h"
 #include "common/page_table.h"
 #include "common/string_util.h"
 #include "common/fs/path_util.h"
 #include "core/arm/recomp/arm_recomp.h"
 #include "core/arm/recomp/guest_fp_env.h"
+#include "core/arm/recomp/recomp_access_sites.h"
 #include "core/arm/recomp/recomp_access_stats.h"
+#include "core/arm/recomp/recomp_host_frames.h"
 #include "core/arm/recomp/recomp_bridge_required.h"
 #include "core/arm/recomp/recomp_gap_session.h"
 #include "core/arm/recomp/recomp_exclusive_stats.h"
@@ -453,6 +462,20 @@ RecompAccessStats g_access_stats;
 
 RecompAccessStats::Counters::Slot& AccessStatsSlot() {
     thread_local RecompAccessStats::Counters::Slot& slot = g_access_stats.Acquire();
+    return slot;
+}
+
+// SUYU_RECOMP_ACCESS_SITES=1 also reports the busiest host call stacks (a stack walk per access, so it
+// perturbs timing); needs the stats above.
+const bool kAccessSites = kAccessStats && ([] {
+    const char* e = std::getenv("SUYU_RECOMP_ACCESS_SITES");
+    return e && std::string_view{e} == "1";
+}());
+RecompAccessSites g_access_sites;
+std::atomic<bool> g_access_sites_rebased{false};
+
+RecompAccessSites::Slot& AccessSitesSlot() {
+    thread_local RecompAccessSites::Slot& slot = g_access_sites.Acquire();
     return slot;
 }
 
@@ -1181,11 +1204,10 @@ struct ArmRecomp::Impl {
         }
     }
 
-    // Counts why an access left the inline fast path; size 0 is the guard's instruction read, not an access.
-    static void CountAccess(void* user, u64 va, u32 size, bool is_store) {
+    static RecompAccessStats::Reason ClassifyAccess(void* user, u64 va, u32 size, bool is_store) {
         const auto& bridge_view = static_cast<Impl*>(user)->bridge;
         const auto* const entries = static_cast<const u8*>(bridge_view.page_entries);
-        const auto reason = RecompAccessStats::Classify(
+        return RecompAccessStats::Classify(
             va, size, is_store, static_cast<u32>(bridge_view.page_bits), bridge_view.address_space_max,
             [&](u64 page) {
                 if (entries == nullptr) {
@@ -1197,19 +1219,37 @@ struct ArmRecomp::Impl {
                     reinterpret_cast<const std::atomic<u64>*>(entry + RecompGuardGen::kWatchOffset)
                         ->load(std::memory_order_relaxed)};
             });
-        RecompAccessStats::Count(AccessStatsSlot(), is_store, reason);
     }
 
+    static void NoteAccessSite(const void* caller) {
+        RecompAccessSites::Frames frames{};
+        CaptureCallerFrames(reinterpret_cast<std::uintptr_t>(caller), frames.data(), frames.size());
+        RecompAccessSites::Count(AccessSitesSlot(), frames);
+    }
+
+    // The counted callbacks time the real callback only; size 0 is the guard's instruction read, not an access.
     static u64 HostLoadCounted(void* user, u64 va, u32 size) {
-        if (size != 0) {
-            CountAccess(user, va, size, false);
+        if (size == 0) {
+            return HostLoad(user, va, size);
         }
-        return HostLoad(user, va, size);
+        const auto reason = ClassifyAccess(user, va, size, false);
+        if (kAccessSites) {
+            NoteAccessSite(RECOMP_CALLER_ADDRESS());
+        }
+        const u64 start = RecompExclusiveStats::ReadTicks();
+        const u64 value = HostLoad(user, va, size);
+        RecompAccessStats::Count(AccessStatsSlot(), false, reason, RecompExclusiveStats::ReadTicks() - start);
+        return value;
     }
 
     static void HostStoreCounted(void* user, u64 va, u32 size, u64 value) {
-        CountAccess(user, va, size, true);
+        const auto reason = ClassifyAccess(user, va, size, true);
+        if (kAccessSites) {
+            NoteAccessSite(RECOMP_CALLER_ADDRESS());
+        }
+        const u64 start = RecompExclusiveStats::ReadTicks();
         HostStore(user, va, size, value);
+        RecompAccessStats::Count(AccessStatsSlot(), true, reason, RecompExclusiveStats::ReadTicks() - start);
     }
 
     static u64 HostLoad(void* user, u64 va, u32 size) {
@@ -2261,8 +2301,16 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             }
         }
         if (kAccessStats && (seen & kAccessStatsTickMask) == kAccessStatsTickMask) {
-            if (const auto report = g_access_stats.TakeReport(SteadyNowNs(), kAccessStatsWindowNs)) {
+            // Same start as the stats window, which opens on the first report call.
+            if (kAccessSites && !g_access_sites_rebased.exchange(true)) {
+                g_access_sites.Rebase();
+            }
+            if (const auto report = g_access_stats.TakeReport(
+                    SteadyNowNs(), RecompExclusiveStats::ReadTicks(), kAccessStatsWindowNs)) {
                 LOG_INFO(Core_ARM, "{}", *report);
+                if (kAccessSites) {
+                    LOG_INFO(Core_ARM, "{}", g_access_sites.TakeTop(&DescribeHostAddress));
+                }
             }
         }
         // Generated code calls a direct branch's target itself, so one call can run a chain of blocks; the budget left
