@@ -24,6 +24,10 @@
 
 Currently, Aevora can recompile PLA with Static AoT, achieving an average of 24-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
 
+<p align="center">
+  <img alt="aevora-icon" src="Assets/github-ss01.png" width="800px" />
+<p>
+
 Currently, it has become clear that the Suyu recompiler's code execution method is quite inefficient, so we are attempting to fix it. Additionally, we have improved usability by implementing ImGui.
 
 ## Implemented features
