@@ -11,6 +11,7 @@
 
 #include "core/frontend/vulkan_overlay.h"
 #include "suyu_cmd/overlay/controller_settings.h"
+#include "suyu_cmd/overlay/mods_folders.h"
 #include "suyu_cmd/overlay/overlay_actions.h"
 #include "suyu_cmd/overlay/overlay_logic.h"
 #include "suyu_cmd/overlay/overlay_stats.h"
@@ -63,6 +64,17 @@ public:
         controller_applier = std::move(applier);
     }
 
+    /// Applies a Mods and folders request; set and called on the event thread only.
+    using ModsFoldersApplier = std::function<UiActionResult(const ModsFoldersRequest&)>;
+    void SetModsFoldersApplier(ModsFoldersApplier applier) {
+        mods_folders_applier = std::move(applier);
+    }
+
+    /// What the Mods and folders window shows; published by the event thread.
+    SnapshotBox<ModsFoldersSnapshot>& GetModsFoldersSnapshot() {
+        return mods_folders_snapshot;
+    }
+
     /// What the Controller window shows; published by the event thread.
     SnapshotBox<ControllerSnapshot>& GetControllerSnapshot() {
         return controller_snapshot;
@@ -95,6 +107,9 @@ private:
     void BuildDebugWindow();
     void BuildGraphicsWindow();
     void BuildControllerWindow();
+    void BuildModsFoldersWindow();
+    void PostModsFolders(ModsFoldersRequest request);
+    void BuildGameSection();
     void PostController(ControllerRequest request);
     void PostResolutionScale(std::size_t index);
     void BuildBackendSection();
@@ -115,6 +130,8 @@ private:
     ResolutionScaleApplier resolution_scale_applier; ///< Event thread only.
     std::atomic<std::size_t> resolution_scale_index{0};
     ControllerApplier controller_applier; ///< Event thread only.
+    ModsFoldersApplier mods_folders_applier; ///< Event thread only.
+    SnapshotBox<ModsFoldersSnapshot> mods_folders_snapshot;
     SnapshotBox<ControllerSnapshot> controller_snapshot;
     std::atomic<bool> controller_window_open{false};
     std::vector<UiStatusMessage> status_messages; ///< Scratch for the per-frame status drain.
@@ -129,6 +146,9 @@ private:
     bool show_graphics_window{};
     OverlayRect graphics_window_rect{};
     bool show_controller_window{};
+    bool show_mods_folders_window{};
+    bool mods_folders_window_was_open{};
+    OverlayRect mods_folders_window_rect{};
     OverlayRect controller_window_rect{};
     std::string controller_device_id; ///< Empty until the player picks one.
     OverlayRect debug_window_rect{}; ///< Where the Debug window was drawn this frame.

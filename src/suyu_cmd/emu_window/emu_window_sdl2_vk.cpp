@@ -37,6 +37,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
         debug_overlay->GetActions().BindEventThread();
         InstallOverlayResolutionScale();
         InstallOverlayController();
+        InstallOverlayModsFolders();
     }
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Exports are renamed after the game at packaging time; reuse that name as the title.
@@ -256,6 +257,16 @@ void EmuWindow_SDL2_VK::InstallOverlayResolutionScale() {
     PublishOverlayResolutionScale();
 }
 
+void EmuWindow_SDL2_VK::InstallOverlayModsFolders() {
+    debug_overlay->SetModsFoldersApplier([this](const SuyuCmd::ModsFoldersRequest& request) {
+        if (request.kind == SuyuCmd::ModsFoldersRequest::Kind::OpenFolder) {
+            return OpenOverlayFolder(request.folder);
+        }
+        debug_overlay->GetModsFoldersSnapshot().Publish(BuildModsFoldersSnapshot());
+        return SuyuCmd::UiActionResult{};
+    });
+}
+
 void EmuWindow_SDL2_VK::InstallOverlayController() {
     debug_overlay->SetControllerApplier([this](const SuyuCmd::ControllerRequest& request) {
         return HandleControllerRequest(request);
@@ -326,6 +337,7 @@ EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
     if (debug_overlay) {
         debug_overlay->SetResolutionScaleApplier({});
         debug_overlay->SetControllerApplier({});
+        debug_overlay->SetModsFoldersApplier({});
         CancelControllerRebind();
         debug_overlay->GetActions().DetachEventThread();
     }

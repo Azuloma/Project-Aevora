@@ -83,6 +83,16 @@ inline FrameTiming TimeFrame(float delta_seconds) {
     return {true, delta_seconds * 1000.0f, std::min(delta_seconds, kMaxAnimationDeltaSeconds)};
 }
 
+/// A title id as 16 uppercase hex digits, the way the F12 panel and game folders write it.
+inline std::string FormatTitleId(std::uint64_t title_id) {
+    constexpr char kDigits[] = "0123456789ABCDEF";
+    std::string text(16, '0');
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        text[text.size() - 1 - i] = kDigits[(title_id >> (4 * i)) & 0xF];
+    }
+    return text;
+}
+
 /// A guest address with the nearest module base below it (see ResolveGuestPc).
 struct GuestLocation {
     bool found{};

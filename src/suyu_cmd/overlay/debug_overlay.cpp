@@ -309,6 +309,7 @@ void DebugOverlay::BuildUi() {
     BuildDebugWindow();
     BuildGraphicsWindow();
     BuildControllerWindow();
+    BuildModsFoldersWindow();
 
     // A hidden OS pointer would leave nothing to aim with; draw one only while it is over the UI.
     ImGuiIO& io = ImGui::GetIO();
@@ -328,6 +329,9 @@ void DebugOverlay::PublishCaptureRegions() {
     }
     if (show_controller_window) {
         regions.push_back(controller_window_rect);
+    }
+    if (show_mods_folders_window) {
+        regions.push_back(mods_folders_window_rect);
     }
     if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
         // An open menu or combo list lies outside the windows; keep clicks on it with the UI.
@@ -362,6 +366,7 @@ void DebugOverlay::BuildCommandBar() {
         if (ImGui::BeginMenu("Settings")) {
             ImGui::MenuItem("Graphics", nullptr, &show_graphics_window);
             ImGui::MenuItem("Controller (Player 1)", nullptr, &show_controller_window);
+            ImGui::MenuItem("Mods and folders", nullptr, &show_mods_folders_window);
             ImGui::EndMenu();
         }
         // Placeholder: the entry exists so the layout is settled, but does nothing yet.
@@ -387,6 +392,9 @@ void DebugOverlay::BuildDebugWindow() {
     debug_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
                          ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
     if (expanded) {
+        if (ImGui::CollapsingHeader("Game", ImGuiTreeNodeFlags_DefaultOpen)) {
+            BuildGameSection();
+        }
         if (ImGui::CollapsingHeader("Backend", ImGuiTreeNodeFlags_DefaultOpen)) {
             BuildBackendSection();
         }
@@ -528,6 +536,69 @@ void DebugOverlay::BuildControllerWindow() {
     ImGui::End();
 }
 
+void DebugOverlay::BuildModsFoldersWindow() {
+    using Kind = ModsFoldersRequest::Kind;
+    const bool was_open = mods_folders_window_was_open;
+    mods_folders_window_was_open = show_mods_folders_window;
+    if (!show_mods_folders_window) {
+        return;
+    }
+    if (!was_open) {
+        PostModsFolders({Kind::Rescan, FolderKind::Mods});
+    }
+    ImGui::SetNextWindowPos({16.0f, 48.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({560.0f, 380.0f}, ImGuiCond_FirstUseEver);
+    const bool expanded = ImGui::Begin("Mods and folders", &show_mods_folders_window);
+    mods_folders_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                                ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
+    if (expanded) {
+        const ModsFoldersSnapshot view = mods_folders_snapshot.Get();
+        const auto folder_row = [&](const char* label, const std::string& path, FolderKind kind) {
+            ImGui::PushID(label);
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine(110.0f);
+            ImGui::TextWrapped("%s", path.empty() ? "(unknown)" : path.c_str());
+            if (ImGui::Button("Open")) {
+                PostModsFolders({Kind::OpenFolder, kind});
+            }
+            ImGui::PopID();
+        };
+        folder_row("User data", view.user_folder, FolderKind::User);
+        folder_row("Mods", view.mods_folder, FolderKind::Mods);
+        folder_row("Keys", view.keys_folder, FolderKind::Keys);
+        ImGui::Separator();
+        ImGui::TextUnformatted("Mods found under mods/ (title id / mod name):");
+        ImGui::SameLine();
+        if (ImGui::Button("Rescan")) {
+            PostModsFolders({Kind::Rescan, FolderKind::Mods});
+        }
+        if (ImGui::BeginChild("mods", {0.0f, 0.0f}, ImGuiChildFlags_Borders)) {
+            if (!view.scanned) {
+                ImGui::TextUnformatted("(scanning)");
+            } else if (view.scan.mods.empty()) {
+                ImGui::TextUnformatted("(none - drop <title id>/<mod name>/ into mods/)");
+            }
+            for (const ModEntry& mod : view.scan.mods) {
+                ImGui::Text("%s  /  %s", mod.title_id_folder.c_str(), mod.mod_name.c_str());
+            }
+            if (view.scan.truncated) {
+                ImGui::Text("(only the first %zu are listed)", kMaxListedMods);
+            }
+        }
+        ImGui::EndChild();
+    }
+    ImGui::End();
+}
+
+void DebugOverlay::PostModsFolders(ModsFoldersRequest request) {
+    actions.Post({"Mods and folders", [this, request] {
+                      if (!mods_folders_applier) {
+                          return UiActionResult{false, "Mods and folders are not available"};
+                      }
+                      return mods_folders_applier(request);
+                  }});
+}
+
 void DebugOverlay::PostController(ControllerRequest request) {
     actions.Post({"Controller", [this, request = std::move(request)] {
                       if (!controller_applier) {
@@ -544,6 +615,22 @@ void DebugOverlay::PostResolutionScale(std::size_t index) {
                       }
                       return resolution_scale_applier(index);
                   }});
+}
+
+void DebugOverlay::BuildGameSection() {
+    NativeStatusSnapshot snapshot;
+    if (!TryGetNativeStatusSnapshot(snapshot)) {
+        ImGui::TextUnformatted("(no status yet)");
+        return;
+    }
+    ImGui::Text("Title: %s", snapshot.game_name.empty() ? "(not loaded)" : snapshot.game_name.c_str());
+    ImGui::Text("Title ID: %s", FormatTitleId(snapshot.title_id).c_str());
+    ImGui::Text("Version: %s",
+                snapshot.display_version.empty() ? "(unknown)" : snapshot.display_version.c_str());
+    if (snapshot.applet_running) {
+        ImGui::Text("Applet: %s - %s", snapshot.applet_name.c_str(),
+                    NativeBackendName(snapshot.applet_backend));
+    }
 }
 
 void DebugOverlay::BuildBackendSection() {

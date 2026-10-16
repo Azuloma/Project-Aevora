@@ -12,6 +12,7 @@
 #include "core/frontend/emu_window.h"
 #include "core/frontend/graphics_context.h"
 #include "suyu_cmd/overlay/controller_settings.h"
+#include "suyu_cmd/overlay/mods_folders.h"
 #include "suyu_cmd/overlay/rebind_session.h"
 
 struct SDL_Window;
@@ -91,6 +92,12 @@ protected:
     std::optional<SuyuCmd::UiActionResult> PollControllerRebind();
 
     void CancelControllerRebind();
+
+    /// The folders and mods list the overlay shows. Event thread only.
+    SuyuCmd::ModsFoldersSnapshot BuildModsFoldersSnapshot();
+
+    /// Opens a folder in the file manager, creating it first. Event thread only.
+    SuyuCmd::UiActionResult OpenOverlayFolder(SuyuCmd::FolderKind folder);
 
     /// Called by WaitEvent when a key is pressed or released.
     void OnKeyEvent(int key, u8 state);

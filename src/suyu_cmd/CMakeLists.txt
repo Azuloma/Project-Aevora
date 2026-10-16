@@ -32,6 +32,7 @@ if (SUYU_CMD OR YUZU_CMD)
         overlay/debug_overlay.cpp
         overlay/debug_overlay.h
         overlay/graphics_settings.h
+        overlay/mods_folders.h
         overlay/overlay_actions.h
         overlay/overlay_logic.h
         overlay/overlay_stats.h

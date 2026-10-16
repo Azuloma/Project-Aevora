@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <cwchar>
 #include <set>
 #include <string>
@@ -1355,6 +1356,60 @@ void EmuWindow_SDL2::CancelControllerRebind() {
     if (rebind_session) {
         rebind_session->Cancel();
     }
+}
+
+namespace {
+// Mods, user data and keys live beside the executable, as the F12 panel shows them.
+std::filesystem::path ExecutableFolder() {
+    const char* const base = SDL_GetBasePath();
+    return base != nullptr ? std::filesystem::path(std::u8string(base, base + std::strlen(base)))
+                           : std::filesystem::path{};
+}
+
+std::filesystem::path OverlayFolderPath(SuyuCmd::FolderKind folder) {
+    switch (folder) {
+    case SuyuCmd::FolderKind::User:
+        return ExecutableFolder() / "user";
+    case SuyuCmd::FolderKind::Mods:
+        return ExecutableFolder() / "mods";
+    case SuyuCmd::FolderKind::Keys:
+        return Common::FS::GetSuyuPath(Common::FS::SuyuPath::KeysDir);
+    }
+    return {};
+}
+} // namespace
+
+SuyuCmd::ModsFoldersSnapshot EmuWindow_SDL2::BuildModsFoldersSnapshot() {
+    SuyuCmd::ModsFoldersSnapshot snapshot;
+    snapshot.user_folder = SuyuCmd::Utf8(OverlayFolderPath(SuyuCmd::FolderKind::User));
+    snapshot.mods_folder = SuyuCmd::Utf8(OverlayFolderPath(SuyuCmd::FolderKind::Mods));
+    snapshot.keys_folder = SuyuCmd::Utf8(OverlayFolderPath(SuyuCmd::FolderKind::Keys));
+    snapshot.scan = SuyuCmd::ScanMods(OverlayFolderPath(SuyuCmd::FolderKind::Mods));
+    snapshot.scanned = true;
+    return snapshot;
+}
+
+SuyuCmd::UiActionResult EmuWindow_SDL2::OpenOverlayFolder(SuyuCmd::FolderKind folder) {
+    const std::filesystem::path path = OverlayFolderPath(folder);
+    if (path.empty()) {
+        return {false, "The folder location is unknown"};
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (ec) {
+        return {false, "Could not create " + SuyuCmd::Utf8(path) + ": " + ec.message()};
+    }
+#ifdef _WIN32
+    const auto result = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, L"explore", path.wstring().c_str(), nullptr, nullptr, SW_SHOW));
+    const bool opened = result > 32;
+#else
+    const bool opened = SDL_OpenURL(SuyuCmd::FileUrlFromPath(SuyuCmd::Utf8(path)).c_str());
+#endif
+    if (!opened) {
+        return {false, "Could not open " + SuyuCmd::Utf8(path)};
+    }
+    return {};
 }
 
 bool EmuWindow_SDL2::PumpEventsWhileLoading() {

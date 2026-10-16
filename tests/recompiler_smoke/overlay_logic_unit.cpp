@@ -484,6 +484,14 @@ int FrameTimeHistoryFillsThenWraps() {
     return 0;
 }
 
+int TitleIdIsSixteenUpperHexDigits() {
+    CHECK(FormatTitleId(0) == "0000000000000000");
+    CHECK(FormatTitleId(0x0100000000000B01ull) == "0100000000000B01");
+    CHECK(FormatTitleId(0xFFFFFFFFFFFFFFFFull) == "FFFFFFFFFFFFFFFF");
+    CHECK(FormatTitleId(0xABCDEFull) == "0000000000ABCDEF");
+    return 0;
+}
+
 int GuestPcIsPlacedInItsModule() {
     const std::map<std::uint64_t, std::string> modules{
         {0x80004000, "rtld"}, {0x80100000, "main"}, {0x82000000, "sdk"}};
@@ -779,6 +787,7 @@ int main() {
     CHECK(KeyAndTextKeepTheirOrder() == 0);
     CHECK(KeyAndTextOverflowRestartsTheOverlay() == 0);
     CHECK(FrameTimeHistoryFillsThenWraps() == 0);
+    CHECK(TitleIdIsSixteenUpperHexDigits() == 0);
     CHECK(GuestPcIsPlacedInItsModule() == 0);
     CHECK(AnyFallbackCounterCounts() == 0);
     CHECK(FallbackVerdictSeparatesAttemptFromRefusal() == 0);

@@ -43,6 +43,7 @@ protected:
     void InstallOverlayResolutionScale();
     void PublishOverlayResolutionScale();
     void InstallOverlayController();
+    void InstallOverlayModsFolders();
     void ServiceOverlayController(bool actions_ran);
 
     bool controller_dirty{true};
