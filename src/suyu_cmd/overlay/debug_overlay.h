@@ -22,20 +22,12 @@ bool IsDebugOverlayRequested();
 
 class DebugOverlay;
 
-/// The process-wide overlay, or nullptr when it is switched off.
-///
-/// It outlives every window and renderer on purpose: the renderer keeps a raw pointer and shuts
-/// the overlay down in its own destructor, and on an early-exit path the window (declared after
-/// the system in main) is destroyed first. An overlay owned by the window would be gone by
-/// then. It is never destroyed, so no Vulkan call can run during static destruction after the
-/// device is gone.
+/// The process-wide overlay, or nullptr when it is switched off. Never destroyed: the renderer
+/// holds a raw pointer and may outlive the window.
 DebugOverlay* AcquireDebugOverlay();
 
-/// Dear ImGui layer drawn over the presented frame.
-///
-/// All ImGui state is owned by the scheduler worker thread: `Record` runs the whole frame
-/// (NewFrame, UI, Render, draw submission) there, so ImGui's non-thread-safe context is never
-/// shared. `Initialize` and `Shutdown` run on the renderer thread while the worker is quiescent.
+/// Dear ImGui layer drawn over the presented frame. `Record` runs the whole ImGui frame on the
+/// scheduler worker; `Initialize` and `Shutdown` run on the renderer thread while it is quiescent.
 class DebugOverlay final : public Core::Frontend::VulkanOverlay {
 public:
     DebugOverlay();

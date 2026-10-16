@@ -57,15 +57,13 @@ public:
     // Sets the window icon from suyu.bmp
     void SetWindowIcon();
 
-    /// Boot-time shader precompile progress (see LoadDiskResources in suyu.cpp): the title
-    /// bar everywhere, plus a progress bar window on Windows. Main thread only; the
-    /// precompile itself runs on another thread and only reports counts.
+    /// Boot-time shader precompile progress: title bar, plus a progress window on Windows.
+    /// Main thread only; the precompile thread just reports counts.
     void ShowBuildProgress(std::size_t built, std::size_t total);
     void HideBuildProgress();
 
-    /// Pumps window events while the main loop isn't running yet, so the window keeps
-    /// responding. Returns false once the player has asked to close the window; the
-    /// request stays queued for the main loop.
+    /// Pumps events and overlay actions before the main loop runs. Returns false once a close
+    /// was requested; the request stays queued for the main loop.
     bool PumpEventsWhileLoading();
 
 protected:

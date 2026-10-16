@@ -2,6 +2,7 @@
 // (suyu_cmd/overlay/overlay_actions.h), which need neither ImGui nor SDL.
 #include <atomic>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -168,6 +169,51 @@ int OtherThreadCannotRunActions() {
     return 0;
 }
 
+int ReentrantRunKeepsOrder() {
+    UiActionChannel channel;
+    channel.BindEventThread();
+    std::vector<int> log;
+    std::size_t inner_ran = 99;
+    CHECK(channel.Post({"a", [&] {
+                            log.push_back(1);
+                            channel.Post(Recording(log, 3));
+                            inner_ran = channel.RunPending();
+                            return UiActionResult{};
+                        }}));
+    CHECK(channel.Post(Recording(log, 2)));
+    CHECK(channel.RunPending() == 2);
+    CHECK(inner_ran == 0);
+    CHECK((log == std::vector<int>{1, 2}));
+    CHECK(channel.RunPending() == 1);
+    CHECK((log == std::vector<int>{1, 2, 3}));
+    return 0;
+}
+
+int DetachDropsQueuedAndRefusesPosts() {
+    UiActionChannel channel;
+    channel.BindEventThread();
+    std::vector<int> log;
+    auto token = std::make_shared<int>(0);
+    CHECK(channel.Post({"held", [token, &log] {
+                            log.push_back(1);
+                            return UiActionResult{};
+                        }}));
+    CHECK(token.use_count() == 2);
+    channel.DetachEventThread();
+    // The dropped action released its captures and never ran.
+    CHECK(token.use_count() == 1);
+    CHECK(channel.RunPending() == 0);
+    CHECK(!channel.Post(Recording(log, 2)));
+    CHECK(log.empty());
+
+    // A new window binds again and starts clean.
+    channel.BindEventThread();
+    CHECK(channel.Post(Recording(log, 3)));
+    CHECK(channel.RunPending() == 1);
+    CHECK((log == std::vector<int>{3}));
+    return 0;
+}
+
 int WakeupFollowsEveryAcceptedPost() {
     UiActionChannel channel;
     std::atomic<int> wakes{0};
@@ -221,6 +267,8 @@ int main() {
     CHECK(ActionPostedWhileRunningWaits() == 0);
     CHECK(ActionsRunOnlyOnTheEventThread() == 0);
     CHECK(OtherThreadCannotRunActions() == 0);
+    CHECK(ReentrantRunKeepsOrder() == 0);
+    CHECK(DetachDropsQueuedAndRefusesPosts() == 0);
     CHECK(WakeupFollowsEveryAcceptedPost() == 0);
     CHECK(CrossThreadPostsAreAllRunInOrder() == 0);
     std::puts("All synthetic OVERLAY ACTIONS smoke checks passed.");

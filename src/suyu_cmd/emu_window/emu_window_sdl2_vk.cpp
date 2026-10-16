@@ -36,10 +36,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
         debug_overlay->GetActions().BindEventThread();
     }
 #ifdef SUYU_CMD_STATIC_RECOMP
-    // Standalone exports are named after the game already (game_export.cpp
-    // renames the exe at packaging time), so use that instead of the
-    // generic "suyu ..." title that would otherwise flash for a moment
-    // before the game's own title gets set later in the boot sequence.
+    // Exports are renamed after the game at packaging time; reuse that name as the title.
     const std::string window_title = [] {
         std::filesystem::path exe;
 #if defined(_WIN32)
@@ -72,10 +69,8 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     const std::string window_title = fmt::format("suyu {} | {}-{} (Vulkan)", Common::g_build_name,
                                                  Common::g_scm_branch, Common::g_scm_desc);
 #endif
-    // A binary launched outside an .app bundle is treated as a background
-    // application on macOS, so its window opens behind whatever has focus and the
-    // compositor throttles it. Asking for foreground treatment before the window
-    // exists is what makes the later raise take effect.
+    // Outside an .app bundle macOS treats the binary as a background app; request foreground
+    // before the window exists so the later raise works.
     const bool headless_capture = std::getenv("SUYU_CMD_CAPTURE_HEADLESS") != nullptr;
     if (!headless_capture) {
         SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
@@ -280,6 +275,9 @@ Core::Frontend::VulkanOverlay* EmuWindow_SDL2_VK::GetVulkanOverlay() {
 }
 
 EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
+    if (debug_overlay) {
+        debug_overlay->GetActions().DetachEventThread();
+    }
 #if defined(SDL_PLATFORM_MACOS)
     if (metal_view) {
         SDL_Metal_DestroyView(metal_view);

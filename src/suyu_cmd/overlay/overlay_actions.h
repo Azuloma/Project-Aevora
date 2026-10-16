@@ -40,11 +40,24 @@ struct UiStatusMessage {
 /// `DrainStatus`. Actions run in posting order, only on the bound event thread.
 class UiActionChannel {
 public:
-    /// Declares the calling thread as the one that may run actions.
+    /// Declares the calling thread as the one that may run actions and accepts posts again.
     void BindEventThread() {
         std::lock_guard lock{mutex};
         event_thread = std::this_thread::get_id();
         event_thread_bound = true;
+        detached = false;
+    }
+
+    /// Ends the window's turn: queued actions are dropped unrun (their captures die outside the
+    /// lock) and posts are refused until the next `BindEventThread`.
+    void DetachEventThread() {
+        std::deque<UiAction> dropped;
+        {
+            std::lock_guard lock{mutex};
+            event_thread_bound = false;
+            detached = true;
+            dropped.swap(actions);
+        }
     }
 
     /// Called after each accepted post so the event thread can wake up and run it.
@@ -53,13 +66,13 @@ public:
         wakeup = std::move(new_wakeup);
     }
 
-    /// Queues `action`. Returns false, and reports it as a status message, if the queue is full
-    /// or the action has no body.
+    /// Queues `action`. Returns false, and reports it as a status message, if the queue is full,
+    /// the window is detached or the action has no body.
     bool Post(UiAction action) {
         std::function<void()> wake;
         {
             std::lock_guard lock{mutex};
-            if (!action.run || actions.size() >= kUiActionQueueCapacity) {
+            if (!action.run || detached || actions.size() >= kUiActionQueueCapacity) {
                 PushStatusLocked({false, "Action '" + action.name + "' was not queued"});
                 return false;
             }
@@ -73,7 +86,8 @@ public:
     }
 
     /// Runs what was queued when the call began, oldest first, and returns how many ran. Actions
-    /// posted while running wait for the next call. Does nothing on any other thread.
+    /// posted while running wait for the next call. Does nothing on any other thread or from
+    /// inside a running action.
     std::size_t RunPending() {
         std::vector<UiAction> batch;
         {
@@ -82,10 +96,15 @@ public:
                 ++wrong_side_calls;
                 return 0;
             }
+            if (running) {
+                return 0;
+            }
+            running = true;
             batch.assign(std::make_move_iterator(actions.begin()),
                          std::make_move_iterator(actions.end()));
             actions.clear();
         }
+        const RunningReset reset{*this};
         for (UiAction& action : batch) {
             UiActionResult result = action.run();
             if (!result.ok && result.message.empty()) {
@@ -119,6 +138,14 @@ public:
     }
 
 private:
+    struct RunningReset {
+        UiActionChannel& channel;
+        ~RunningReset() {
+            std::lock_guard lock{channel.mutex};
+            channel.running = false;
+        }
+    };
+
     void PushStatusLocked(UiStatusMessage message) {
         if (statuses.size() >= kUiStatusQueueCapacity) {
             statuses.pop_front();
@@ -132,6 +159,8 @@ private:
     std::function<void()> wakeup;
     std::thread::id event_thread;
     bool event_thread_bound{};
+    bool detached{};
+    bool running{};
     std::size_t wrong_side_calls{};
 };
 

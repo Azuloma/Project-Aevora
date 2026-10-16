@@ -1033,9 +1033,7 @@ void EmuWindow_SDL2::WaitEvent() {
     case SDL_EVENT_WINDOW_RESIZED:
     case SDL_EVENT_WINDOW_MAXIMIZED:
     case SDL_EVENT_WINDOW_RESTORED:
-        // Restoring only ever raised RESTORED, never EXPOSED, so is_shown was
-        // left false from the minimize and the renderer stayed parked - the
-        // window came back black and eventually stopped responding.
+        // Restore raises only RESTORED, so is_shown would stay false after a minimize.
         is_shown = true;
         OnResize();
         break;
@@ -1212,6 +1210,7 @@ void EmuWindow_SDL2::HideBuildProgress() {
 
 bool EmuWindow_SDL2::PumpEventsWhileLoading() {
     SDL_PumpEvents();
+    RunOverlayActions();
     // Leave the events queued: the main loop handles a close request as usual.
     return !SDL_HasEvent(SDL_EVENT_QUIT) && !SDL_HasEvent(SDL_EVENT_WINDOW_CLOSE_REQUESTED);
 }
@@ -1238,11 +1237,8 @@ void EmuWindow_SDL2::RefreshWindowStatus() {
     SDL_SetWindowTitle(render_window, title.c_str());
 }
 
-// An export has no input settings screen in front of it, so a player who plugs
-// in controllers expects them to just work: see SuyuCmd::AssignControllers for
-// which pad gets which player. Only a standalone export does this - a plain
-// suyu-cmd run keeps the player's own configuration - and controls picked in
-// the F12 panel switch it off for good (auto_assign_controllers).
+// Standalone exports auto-assign pads (see SuyuCmd::AssignControllers); a pick in the F12 panel
+// turns it off for good (auto_assign_controllers).
 void EmuWindow_SDL2::AutoAssignControllers() {
     gamepad_check_pending = false;
     // A TAS replay drives the players itself; their mappings stay as configured.
