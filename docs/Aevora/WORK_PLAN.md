@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-16 (session 29). Older material: [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup) (this cleanup, with the session 29 investigation record right after it: [record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16)); earlier cleanups: [2026-10-13](OLD_HISTORY.md#archived-on-2026-10-13-from-work_planmd-session-28-cleanup), [2026-10-12](OLD_HISTORY.md#archived-on-2026-10-12-from-work_planmd-session-27-cleanup).
+Handoff prepared: 2026-10-16 (session 30). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
 
 ## Objective
 
@@ -8,63 +8,62 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is 9ba03c6 (README only), on f943708 and a304400, the two session 29 code commits; both add opt-in diagnostics and change nothing when off. Host D:\HisuiWakeBuild\msvc-release was reconfigured and rebuilt at f943708 with GIT_REV f943708b2e06985f3869fc1a78cfea8836245e0c; the README-only commit does not change code (re-check `git status`, `git log` and GIT_REV at the start of the next session). The last PLA export is D:\HisuiWakeExports\_NEW at f943708 (cross/direct/indirect chain and FM inline on, chain start off, fully static: `static -> JIT: 0`); its launcher and PDB are in D:\HisuiWakeBuild\backup\f943708_aot, and the JIT `suyu.exe` and PDB used for comparison are in backup\f943708_jit. Evidence logs and samples of session 29 are in D:\HisuiWakeBuild\logs (`*_f943708*` files); analysis scripts are in D:\HisuiWakeBuild\tmp_gt.
+HEAD ac96270 = v0.0.1-dev25. The host was reconfigured and rebuilt at ac96270; re-check `GIT_REV ac96270` at session start. The last PLA export is `D:\HisuiWakeExports\_NEW` at ac96270, fully static, with TTAS, lock-free marks, and chain start default-on; launcher and PDB are in `D:\HisuiWakeBuild\backup\ac96270_aot`. Older backups are `d0ae37b_aot` and `f943708_aot`/`_jit`; evidence logs and samples are in `D:\HisuiWakeBuild\logs`, analysis scripts in `D:\HisuiWakeBuild\tmp_gt`. Optimization is paused; ImGui Stage F is the focus. These Markdown changes and previous batches are uncommitted until the user commits.
 
 ## What was done so far
 
-- Dev19-dev24: FPXV, sharded counters, guest-time ledger, lookup diagnostics, exclusive stats, cross chain default-on, opt-in lock-free marking, 32-bit block index; see CHANGELOG.md and OLD_HISTORY.md.
-- Session 29 (dev25): sampled the AOT export and ranked where block time goes; investigated an arena (host base + guest address) fastmem design and probed the fault-recovery mechanism; added the opt-in host-callback diagnostics (access stats with callback timing, call-site stacks); measured block-internal overhead shares; compared AOT with JIT per frame; planned an opt-in test-and-test-and-set SpinLock stub. Details, tables and the design record are in OLD_HISTORY.md (session 29 investigation record).
-- Not started: any implementation of the arena fastmem, register promotion, or the TTAS stub (the TTAS plan is written below and awaits user approval).
-
-## Key observations
-
-Measured at f943708 at the same structure-heavy PLA position unless noted; RIP samples are 36,000 per run over CPUCore_0..2 and sampling perturbs FPS, so FPS comes from unsampled runs.
-
-- FPS, speed limit off: AOT 24.5 FPS (40.8 ms/frame), JIT 30 FPS (33.3 ms/frame); wall gap 7.5 ms/frame. Earlier AOT readings: 3b3e244 24.6 FPS; aaaedd5 24.5/25.0/24.0; same-position noise about 1-1.5 FPS.
-- Core time per frame (3 cores x frame time, samples as shares): AOT busy 89.4 core-ms vs JIT busy 64.2 (gap 25.2, which does not map 1:1 to wall time). Generated code: AOT 67.1 (DLL 49.5% + `blk_*` in the launcher 5.3% of samples) vs JIT 57.9 (all its dynamic code) = +9.2. Host-side code outside generated blocks: AOT 21.9 vs JIT 5.9 = +16.0 (about 63% of the gap).
-- Exclusive-access overhead is the largest measured pool: host exclusive functions (`ExclusiveWrite128/32`, `HostExclusiveLoad`, `GetPlainExclusivePointer`, `NoteExclusiveWrite`, `CheckAndClear`, `ExclusiveRead*`, `SpinLock`) are 5.57% of AOT samples (0.15% in JIT), and one 4 KiB dynamic page with 6.0% of samples (about 7.3 core-ms/frame) is inferred to be the Dynarmic x64 SpinLock stub (hot offsets 0x0e, 0x07, 0x24 hold 43%, 20% and 30% of the page: after the lock xchg, after pause, after the unlock xchg; all three cores equally). Together about 11.6% (about 14 core-ms/frame). The JIT's inline exclusive cost sits inside its generated-code time, so 14 is an upper bound for the gap. The lock is one global `SpinLock` in `Dynarmic::ExclusiveMonitor`, stored next to the reservation slots; the JIT's inline code calls the same `EmitSpinLockLock` emitter.
-- Dispatch/lookup/slice 3.18% of samples; SVC/kernel 2.05% (JIT 3.21%).
-- Inside generated blocks (30.6% of all samples in the analysed functions; heuristic instruction-pattern shares, with sample skid, not removable costs): FMI memory checks 3.91% (lower bound, 5.4% of busy), guest GPR stores 5.5% of which 3.55% are stores right after guest data loads (load latency, also paid by JIT; GPR loads 0.09%, overwritten stores 0.25%), prologue/epilogue 1.46%, entry checks 1.1% (GG1 0.41, entry pc 0.48, halted 0.14, chain budget 0.10), flag stores 0.10%, in-block transfers 0.16%, vector register file 1.34%.
-- Host memory callbacks (accesses that leave the inline path): 80,000-105,000 per second, 98.6% on GPU-tracked (rasterizer) pages, 1.3% page-crossing, essentially none unmapped, debug, watched, tagged or out of range. Callback time about 395 ms per 10 s (loads about 90 ns, stores about 1.1 us), about 1.6 core-ms/frame; the store cost is the rasterizer write notification, not the access method. About 294 distinct call stacks; the top 16 are 80%; three `sdk` blocks (`blk_sdk_53ad64`, `53ae20`, `53ae94`) are about 37%.
-- `ctx.pc` is updated only at block exit, so it is stale while blocks chain; attribute host callbacks by stack frames, not by `ctx.pc`.
-- Conclusions: the arena fastmem would remove at most the inline-check share (about 4-6% of samples) and rasterizer pages would fault about 100,000 times per second without per-site demotion, so it is not being pursued; promoting guest registers to block locals has little to gain; no single remaining Group A item exceeds about 4% of samples. No FPS effect has been shown for the lookup miss path, the 32-bit index or the chain experiment (2.00 vs 1.80 ms/frame, unexplained).
-
-## Contracts to preserve
-
-Keep opt-in diagnostics execution-neutral when off, exact-0 default-on semantics, FP_SHARED/FPXV ABI/result/cache contracts, overlay/fallback wording, two-line comments, and same-position averaged FPS with ms/frame. Cross chain is default-on (=0 disables); chain start, ledger, lookup/exclusive diagnostics, and lock-free marking remain opt-in. Preserve saved-value CAS, atomic monitor-slot accesses, and the one-definition 32-bit index contract: offset 0 means no block, failed builds publish no partial table, legacy export means no table, and registry index32_v1 requires the current entry size. The opt-in access-stats and access-sites diagnostics (SUYU_RECOMP_ACCESS_STATS=1, SUYU_RECOMP_ACCESS_SITES=1) stay off unless the value is exactly 1 and must remain execution-neutral when off.
-
-## Open issues in priority order
-
-### Group B - exclusive access (largest measured pool, about 14 core-ms/frame upper bound)
-
-1. SpinLock stub test-and-test-and-set, opt-in `SUYU_SPINLOCK_TTAS=1` (plan in Design notes; awaiting user approval to implement).
-2. Cache-line separation of the monitor lock and the per-core reservation slots (`alignas(64)`); evaluate after item 1.
-3. Baseline exclusive timing with `SUYU_RECOMP_EXCL_STATS=1` (existing diagnostic; the user postponed this measurement, so it is taken when item 1 is evaluated) and shortening the exclusive bridge path / lock acquisitions per access.
-4. Decide whether `SUYU_EXCL_LOCKFREE_MARK` becomes default-on (needs a long PLA soak).
-5. Replace the unlock `xchg` by a plain store: needs an ordering analysis (STLXR followed by LDAR); outside item 1.
-6. Dispatch/lookup/slice (3.18% of samples) and the remaining sdk<->main exits (about 8M each way per 10 s).
-
-### Group A - generated-block overhead (each small; instruction-pattern shares only)
-
-7. Memory checks (FMI): 3.9% of samples; small refinements such as omitting the page-cross check for naturally aligned accesses (page-table walk and watch-word removal need fault handling).
-8. Prologue/epilogue 1.5%; block-entry checks 1.1% (`SUYU_AOT_CHAIN_START` covers entry testing under a 2 GiB budget); flag stores and in-block transfers about 0.3%. Re-experiment with RET/conditional-branch chaining only after the earlier regression is explained.
-
-### Group C - GPU-tracked page callbacks
-
-9. Rasterizer write notification costs about 1.1 us per store (about 1.6 core-ms/frame in total); low priority.
-
-### Group D - carried work and environment limits
-
-10. XMOD1 untested items: real ArmRecomp accounting, RecordMiss, RecompGaps, IC IVAU through the chain, 256-budget stop, and optional positive publication log.
-11. Older all-static/legacy DLL launcher diagnostics, Python cryptography dependency, and held items (opcode totals, SVC attribution, Stage F, automatic all-static re-plan, MSVC cl title support, U2, two-lifetime seam, real loader/refusal paths, export-regression Qt lookup, old-manifest reuse, tracked .pyc files, mutex+map miss records, carried A/B exports, chain-start-off A/B, optional JIT attribution, and final sdk+0x346040 callee).
+- Dev19: FPXV; see CHANGELOG.md.
+- Dev20: sharded counters, two-line comment rule, opt-in chain start; see CHANGELOG.md.
+- Dev21: guest-time ledger and lookup diagnostics; see CHANGELOG.md.
+- Dev22: `SUYU_RECOMP_EXCL_STATS`; see CHANGELOG.md.
+- Dev23: cross chain default-on, lock-free-mark option, atomic monitor slots; see CHANGELOG.md.
+- Dev24: 32-bit block index, index-miss shortcut, launcher index report; see CHANGELOG.md.
+- Dev25: access diagnostics, SpinLock TTAS, and default-on TTAS/lock-free marks/chain start; see CHANGELOG.md.
+- Session 30: measured TTAS and ac96270 PLA export; main DLL 1,721.8 MiB, launcher 483.5 MiB, 26 FPS versus 24.3 FPS unattributed; see CHANGELOG.md.
 
 ## Immediate next action
 
-Ask the user to approve implementing item 1 (the TTAS plan below) or to choose another issue; do not build or export without approval.
+Run F0, the read-only Code Explorer survey, then implement F1; see the Stage F plan.
+
+## Stage F plan (ImGui Settings, current focus)
+
+Goal: Settings -> Graphics and Controller (Player 1) windows plus the Mods/folders and status content of the F12 panel in the ImGui overlay, then retire the F12 panel. Each stage has one behavior, tests with a negative control, one Code reviewer round, and a user commit; settings changes use the action queue and shared definitions.
+
+- F0 survey: SDL event pump and queue drain; settings/HID callers; SDL text input; resolution table; mods discovery; every F12 reference. Read-only, output path:line references.
+- F1 keyboard/text forwarding: owned key presses, text events, focus reset, bounded queue, atomic text-input request; add router tests and a weakened-router negative control.
+- F2 UI action queue: bounded ordered event-thread queue and status channel; test ordering, overflow, cross-thread drain, and wrong-side execution.
+- F3 Graphics: Resolution Scale only, next-launch note, one shared 13-entry table, and apply-action tests.
+- F4 Controller: Player 1 device/binding/Joy-Con actions, non-blocking rebind state machine, and standalone tests.
+- F5 Mods/folders/status: parity with the F12 panel.
+- F6 retire F12: remove panel/key branch and update all references after user confirms PLA parity.
+
+## Open issues in priority order
+
+### Group E - ImGui Stage F
+
+F0 survey, F1 keyboard/text, F2 action queue, F3 Graphics, F4 Player 1 Controller, F5 Mods/folders/status, and F6 F12 retirement; follow the Stage F plan above.
+
+### Paused optimization backlog
+
+- B2: separate monitor lock and reservation slots with `alignas(64)`; evaluate after TTAS.
+- B3: exclusive timing/bridge shortening; baseline was deferred by the user.
+- B5: plain-store unlock needs STLXR/LDAR ordering analysis.
+- B6: dispatch/lookup/slice was 3.18% of samples; sdk/main exits about 8M each way per 10 s.
+- A7: FMI checks were 3.9% of samples; refine only with fault handling preserved.
+- A8: prologue/entry checks were 1.5%/1.1%; chain-start on/off A/B remains outstanding.
+- C9: rasterizer write notification is about 1.1 us/store, about 1.6 core-ms/frame.
+- D10: XMOD1 accounting, miss/gap recording, IVAU, budget stop, and publication-log checks remain.
+- D11: older diagnostics, attribution, loader/refusal, export-regression, and carried A/B items remain.
+
+Details and the full Group A/B/C/D lists are archived in OLD_HISTORY.md. The exclusive-access upper bound was about 14 core-ms/frame; SpinLock baseline was 6.0%/5.57%, while TTAS was 5.79% vs 5.88% page and 5.28% vs 5.50% host functions. Chain-start A/B and lock-free soak remain outstanding; the 26 FPS attribution is open.
+
+## Contracts to preserve
+
+Keep opt-in diagnostics execution-neutral when off, exact-0 default-on semantics, FP_SHARED/FPXV ABI/result/cache contracts, overlay/fallback wording, two-line comments, and same-position averaged FPS with ms/frame. Cross chain, chain start, TTAS, lock-free marks, FM inline, direct/indirect chain, split main, and FPX options are default-on (`=0` disables); ledgers and lookup/exclusive/access diagnostics remain opt-in. Preserve saved-value CAS, atomic monitor slots, the 32-bit index contract, and overlay decisions: F12 retires after ImGui parity, Resolution Scale applies next launch, and controller UI is Player 1 only.
 
 ## How to proceed
 
-Implement one behavior at a time (the opt-in TTAS stub), add the unit/negative-control tests, get one Code reviewer round, then ask the user to commit, reconfigure (check GIT_REV) and run one full export. Evaluate with one export and the environment switch: same-position sampler share of the SpinLock page and of the host exclusive functions (baselines 6.0% and 5.57%), `excl-stats` averages (separate run), and averaged FPS with ms/frame; only a gain beyond the 1-1.5 FPS noise counts for FPS. Keep each change small and negatively controlled.
+Use the Stage F rhythm: one behavior per stage, tests with a negative control, one Code reviewer round, user commits, and md Implementer batches at milestones. When resuming optimization, first use the user's on/off measurements; the user currently declined attribution measurements.
 
 ## How to work / procedures
 
@@ -76,22 +75,14 @@ Implement one behavior at a time (the opt-in TTAS stub), add the unit/negative-c
 - Host rebuild: D:\HisuiWakeBuild\diag\reconf_build.cmd with export variables cleared; after export tests run D:\HisuiWakeBuild\rebuild-suyu.bat via cmd.exe /c.
 - Rebuild the host before export integration after generator changes; the compiled-in generator otherwise remains stale. A warm full run took about 11 minutes and a first core rebuild after configuration changes may take about 30 minutes.
 - Exports are user-started; use a new empty output folder, same-position/orientation sampling, normal exit for logs, and a non-elevated shell. Never run CPU-heavy work during FPS measurement.
-- Guest-time: set `$env:SUYU_GUEST_TIME="1"`, `$env:SUYU_RECOMP_LOOKUP_STATS="1"`, `$env:SUYU_RECOMP_LOOKUP_TARGETS="1"`; start JIT (`suyu.exe`, `SUYU_RECOMP_DIR` unset) or AOT launcher, stand still ~30 s, record averaged FPS, exit, read steady-state `guest-time core=N ...`; JIT speed-limit off is Ctrl+U.
-- Chain sweep: `$env:SUYU_RECOMP_CHAIN_BUDGET=N; & "<export>\Pokémon Legends_ Arceus.exe"`; remove with `Remove-Item Env:SUYU_RECOMP_CHAIN_BUDGET`.
-- Lookup stats: set SUYU_GUEST_TIME=1, SUYU_RECOMP_LOOKUP_STATS=1, SUYU_RECOMP_LOOKUP_TARGETS=1, run the launcher, stand still ~30 s, exit normally, then select lookup-stats|lookup-targets from the log using windows from ~52 s.
-- Sampling: D:\HisuiWakeBuild\diag\hotrva\sample_raw_rip2.ps1 -ProcId <pid> -Out <file>; copy launcher/suyu.exe and matching PDB before overwrite; symbolize with llvm-symbolizer --obj=<exe> --relative-address --demangle --no-inlines.
-- ARM64 bytes: enable Settings > Filesystem > Dump ExeFS, read `%APPDATA%\suyu\dump\<title id>\exefs\main`, decompress `.text`, check manifest `build_id`, then disable.
-- Local scripts are in D:\HisuiWakeBuild\tmp_gt: analyze.py, analyze_launcher.py, compare.py, hot_analysis.py, locate_tables.py, agg.py, per_insn.py, fn_samples.py, nso.py, arm_dis.py; use Python -I -X utf8. Keep FPS diagnostics off during FPS-only runs.
 - FPXV: `python tests/recompiler_fpx/run.py --cases 3000 --adv 3000 --legs 123 --controls --hits`; ABI5/ABI6 golden hashes must stay unchanged.
 - After commits reconfigure/build and verify GIT_REV; after every export copy logs and rebuild as required. Do not weaken negative controls; C++ tests use repository editing tools.
-- Exclusive measurement: `$env:SUYU_GUEST_TIME="1"; $env:SUYU_RECOMP_EXCL_STATS="1"; $env:SUYU_RECOMP_LOOKUP_STATS="1"` (and `$env:SUYU_EXCL_LOCKFREE_MARK="1"` for lock-free) in a fresh non-elevated shell; stand still ~30 s, record averaged FPS, exit normally, read `excl-stats` from ~52 s. Keep only `suyu_log.txt` and `suyu_log.txt.old.txt`, so copy the log after EACH condition; remove `Env:SUYU_EXCL_LOCKFREE_MARK` before the other condition. LOOKUP_STATS adds a second lookup per exit and costs FPS; FPS-only runs have diagnostics off.
-- Exclusive test: `python tests/exclusive_access/run.py --build-dir D:\HisuiWakeBuild\msvc-release --work <folder outside the repo>` after vcvars64 (via `cmd.exe /c`); it links host dynarmic.lib, so rebuild after dynarmic changes. Weakened ReadAndMarkLockFree storing INVALID_EXCLUSIVE_ADDRESS must exit 1; restore in finally.
 - Tooling lessons: Python edit scripts putting `\n` escapes into C++ string literals produced real newlines twice (use Edit for string literals); Start-Process needs its log file created first; Orca `check --wait` replays until its `delivery_*` id is acked.
-- Access stats: set `SUYU_RECOMP_ACCESS_STATS=1` (exactly `1`) for per-window `access-stats` lines (loads/stores by reason: tagged, out_of_range, unmapped, debug, rasterizer, page_cross, watched, other; callback `load_ms`/`store_ms` and `avg_ns_<reason>`); add `SUYU_RECOMP_ACCESS_SITES=1` for `access-sites` lines (top 16 host call stacks as `module+0xrva`; a stack walk per access, so its timings are not representative). Stand still about 30 s, exit normally, read from about 52 s; copy the log after each condition. Symbolize launcher RVAs with `python -I -X utf8` and llvm-symbolizer fed through a Python subprocess (not a PowerShell pipe) against the exported launcher and its PDB (check GUID/Age equality first); map DLL RVAs to guest ranges with the `rvamap` helpers in D:\HisuiWakeBuild\diag\hotrva.
-- Sampling analysis: after `sample_raw_rip2.ps1`, `tmp_gt\analyze_launcher.py` gives module and exe-symbol shares; `tmp_gt\check_share.py` (FMI check windows), `check_cats.py` (block overhead categories) and `check_regs.py` (guest register file traffic) disassemble the hot functions with llvm-objdump through a COFF wrapper and weight instructions by samples (heuristic patterns, sample skid; quote the limits); `tmp_gt\dump_fn.py` prints one function. Compare AOT and JIT in core-ms/frame (3 cores x frame time x sample share), taking FPS from unsampled runs.
-- JIT comparison run: start `suyu.exe` with `SUYU_RECOMP_DIR` unset, speed limit off (Ctrl+U), same position; back up `suyu.exe` and its PDB before sampling.
+- Exclusive measurement: lock-free marking and TTAS are on by default; use `$env:SUYU_EXCL_LOCKFREE_MARK="0"` for the locked condition and `$env:SUYU_SPINLOCK_TTAS="0"` for the old stub, with `$env:SUYU_GUEST_TIME="1"; $env:SUYU_RECOMP_EXCL_STATS="1"; $env:SUYU_RECOMP_LOOKUP_STATS="1"` for `excl-stats` (a separate run from FPS-only runs); stand still ~30 s, record averaged FPS, exit normally, read `excl-stats` from ~52 s, and copy the log after EACH condition (only the current and one previous log are kept).
+- Exclusive test: `python tests/exclusive_access/run.py --build-dir D:\HisuiWakeBuild\msvc-release --work <folder outside the repo>` after vcvars64 (via `cmd.exe /c`) runs unset, `0`, `1` and `2` of `SUYU_SPINLOCK_TTAS`, each with locked and lock-free marks; it links host dynarmic.lib, so rebuild after dynarmic changes. A weakened ReadAndMarkLockFree must exit 1; restore in finally.
+- Sampling (RIP samples of CPUCore_0..2): `D:\HisuiWakeBuild\diag\hotrva\sample_raw_rip2.ps1 -ProcId <pid> -Out <file>` from a separate non-elevated PowerShell while standing still; analysis with `D:\HisuiWakeBuild\tmp_gt\analyze_launcher.py <samples> <launcher.exe next to its pdb> <label> "Pokémon Legends_ Arceus.exe" <top>` and `tmp_gt\page_cmp.py` (SpinLock page offsets and exclusive-function shares). The remaining sampling, guest-time, lookup/access-stats, ARM64-dump and JIT-comparison procedures are archived verbatim in OLD_HISTORY.md (session 30 cleanup, `How to work / procedures`).
+- Session 30 lessons: restoring a negative-control source with Copy-Item preserves old mtime, so rewrite/touch before rebuilding and rerun the check; `Remove-Item D:\fx_*` is blocked, use `D:\HisuiWakeBuild\diag\cleanup_scratch.ps1 -Path D:\fx_<name>`; start Orca workers from Bash with `--spec "$(cat <file>)"`; parse every JSON object from `orca orchestration check --wait`, select the one with `messages`, and pass `--ack` while checking dispatchId; run `vcvars64.bat` through PowerShell `cmd.exe /c "call vcvars64.bat >nul 2>&1 && ..."`; use `(std::numeric_limits<T>::max)()` when xbyak.h exposes windows.h's `max`; restore weakened negative controls and rerun the matrix, stopping after the expected FAIL only once worker processes are gone; warm export integration takes 13-15 minutes and `--only-defaults` about 3 minutes; F12's modal Win32 loop runs on the SDL event thread, so its settings changes already run there.
 
 ## Design notes
 
-Planned SpinLock TTAS (opt-in, JIT-neutral): add `bool ttas = false` to `EmitSpinLockLock` in `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp`; the JIT call site (`emit_x64_memory.h`, waitpkg flag unchanged) keeps the default, so JIT code stays byte-identical. The stub (`SpinLockImpl::Initialize`, `waitpkg=false`) reads `SUYU_SPINLOCK_TTAS` once in `GlobalInitialize` (`getenv`, exactly `1`) and emits `start: mov eax,1; xchg [ptr],eax; test eax,eax; jz done; spin: pause; cmp dword [ptr],0; jne spin; jmp start; done: ret`. The unlock is unchanged. Verification: a unit test that the default emission is byte-identical to today's; the `tests/exclusive_access/run.py` legs (locked and lock-free) repeated with TTAS and exact u8..u128 counters; a negative control that must fail by wrong totals without a data race in the test and without an endless spin (for example a check-then-set lock that is not atomic); incremental host build, smoke and FPXV runs, one Code reviewer round. Expected effect: at most the failed-xchg/pause share of the 7.3 core-ms/frame page (about 1.5-5 core-ms/frame), because the cross-core transfer of the lock line is not removed; judge by sampler and excl-stats, not FPS.
-Arena fastmem design record (not implemented): direct access `[arena + va]` with hardware faults for special pages would reuse the JIT arena and page protections, but generated C has no recoverable fault sites; the probe in the record shows `asm goto` with an image-relative exception table and a vectored handler works under clang-cl 22.1.8, and the blockers are the rasterizer-page fault rate and the missing per-site demotion. See OLD_HISTORY.md (session 29 investigation record).
+The arena fastmem design record is archived in OLD_HISTORY.md and was not implemented. The TTAS record and measurements are archived there; TTAS produced no measured gain and remains default-on by user decision.
