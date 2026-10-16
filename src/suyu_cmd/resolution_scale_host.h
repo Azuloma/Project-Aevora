@@ -4,26 +4,19 @@
 #pragma once
 
 #include "common/settings.h"
-#include "core/core.h"
 #include "suyu_cmd/overlay/graphics_settings.h"
 #include "suyu_cmd/sdl_config.h"
 
 namespace SuyuCmd {
 
 /// The hooks that change the real setting; shared by the overlay and the F12 panel.
-inline ResolutionScaleHooks MakeResolutionScaleHooks(Core::System& system) {
+inline ResolutionScaleHooks MakeResolutionScaleHooks() {
     return {
         .current = [] { return Settings::values.resolution_setup.GetValue(); },
-        .store =
-            [](Settings::ResolutionSetup setup) {
-                Settings::values.resolution_setup.SetValue(setup);
-                Settings::UpdateRescalingInfo();
-            },
-        .commit =
-            [&system] {
-                system.ApplySettings();
-                SaveNativeControls();
-            },
+        .store = [](Settings::ResolutionSetup setup) {
+            Settings::values.resolution_setup.SetValue(setup);
+        },
+        .save = [] { SaveNativeControls(); },
     };
 }
 

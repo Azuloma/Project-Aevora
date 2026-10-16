@@ -168,10 +168,10 @@ void DevRefreshResScale(DevPanelState& st) {
 // Same as the overlay's Graphics window: the pick is saved at once, full effect next launch.
 void DevApplyResScale(DevPanelState& st) {
     const int index = static_cast<int>(SendMessageW(st.res_scale, CB_GETCURSEL, 0, 0));
-    if (index < 0 || st.system == nullptr) {
+    if (index < 0) {
         return;
     }
-    SuyuCmd::ApplyResolutionScale(SuyuCmd::MakeResolutionScaleHooks(*st.system),
+    SuyuCmd::ApplyResolutionScale(SuyuCmd::MakeResolutionScaleHooks(),
                                   static_cast<std::size_t>(index));
 }
 

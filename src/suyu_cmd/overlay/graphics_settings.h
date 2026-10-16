@@ -17,12 +17,12 @@ namespace SuyuCmd {
 
 struct ResolutionScaleHooks {
     std::function<Settings::ResolutionSetup()> current;
-    std::function<void(Settings::ResolutionSetup)> store; ///< Sets the value and rescaling info.
-    std::function<void()> commit;                         ///< Applies the settings and saves them.
+    std::function<void(Settings::ResolutionSetup)> store; ///< Sets the value only.
+    std::function<void()> save;                           ///< Persists the settings.
 };
 
-/// Event thread only. Existing render targets keep their size, so the new scale takes full
-/// effect at the next launch; the message says so.
+/// Event thread only. The running renderer reads the rescaling info unsynchronized, so only the
+/// saved value changes; the next launch recomputes the info.
 inline UiActionResult ApplyResolutionScale(const ResolutionScaleHooks& hooks, std::size_t index) {
     if (index >= Settings::kResolutionScaleEntries.size()) {
         return {false, "Unknown Resolution Scale choice"};
@@ -32,7 +32,7 @@ inline UiActionResult ApplyResolutionScale(const ResolutionScaleHooks& hooks, st
         return {};
     }
     hooks.store(entry.setup);
-    hooks.commit();
+    hooks.save();
     return {true, std::string{"Resolution Scale set to "} + entry.label +
                       ". It takes full effect the next time the game is started."};
 }

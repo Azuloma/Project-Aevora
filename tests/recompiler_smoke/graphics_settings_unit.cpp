@@ -2,7 +2,11 @@
 // (common/resolution_scale_table.h, suyu_cmd/overlay/graphics_settings.h).
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
+#include <regex>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -35,7 +39,7 @@ struct FakeSetting {
                     value = setup;
                     stored.push_back(setup);
                 },
-            .commit = [this] { ++commits; },
+            .save = [this] { ++commits; },
         };
     }
 };
@@ -43,7 +47,7 @@ struct FakeSetting {
 // Negative control: stores on every call and never checks the index.
 UiActionResult NaiveApply(const ResolutionScaleHooks& hooks, std::size_t index) {
     hooks.store(Settings::kResolutionScaleEntries[index % 13].setup);
-    hooks.commit();
+    hooks.save();
     return {};
 }
 
@@ -66,6 +70,87 @@ bool ApplyRuleHolds(Apply apply) {
     // An index outside the table is refused without touching the setting.
     const UiActionResult bad = apply(setting.Hooks(), 13);
     return !bad.ok && !bad.message.empty() && setting.stored.size() == 1 && setting.commits == 1;
+}
+
+std::string ReadFile(const std::string& path) {
+    std::ifstream file{path, std::ios::binary};
+    return {std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
+}
+
+std::vector<std::string> EnumNames(const std::string& enums_header) {
+    std::smatch match;
+    const std::regex declaration{R"(ENUM\(ResolutionSetup,([^)]*)\))"};
+    std::vector<std::string> names;
+    if (std::regex_search(enums_header, match, declaration)) {
+        std::istringstream list{match[1].str()};
+        std::string name;
+        while (std::getline(list, name, ',')) {
+            const auto first = name.find_first_not_of(" \t\r\n");
+            const auto last = name.find_last_not_of(" \t\r\n");
+            if (first != std::string::npos) {
+                names.push_back(name.substr(first, last - first + 1));
+            }
+        }
+    }
+    return names;
+}
+
+// Compares the Qt menu's table with the shared one and the enum; returns the first mismatch
+// by name, or an empty string.
+std::string QtTableMismatch(const std::string& main_cpp, const std::string& enums_header) {
+    const std::vector<std::string> names = EnumNames(enums_header);
+    if (names.size() != Settings::kResolutionScaleEntries.size()) {
+        return "ResolutionSetup has " + std::to_string(names.size()) + " values, table has " +
+               std::to_string(Settings::kResolutionScaleEntries.size());
+    }
+    const auto begin = main_cpp.find("SetupResolutionScaleMenu() {");
+    const auto end = main_cpp.find("}};", begin);
+    if (begin == std::string::npos || end == std::string::npos) {
+        return "Qt Resolution Scale table not found in main.cpp";
+    }
+    const std::string block = main_cpp.substr(begin, end - begin);
+    const std::regex entry{
+        R"re(ResolutionSetup::(\w+),\s*QT_TRANSLATE_NOOP\("GMainWindow",\s*"([^"]*)"\))re"};
+    std::size_t index = 0;
+    for (std::sregex_iterator it{block.begin(), block.end(), entry}, last; it != last;
+         ++it, ++index) {
+        if (index >= names.size()) {
+            return "Qt table has an extra entry " + (*it)[1].str();
+        }
+        if ((*it)[1].str() != names[index]) {
+            return "Qt entry " + std::to_string(index) + " is " + (*it)[1].str() + ", enum has " +
+                   names[index];
+        }
+        if ((*it)[2].str() != Settings::kResolutionScaleEntries[index].label) {
+            return "Qt label for " + names[index] + " is '" + (*it)[2].str() + "', table has '" +
+                   Settings::kResolutionScaleEntries[index].label + "'";
+        }
+    }
+    return index == names.size() ? "" : "Qt table has " + std::to_string(index) + " entries";
+}
+
+int QtTableAndEnumMatchTheSharedTable(const std::string& source_root) {
+    const std::string main_cpp = ReadFile(source_root + "/src/suyu/main.cpp");
+    const std::string enums = ReadFile(source_root + "/src/common/settings_enums.h");
+    CHECK(!main_cpp.empty() && !enums.empty());
+    const std::string mismatch = QtTableMismatch(main_cpp, enums);
+    if (!mismatch.empty()) {
+        std::fprintf(stderr, "Resolution Scale drift: %s\n", mismatch.c_str());
+    }
+    CHECK(mismatch.empty());
+
+    // Negative controls: one Qt label changed, and a value appended to the enum.
+    std::string changed = main_cpp;
+    const auto at = changed.find("1.5X (1080p/1620p)");
+    CHECK(at != std::string::npos);
+    changed.replace(at, 4, "1.6X");
+    CHECK(QtTableMismatch(changed, enums).find("Res3_2X") != std::string::npos);
+    std::string appended = enums;
+    const auto enum_end = appended.find("Res8X)");
+    CHECK(enum_end != std::string::npos);
+    appended.replace(enum_end, 6, "Res8X, Res16X)");
+    CHECK(!QtTableMismatch(main_cpp, appended).empty());
+    return 0;
 }
 
 int TableCoversEveryChoiceOnce() {
@@ -120,7 +205,12 @@ int ActionRunsOnTheEventThreadAndReportsStatus() {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::fprintf(stderr, "usage: smoke_graphics_settings_unit <source root>\n");
+        return 2;
+    }
+    CHECK(QtTableAndEnumMatchTheSharedTable(argv[1]) == 0);
     CHECK(TableCoversEveryChoiceOnce() == 0);
     CHECK(EveryEntryIsApplied() == 0);
     CHECK(ApplyRuleHoldsForTheRealFunctionOnly() == 0);

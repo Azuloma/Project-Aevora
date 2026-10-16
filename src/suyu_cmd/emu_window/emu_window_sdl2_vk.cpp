@@ -251,22 +251,25 @@ bool EmuWindow_SDL2_VK::RouteOverlayEvent(const SDL_Event& event) {
 }
 
 void EmuWindow_SDL2_VK::InstallOverlayResolutionScale() {
-    const SuyuCmd::ResolutionScaleHooks hooks = SuyuCmd::MakeResolutionScaleHooks(system);
-    const auto publish = [overlay = debug_overlay, hooks] {
-        overlay->PublishResolutionScaleIndex(
-            Settings::FindResolutionScaleIndex(hooks.current()).value_or(0));
-    };
-    publish();
-    debug_overlay->SetResolutionScaleApplier([hooks, publish](std::size_t index) {
-        SuyuCmd::UiActionResult result = SuyuCmd::ApplyResolutionScale(hooks, index);
-        publish();
-        return result;
+    const SuyuCmd::ResolutionScaleHooks hooks = SuyuCmd::MakeResolutionScaleHooks();
+    debug_overlay->SetResolutionScaleApplier([hooks](std::size_t index) {
+        return SuyuCmd::ApplyResolutionScale(hooks, index);
     });
+    PublishOverlayResolutionScale();
+}
+
+void EmuWindow_SDL2_VK::PublishOverlayResolutionScale() {
+    const auto index = Settings::FindResolutionScaleIndex(
+        Settings::values.resolution_setup.GetValue());
+    debug_overlay->PublishResolutionScaleIndex(index.value_or(0));
 }
 
 void EmuWindow_SDL2_VK::RunOverlayActions() {
     if (debug_overlay) {
+        // Also catches changes made elsewhere, such as the F12 panel.
+        PublishOverlayResolutionScale();
         debug_overlay->GetActions().RunPending();
+        PublishOverlayResolutionScale();
     }
 }
 

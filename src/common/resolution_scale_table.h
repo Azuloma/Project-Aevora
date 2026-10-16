@@ -16,7 +16,8 @@ struct ResolutionScaleEntry {
     const char* label;
 };
 
-/// Every Resolution Scale choice in enum order, so an entry's index equals its enum value.
+/// Every Resolution Scale choice in enum order. The Qt menu repeats it (translated); the smoke
+/// test smoke_graphics_settings_unit fails if the two or the enum drift.
 inline constexpr std::array<ResolutionScaleEntry, 13> kResolutionScaleEntries{{
     {ResolutionSetup::Res1_4X, "0.25X (180p/270p) [EXPERIMENTAL]"},
     {ResolutionSetup::Res1_2X, "0.5X (360p/540p) [EXPERIMENTAL]"},

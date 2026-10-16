@@ -416,7 +416,7 @@ void DebugOverlay::BuildGraphicsWindow() {
         const char* const preview = entries[std::min(current, entries.size() - 1)].label;
         if (ImGui::BeginCombo("Resolution Scale", preview)) {
             for (std::size_t i = 0; i < entries.size(); ++i) {
-                if (ImGui::Selectable(entries[i].label, i == current) && i != current) {
+                if (ImGui::Selectable(entries[i].label, i == current)) {
                     PostResolutionScale(i);
                 }
             }

@@ -41,6 +41,7 @@ protected:
     void SyncOverlayTextInput() override;
     void RunOverlayActions() override;
     void InstallOverlayResolutionScale();
+    void PublishOverlayResolutionScale();
 
 private:
     /// Not owned: see SuyuCmd::AcquireDebugOverlay.

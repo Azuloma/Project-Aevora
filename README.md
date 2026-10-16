@@ -17,6 +17,10 @@
 <p>
 
 > [!IMPORTANT]
+> At Aevora, we utilize AI-powered coding (including so-called "vibe coding"). Our development is guided by human review and real-world testing, prioritizing code that is easy for humans to understand and maintain. We do not consider AI-generated code or successful compilation alone to be proof that the game is functioning correctly.
+> If you disagree with the use of AI or do not trust AI-written code, that is your right. I do not disagree with or find those opinions unfair.
+
+> [!NOTE]
 > In the expected setup, the user will need to provide the base game's NSP file and corresponding update files separately. The user will also need to provide the key and any necessary firmware, which are not included with Aevora.
 > Furthermore, <strong>we do not condone the use of pirated sources on the internet to obtain these files. Please dump and acquire them from your own Switch.</strong>
 
@@ -29,6 +33,10 @@ Currently, Aevora can recompile PLA with Static AoT, achieving an average of 24-
 <p>
 
 Currently, it has become clear that the Suyu recompiler's code execution method is quite inefficient, so we are attempting to fix it. Additionally, we have improved usability by implementing ImGui.
+
+# Platform
+
+unfinished this section for now...
 
 ## Implemented features
 
@@ -73,12 +81,6 @@ Aevora Recompiler is an improved version of the Suyu Recompiler, specifically de
 For other games, consider [Suyu](https://github.com/suyu-emu/suyu-main) or [Drippu](https://github.com/suyu-emu/drippu). Compatibility must be evaluated per game.
 
 Static AOT still relies on the runtime for system services, memory, audio, input, and GPU; GPU macro JIT and shader compilation remain runtime generation.
-
-## Development Approach
-
-Aevora uses AI-assisted coding, including "vibe coding." The goal is to keep the code understandable and maintainable by humans, with human review and hands-on testing guiding development. Generated code and successful compilation alone are not treated as proof that the game works correctly. Furthermore, for README.md, I had AI complete the incomplete text I had written, and then I rewrote it myself, removing unnecessary parts and making it easier to read.
-
-Bug reports, questions, and feature requests are welcome. Useful reports include the build version, game update version, steps to reproduce the problem, and relevant logs.
 
 ## Project policies and support
 
