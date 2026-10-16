@@ -29,6 +29,8 @@ namespace {
 constexpr u32 kDescriptorPoolSize = 16;
 // Frames the backend may still have in flight beyond the swapchain images.
 constexpr u32 kExtraFramesInFlight = 1;
+// Action outcomes kept for the settings windows to show.
+constexpr std::size_t kRecentStatusCount = 8;
 
 // Keys ImGui navigates and edits text with; every other scancode is ignored by the overlay.
 ImGuiKey ToImGuiKey(std::uint16_t scancode) {
@@ -69,6 +71,13 @@ ImGuiKey ToImGuiKey(std::uint16_t scancode) {
     }
 }
 
+// Ends the event thread's wait so it services the overlay now rather than at the next tick.
+void WakeEventThread() {
+    SDL_Event wake{};
+    wake.type = SDL_EVENT_USER;
+    SDL_PushEvent(&wake);
+}
+
 // Set by the ImGui backend's error callback, which carries no user data. The backend keeps going
 // after a failed call, so Record checks this at each stage and disables the overlay for good.
 std::atomic<bool> vulkan_error_seen{false};
@@ -103,7 +112,9 @@ DebugOverlay* AcquireDebugOverlay() {
     return overlay;
 }
 
-DebugOverlay::DebugOverlay() = default;
+DebugOverlay::DebugOverlay() {
+    actions.SetWakeup(WakeEventThread);
+}
 
 DebugOverlay::~DebugOverlay() {
     Shutdown();
@@ -221,6 +232,7 @@ void DebugOverlay::Record(void* command_buffer, u64 render_pass, u32 width, u32 
     io.DeltaTime = timing.animation_delta_seconds;
 
     ApplyQueuedInput();
+    CollectActionStatus();
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
     BuildUi();
@@ -278,6 +290,19 @@ void DebugOverlay::ApplyQueuedInput() {
     }
 }
 
+void DebugOverlay::CollectActionStatus() {
+    actions.DrainStatus(status_messages);
+    for (UiStatusMessage& message : status_messages) {
+        if (!message.ok) {
+            LOG_ERROR(Frontend, "Overlay action: {}", message.text);
+        }
+        if (recent_status.size() >= kRecentStatusCount) {
+            recent_status.erase(recent_status.begin());
+        }
+        recent_status.push_back(std::move(message));
+    }
+}
+
 void DebugOverlay::BuildUi() {
     BuildCommandBar();
     BuildDebugWindow();
@@ -299,10 +324,7 @@ void DebugOverlay::PublishCaptureRegions() {
     input_router.SetCaptureRegions(std::move(regions));
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput != input_router.TextInputWanted()) {
-        // Wakes the event thread so SDL text input follows before the next key is translated.
-        SDL_Event wake{};
-        wake.type = SDL_EVENT_USER;
-        SDL_PushEvent(&wake);
+        WakeEventThread();
     }
     input_router.SetKeyboardCapture(io.WantCaptureKeyboard, io.WantTextInput);
 }

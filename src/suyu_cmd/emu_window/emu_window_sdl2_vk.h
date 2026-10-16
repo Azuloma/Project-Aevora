@@ -39,6 +39,7 @@ public:
 protected:
     bool RouteOverlayEvent(const SDL_Event& event) override;
     void SyncOverlayTextInput() override;
+    void RunOverlayActions() override;
 
 private:
     /// Not owned: see SuyuCmd::AcquireDebugOverlay.

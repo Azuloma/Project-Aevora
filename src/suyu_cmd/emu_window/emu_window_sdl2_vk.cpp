@@ -32,6 +32,9 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
                                      Core::System& system_, bool fullscreen)
     : EmuWindow_SDL2{input_subsystem_, system_} {
     debug_overlay = SuyuCmd::AcquireDebugOverlay();
+    if (debug_overlay) {
+        debug_overlay->GetActions().BindEventThread();
+    }
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Standalone exports are named after the game already (game_export.cpp
     // renames the exe at packaging time), so use that instead of the
@@ -247,6 +250,12 @@ bool EmuWindow_SDL2_VK::RouteOverlayEvent(const SDL_Event& event) {
         return false;
     default:
         return false;
+    }
+}
+
+void EmuWindow_SDL2_VK::RunOverlayActions() {
+    if (debug_overlay) {
+        debug_overlay->GetActions().RunPending();
     }
 }
 

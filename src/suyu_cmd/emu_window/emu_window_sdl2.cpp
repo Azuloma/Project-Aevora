@@ -1008,6 +1008,7 @@ void EmuWindow_SDL2::WaitEvent() {
     SDL_Event event;
 
     SyncOverlayTextInput();
+    RunOverlayActions();
 
     // Wait with a deadline so the idle status refresh runs; a timeout is a tick, not a failure.
     SDL_ClearError();

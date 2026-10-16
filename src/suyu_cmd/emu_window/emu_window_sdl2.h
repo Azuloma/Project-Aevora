@@ -79,6 +79,9 @@ protected:
     /// Starts or stops SDL text input to match what the overlay asks for. Event thread only.
     virtual void SyncOverlayTextInput() {}
 
+    /// Runs the actions the overlay's UI queued. Event thread only.
+    virtual void RunOverlayActions() {}
+
     /// Called by WaitEvent when a key is pressed or released.
     void OnKeyEvent(int key, u8 state);
 

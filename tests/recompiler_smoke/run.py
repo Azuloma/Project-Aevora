@@ -906,6 +906,7 @@ def main():
         call([executable(export_build, "smoke_index_report_unit")])
         call([executable(export_build, "smoke_chain_start_budget_unit")])
         call([executable(export_build, "smoke_overlay_logic_unit")])
+        call([executable(export_build, "smoke_overlay_actions_unit")])
         call([executable(export_build, "smoke_build_identity_unit")])
         call([executable(export_build, "smoke_topology_unit")])
         call([executable(export_build, "smoke_xmod_table_unit")])

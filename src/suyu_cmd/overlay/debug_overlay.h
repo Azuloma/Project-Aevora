@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/frontend/vulkan_overlay.h"
+#include "suyu_cmd/overlay/overlay_actions.h"
 #include "suyu_cmd/overlay/overlay_logic.h"
 #include "suyu_cmd/overlay/overlay_stats.h"
 
@@ -50,6 +51,11 @@ public:
         return input_router;
     }
 
+    /// UI actions the window's event thread runs, and the status messages they send back.
+    UiActionChannel& GetActions() {
+        return actions;
+    }
+
     /// The window hides the OS pointer (fullscreen); the overlay then draws its own while the
     /// pointer is over it so the bar can be used.
     void SetHardwareCursorHidden(bool hidden) {
@@ -60,6 +66,7 @@ private:
     /// Creates the Vulkan backend for `render_pass`, or rebuilds its pipeline if the pass changed.
     bool EnsureBackend(u64 render_pass);
     void ApplyQueuedInput();
+    void CollectActionStatus();
     void BuildUi();
     void PublishCaptureRegions();
     void BuildCommandBar();
@@ -78,6 +85,9 @@ private:
     std::chrono::steady_clock::time_point last_frame_time{};
 
     OverlayInputRouter input_router;
+    UiActionChannel actions;
+    std::vector<UiStatusMessage> status_messages; ///< Scratch for the per-frame status drain.
+    std::vector<UiStatusMessage> recent_status;   ///< Newest last; worker thread only.
     std::vector<OverlayInputEvent> pending_input; ///< Scratch for ApplyQueuedInput.
     std::atomic<bool> hardware_cursor_hidden{false};
 
