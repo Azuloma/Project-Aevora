@@ -24,6 +24,7 @@
 #include "common/scm_rev.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2_vk.h"
 #include "suyu_cmd/overlay/debug_overlay.h"
+#include "suyu_cmd/resolution_scale_host.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 
 #include <SDL3/SDL.h>
@@ -34,6 +35,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     debug_overlay = SuyuCmd::AcquireDebugOverlay();
     if (debug_overlay) {
         debug_overlay->GetActions().BindEventThread();
+        InstallOverlayResolutionScale();
     }
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Exports are renamed after the game at packaging time; reuse that name as the title.
@@ -248,6 +250,20 @@ bool EmuWindow_SDL2_VK::RouteOverlayEvent(const SDL_Event& event) {
     }
 }
 
+void EmuWindow_SDL2_VK::InstallOverlayResolutionScale() {
+    const SuyuCmd::ResolutionScaleHooks hooks = SuyuCmd::MakeResolutionScaleHooks(system);
+    const auto publish = [overlay = debug_overlay, hooks] {
+        overlay->PublishResolutionScaleIndex(
+            Settings::FindResolutionScaleIndex(hooks.current()).value_or(0));
+    };
+    publish();
+    debug_overlay->SetResolutionScaleApplier([hooks, publish](std::size_t index) {
+        SuyuCmd::UiActionResult result = SuyuCmd::ApplyResolutionScale(hooks, index);
+        publish();
+        return result;
+    });
+}
+
 void EmuWindow_SDL2_VK::RunOverlayActions() {
     if (debug_overlay) {
         debug_overlay->GetActions().RunPending();
@@ -276,6 +292,7 @@ Core::Frontend::VulkanOverlay* EmuWindow_SDL2_VK::GetVulkanOverlay() {
 
 EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
     if (debug_overlay) {
+        debug_overlay->SetResolutionScaleApplier({});
         debug_overlay->GetActions().DetachEventThread();
     }
 #if defined(SDL_PLATFORM_MACOS)

@@ -15,7 +15,9 @@ static constexpr Uint8 SDL_RELEASED = 0;
 #include "common/fs/path_util.h"
 #include "common/logging/log.h"
 #include "common/scm_rev.h"
+#include "common/resolution_scale_table.h"
 #include "common/settings.h"
+#include "common/string_util.h"
 #include "core/core.h"
 #include "core/perf_stats.h"
 #include "hid_core/hid_core.h"
@@ -29,6 +31,7 @@ static constexpr Uint8 SDL_RELEASED = 0;
 #include "suyu_cmd/controller_assign.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2.h"
 #include "suyu_cmd/native_status.h"
+#include "suyu_cmd/resolution_scale_host.h"
 #include "suyu_cmd/sdl_config.h"
 #include "suyu_cmd/suyu_icon.h"
 #include "video_core/gpu.h"
@@ -126,25 +129,6 @@ constexpr int kIdSplitJoycons = 1015;
 constexpr int kIdResScale = 1016;
 constexpr UINT_PTR kTimer = 1;
 
-// Same choices, in the same order, as the Qt frontend's View -> Resolution Scale submenu
-// (src/suyu/main.cpp, PopulateResolutionScaleMenu). Kept as one array so the F12 panel and
-// Qt never drift apart on what "2X" etc. means.
-constexpr std::array<std::pair<Settings::ResolutionSetup, const wchar_t*>, 13> kResScaleEntries{{
-    {Settings::ResolutionSetup::Res1_4X, L"0.25X (180p/270p) [EXPERIMENTAL]"},
-    {Settings::ResolutionSetup::Res1_2X, L"0.5X (360p/540p) [EXPERIMENTAL]"},
-    {Settings::ResolutionSetup::Res3_4X, L"0.75X (540p/810p) [EXPERIMENTAL]"},
-    {Settings::ResolutionSetup::Res1X, L"1X (720p/1080p)"},
-    {Settings::ResolutionSetup::Res5_4X, L"1.25X (900p/1350p) [EXPERIMENTAL]"},
-    {Settings::ResolutionSetup::Res3_2X, L"1.5X (1080p/1620p) [EXPERIMENTAL]"},
-    {Settings::ResolutionSetup::Res2X, L"2X (1440p/2160p)"},
-    {Settings::ResolutionSetup::Res3X, L"3X (2160p/3240p)"},
-    {Settings::ResolutionSetup::Res4X, L"4X (2880p/4320p)"},
-    {Settings::ResolutionSetup::Res5X, L"5X (3600p/5400p)"},
-    {Settings::ResolutionSetup::Res6X, L"6X (4320p/6480p)"},
-    {Settings::ResolutionSetup::Res7X, L"7X (5040p/7560p)"},
-    {Settings::ResolutionSetup::Res8X, L"8X (5760p/8640p)"},
-}};
-
 std::filesystem::path DevExeDir() {
     wchar_t exe_path[MAX_PATH]{};
     GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
@@ -176,38 +160,19 @@ struct DevPanelState {
 
 // Shows the current value; see DevApplyResScale for the write side.
 void DevRefreshResScale(DevPanelState& st) {
-    const auto current = Settings::values.resolution_setup.GetValue();
-    int index = 0;
-    for (std::size_t i = 0; i < kResScaleEntries.size(); ++i) {
-        if (kResScaleEntries[i].first == current) {
-            index = static_cast<int>(i);
-            break;
-        }
-    }
-    SendMessageW(st.res_scale, CB_SETCURSEL, index, 0);
+    const auto index =
+        Settings::FindResolutionScaleIndex(Settings::values.resolution_setup.GetValue());
+    SendMessageW(st.res_scale, CB_SETCURSEL, static_cast<WPARAM>(index.value_or(0)), 0);
 }
 
-// Same effect as the Qt frontend's OnResolutionScaleSelected while a game is running: the
-// setting is changed and saved right away. Existing render targets already on the GPU keep
-// their current size (see GMainWindow::RestartForResolutionScale in src/suyu/main.cpp for
-// why - rescaled images refuse in-place reallocation and the pipeline cache does not key on
-// resolution), so - exactly like Qt - the new scale takes full effect the next time this
-// package is started, not on the frame after picking it.
+// Same as the overlay's Graphics window: the pick is saved at once, full effect next launch.
 void DevApplyResScale(DevPanelState& st) {
     const int index = static_cast<int>(SendMessageW(st.res_scale, CB_GETCURSEL, 0, 0));
-    if (index < 0 || static_cast<std::size_t>(index) >= kResScaleEntries.size()) {
+    if (index < 0 || st.system == nullptr) {
         return;
     }
-    const auto setup = kResScaleEntries[index].first;
-    if (Settings::values.resolution_setup.GetValue() == setup) {
-        return;
-    }
-    Settings::values.resolution_setup.SetValue(setup);
-    Settings::UpdateRescalingInfo();
-    if (st.system != nullptr) {
-        st.system->ApplySettings();
-    }
-    SaveNativeControls();
+    SuyuCmd::ApplyResolutionScale(SuyuCmd::MakeResolutionScaleHooks(*st.system),
+                                  static_cast<std::size_t>(index));
 }
 
 // Combine shows while a pair's halves are on two players, Split while a pair is on one.
@@ -754,8 +719,9 @@ void ShowDevMenu(Core::System& system, InputCommon::InputSubsystem* input) {
         CreateWindowExW(0, L"COMBOBOX", nullptr,
                         WS_CHILD | WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWNLIST, 340, 640, 360, 300,
                         hwnd, reinterpret_cast<HMENU>(kIdResScale), inst, nullptr);
-    for (const auto& [setup, label] : kResScaleEntries) {
-        SendMessageW(state.res_scale, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+    for (const auto& entry : Settings::kResolutionScaleEntries) {
+        const std::wstring label = Common::UTF8ToUTF16W(entry.label);
+        SendMessageW(state.res_scale, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
     }
     const auto button = [&](const wchar_t* text, int x, int id) {
         CreateWindowExW(0, L"BUTTON", text, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, x, 680, 160, 28,

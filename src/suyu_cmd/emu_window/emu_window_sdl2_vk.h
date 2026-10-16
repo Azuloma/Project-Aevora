@@ -40,6 +40,7 @@ protected:
     bool RouteOverlayEvent(const SDL_Event& event) override;
     void SyncOverlayTextInput() override;
     void RunOverlayActions() override;
+    void InstallOverlayResolutionScale();
 
 private:
     /// Not owned: see SuyuCmd::AcquireDebugOverlay.

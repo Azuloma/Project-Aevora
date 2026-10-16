@@ -5,6 +5,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <functional>
 #include <vector>
 
 #include "core/frontend/vulkan_overlay.h"
@@ -48,6 +50,17 @@ public:
         return actions;
     }
 
+    /// Applies a Resolution Scale pick; set and called on the event thread only.
+    using ResolutionScaleApplier = std::function<UiActionResult(std::size_t)>;
+    void SetResolutionScaleApplier(ResolutionScaleApplier applier) {
+        resolution_scale_applier = std::move(applier);
+    }
+
+    /// The table index the Graphics window shows as current; written by the event thread.
+    void PublishResolutionScaleIndex(std::size_t index) {
+        resolution_scale_index.store(index, std::memory_order_relaxed);
+    }
+
     /// The window hides the OS pointer (fullscreen); the overlay then draws its own while the
     /// pointer is over it so the bar can be used.
     void SetHardwareCursorHidden(bool hidden) {
@@ -63,6 +76,8 @@ private:
     void PublishCaptureRegions();
     void BuildCommandBar();
     void BuildDebugWindow();
+    void BuildGraphicsWindow();
+    void PostResolutionScale(std::size_t index);
     void BuildBackendSection();
     void BuildPerformanceSection();
     void BuildCpuSection();
@@ -78,6 +93,8 @@ private:
 
     OverlayInputRouter input_router;
     UiActionChannel actions;
+    ResolutionScaleApplier resolution_scale_applier; ///< Event thread only.
+    std::atomic<std::size_t> resolution_scale_index{0};
     std::vector<UiStatusMessage> status_messages; ///< Scratch for the per-frame status drain.
     std::vector<UiStatusMessage> recent_status;   ///< Newest last; worker thread only.
     std::vector<OverlayInputEvent> pending_input; ///< Scratch for ApplyQueuedInput.
@@ -87,6 +104,8 @@ private:
     bool command_bar_visible{};
     float command_bar_height_px{};
     bool show_debug_window{};
+    bool show_graphics_window{};
+    OverlayRect graphics_window_rect{};
     OverlayRect debug_window_rect{}; ///< Where the Debug window was drawn this frame.
     FrameTimeHistory frame_times;
     u32 target_width_px{};

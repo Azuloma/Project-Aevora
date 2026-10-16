@@ -14,6 +14,7 @@
 
 #include "common/env_option.h"
 #include "common/logging.h"
+#include "common/resolution_scale_table.h"
 #include "common/scm_rev.h"
 #include "core/arm/recomp/arm_recomp.h"
 #include "suyu_cmd/native_status.h"
@@ -306,6 +307,7 @@ void DebugOverlay::CollectActionStatus() {
 void DebugOverlay::BuildUi() {
     BuildCommandBar();
     BuildDebugWindow();
+    BuildGraphicsWindow();
 
     // A hidden OS pointer would leave nothing to aim with; draw one only while it is over the UI.
     ImGuiIO& io = ImGui::GetIO();
@@ -319,6 +321,13 @@ void DebugOverlay::PublishCaptureRegions() {
     }
     if (show_debug_window) {
         regions.push_back(debug_window_rect);
+    }
+    if (show_graphics_window) {
+        regions.push_back(graphics_window_rect);
+    }
+    if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+        // An open menu or combo list lies outside the windows; keep clicks on it with the UI.
+        regions.push_back({0.0f, 0.0f, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y});
     }
     // What was just built is what the event thread tests the next events against.
     input_router.SetCaptureRegions(std::move(regions));
@@ -346,9 +355,12 @@ void DebugOverlay::BuildCommandBar() {
 
     if (ImGui::BeginMainMenuBar()) {
         command_bar_height_px = ImGui::GetWindowHeight();
-        // Placeholders: the entries exist so the layout is settled, but do nothing yet.
+        if (ImGui::BeginMenu("Settings")) {
+            ImGui::MenuItem("Graphics", nullptr, &show_graphics_window);
+            ImGui::EndMenu();
+        }
+        // Placeholder: the entry exists so the layout is settled, but does nothing yet.
         ImGui::BeginDisabled();
-        ImGui::MenuItem("Settings");
         ImGui::MenuItem("Cheats");
         ImGui::EndDisabled();
         ImGui::MenuItem("Debug", nullptr, &show_debug_window);
@@ -387,6 +399,45 @@ void DebugOverlay::BuildDebugWindow() {
         }
     }
     ImGui::End();
+}
+
+void DebugOverlay::BuildGraphicsWindow() {
+    if (!show_graphics_window) {
+        return;
+    }
+    ImGui::SetNextWindowPos({16.0f, 48.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({420.0f, 150.0f}, ImGuiCond_FirstUseEver);
+    const bool expanded = ImGui::Begin("Graphics", &show_graphics_window);
+    graphics_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                            ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
+    if (expanded) {
+        const std::size_t current = resolution_scale_index.load(std::memory_order_relaxed);
+        const auto& entries = Settings::kResolutionScaleEntries;
+        const char* const preview = entries[std::min(current, entries.size() - 1)].label;
+        if (ImGui::BeginCombo("Resolution Scale", preview)) {
+            for (std::size_t i = 0; i < entries.size(); ++i) {
+                if (ImGui::Selectable(entries[i].label, i == current) && i != current) {
+                    PostResolutionScale(i);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextWrapped("Takes full effect the next time the game is started.");
+        if (!recent_status.empty()) {
+            const UiStatusMessage& latest = recent_status.back();
+            ImGui::TextWrapped("%s", latest.text.c_str());
+        }
+    }
+    ImGui::End();
+}
+
+void DebugOverlay::PostResolutionScale(std::size_t index) {
+    actions.Post({"Resolution Scale", [this, index] {
+                      if (!resolution_scale_applier) {
+                          return UiActionResult{false, "Resolution Scale is not available"};
+                      }
+                      return resolution_scale_applier(index);
+                  }});
 }
 
 void DebugOverlay::BuildBackendSection() {

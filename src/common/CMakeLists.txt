@@ -105,6 +105,7 @@ add_library(
     ${CMAKE_CURRENT_BINARY_DIR}/scm_rev.cpp
     scm_rev.h
     scope_exit.h
+    resolution_scale_table.h
     scratch_buffer.h
     settings.cpp
     settings.h
