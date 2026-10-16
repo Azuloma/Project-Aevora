@@ -1007,6 +1007,8 @@ void EmuWindow_SDL2::WaitEvent() {
     // Called on main thread
     SDL_Event event;
 
+    SyncOverlayTextInput();
+
     // Wait with a deadline rather than forever: with no input there is no event
     // to wake on, so a plain SDL_WaitEvent would never refresh the status.
     // A timeout is the idle tick, not a failure.
@@ -1050,10 +1052,14 @@ void EmuWindow_SDL2::WaitEvent() {
         is_open = false;
         break;
     case SDL_EVENT_KEY_DOWN:
-        OnKeyEvent(static_cast<int>(event.key.scancode), SDL_PRESSED);
+        if (!taken_by_overlay) {
+            OnKeyEvent(static_cast<int>(event.key.scancode), SDL_PRESSED);
+        }
         break;
     case SDL_EVENT_KEY_UP:
-        OnKeyEvent(static_cast<int>(event.key.scancode), SDL_RELEASED);
+        if (!taken_by_overlay) {
+            OnKeyEvent(static_cast<int>(event.key.scancode), SDL_RELEASED);
+        }
         break;
     case SDL_EVENT_MOUSE_MOTION:
         // ignore if it came from touch

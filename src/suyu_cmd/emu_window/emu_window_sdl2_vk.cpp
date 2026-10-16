@@ -228,6 +228,12 @@ bool EmuWindow_SDL2_VK::RouteOverlayEvent(const SDL_Event& event) {
             return false;
         }
         return router.Route({Kind::MouseWheel, event.wheel.x, event.wheel.y, 0, false});
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+        return router.RouteKey(static_cast<std::uint16_t>(event.key.scancode), event.key.down,
+                               event.key.repeat);
+    case SDL_EVENT_TEXT_INPUT:
+        return event.text.text != nullptr && router.RouteText(event.text.text);
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:
         router.Route({Kind::MouseLeave, 0.0f, 0.0f, 0, false});
         return false;
@@ -241,6 +247,21 @@ bool EmuWindow_SDL2_VK::RouteOverlayEvent(const SDL_Event& event) {
         return false;
     default:
         return false;
+    }
+}
+
+void EmuWindow_SDL2_VK::SyncOverlayTextInput() {
+    if (!debug_overlay) {
+        return;
+    }
+    const bool wanted = debug_overlay->GetInputRouter().TextInputWanted();
+    if (wanted == SDL_TextInputActive(render_window)) {
+        return;
+    }
+    if (wanted) {
+        SDL_StartTextInput(render_window);
+    } else {
+        SDL_StopTextInput(render_window);
     }
 }
 

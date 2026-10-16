@@ -602,6 +602,116 @@ int StallsAreMeasuredAsTheyWereAndAnimatedClamped() {
     return 0;
 }
 
+constexpr std::uint16_t kKeyA = 4;
+constexpr std::uint16_t kKeyEnter = 40;
+
+// Negative control: decides every key by the current keyboard request, ignoring who took the press.
+struct StatelessKeyRouter {
+    bool wanted{};
+    bool Route(bool) const {
+        return wanted;
+    }
+};
+
+int KeyFollowsItsPress() {
+    OverlayInputRouter router;
+    // Keyboard not wanted: the game owns the press, and keeps the release even if the overlay
+    // starts wanting keys while the key is held.
+    CHECK(!router.RouteKey(kKeyA, true, false));
+    router.SetKeyboardCapture(true, false);
+    CHECK(!router.RouteKey(kKeyA, true, true));
+    CHECK(!router.RouteKey(kKeyA, false, false));
+    CHECK(Drained(router).empty());
+
+    // Overlay takes a new press, repeats stay with it unqueued, and the release is its own even
+    // after it stops wanting keys.
+    CHECK(router.RouteKey(kKeyEnter, true, false));
+    CHECK(router.RouteKey(kKeyEnter, true, true));
+    router.SetKeyboardCapture(false, false);
+    CHECK(router.RouteKey(kKeyEnter, false, false));
+    const auto events = Drained(router);
+    CHECK(events.size() == 2);
+    CHECK(events[0].kind == Kind::KeyDown && events[0].key == kKeyEnter);
+    CHECK(events[1].kind == Kind::KeyUp && events[1].key == kKeyEnter);
+
+    // The control would hand the overlay's release to the game, leaving the key down in ImGui.
+    StatelessKeyRouter stateless{true};
+    CHECK(stateless.Route(true));
+    stateless.wanted = false;
+    CHECK(!stateless.Route(false));
+
+    // Out-of-range scancodes are never taken.
+    router.SetKeyboardCapture(true, false);
+    CHECK(!router.RouteKey(kOverlayTrackedKeys, true, false));
+    return 0;
+}
+
+int ResetForgetsKeyOwnership() {
+    OverlayInputRouter router;
+    router.SetKeyboardCapture(true, false);
+    CHECK(router.RouteKey(kKeyA, true, false));
+    router.Route(Simple(Kind::Reset));
+    const auto events = Drained(router);
+    CHECK(events.size() == 1 && events[0].kind == Kind::Reset);
+    // The lost release is not the overlay's any more.
+    CHECK(!router.RouteKey(kKeyA, false, false));
+    CHECK(Drained(router).empty());
+    return 0;
+}
+
+int TextOnlyWhileKeyboardIsWanted() {
+    OverlayInputRouter router;
+    CHECK(!router.TextInputWanted());
+    CHECK(!router.RouteText("a"));
+    CHECK(Drained(router).empty());
+
+    router.SetKeyboardCapture(true, true);
+    CHECK(router.TextInputWanted());
+    CHECK(router.RouteText("ab"));
+    auto events = Drained(router);
+    CHECK(events.size() == 1 && events[0].kind == Kind::Text);
+    CHECK(std::strcmp(events[0].text, "ab") == 0);
+
+    router.SetKeyboardCapture(false, false);
+    CHECK(!router.TextInputWanted());
+    CHECK(!router.RouteText("c"));
+    return 0;
+}
+
+int LongTextSplitsOnCodePoints() {
+    OverlayInputRouter router;
+    router.SetKeyboardCapture(true, true);
+    // 40 three-byte code points: 120 bytes, which cannot fit one event and must never be cut
+    // inside a code point.
+    std::string text;
+    for (int i = 0; i < 40; ++i) {
+        text += "\xE3\x81\x82";
+    }
+    CHECK(router.RouteText(text));
+    std::string joined;
+    for (const OverlayInputEvent& event : Drained(router)) {
+        CHECK(event.kind == Kind::Text);
+        const std::size_t length = std::strlen(event.text);
+        CHECK(length > 0 && length % 3 == 0 && length < kOverlayTextBytes);
+        joined += event.text;
+    }
+    CHECK(joined == text);
+    return 0;
+}
+
+int KeyAndTextOverflowRestartsTheOverlay() {
+    OverlayInputRouter router;
+    router.SetKeyboardCapture(true, true);
+    for (std::size_t i = 0; i < kOverlayInputQueueCapacity + 10; ++i) {
+        CHECK(router.RouteKey(static_cast<std::uint16_t>(i % 100 + 1), true, false));
+    }
+    const auto events = Drained(router);
+    CHECK(events.size() <= kOverlayInputQueueCapacity);
+    // Presses were lost, so the overlay was told to start over.
+    CHECK(events.front().kind == Kind::Reset);
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -626,6 +736,11 @@ int main() {
     CHECK(MoveIsDroppedBeforeWheelBeforeButtons() == 0);
     CHECK(OverflowOfPressesRestartsTheOverlay() == 0);
     CHECK(ThreadsDoNotLoseEvents() == 0);
+    CHECK(KeyFollowsItsPress() == 0);
+    CHECK(ResetForgetsKeyOwnership() == 0);
+    CHECK(TextOnlyWhileKeyboardIsWanted() == 0);
+    CHECK(LongTextSplitsOnCodePoints() == 0);
+    CHECK(KeyAndTextOverflowRestartsTheOverlay() == 0);
     CHECK(FrameTimeHistoryFillsThenWraps() == 0);
     CHECK(GuestPcIsPlacedInItsModule() == 0);
     CHECK(AnyFallbackCounterCounts() == 0);

@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <SDL3/SDL_scancode.h>
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
 
@@ -27,6 +28,44 @@ namespace {
 constexpr u32 kDescriptorPoolSize = 16;
 // Frames the backend may still have in flight beyond the swapchain images.
 constexpr u32 kExtraFramesInFlight = 1;
+
+// Keys ImGui navigates and edits text with; every other scancode is ignored by the overlay.
+ImGuiKey ToImGuiKey(std::uint16_t scancode) {
+    if (scancode >= SDL_SCANCODE_A && scancode <= SDL_SCANCODE_Z) {
+        return static_cast<ImGuiKey>(ImGuiKey_A + (scancode - SDL_SCANCODE_A));
+    }
+    if (scancode >= SDL_SCANCODE_1 && scancode <= SDL_SCANCODE_9) {
+        return static_cast<ImGuiKey>(ImGuiKey_1 + (scancode - SDL_SCANCODE_1));
+    }
+    if (scancode >= SDL_SCANCODE_F1 && scancode <= SDL_SCANCODE_F12) {
+        return static_cast<ImGuiKey>(ImGuiKey_F1 + (scancode - SDL_SCANCODE_F1));
+    }
+    switch (scancode) {
+    case SDL_SCANCODE_0: return ImGuiKey_0;
+    case SDL_SCANCODE_RETURN: return ImGuiKey_Enter;
+    case SDL_SCANCODE_ESCAPE: return ImGuiKey_Escape;
+    case SDL_SCANCODE_BACKSPACE: return ImGuiKey_Backspace;
+    case SDL_SCANCODE_TAB: return ImGuiKey_Tab;
+    case SDL_SCANCODE_SPACE: return ImGuiKey_Space;
+    case SDL_SCANCODE_DELETE: return ImGuiKey_Delete;
+    case SDL_SCANCODE_INSERT: return ImGuiKey_Insert;
+    case SDL_SCANCODE_HOME: return ImGuiKey_Home;
+    case SDL_SCANCODE_END: return ImGuiKey_End;
+    case SDL_SCANCODE_PAGEUP: return ImGuiKey_PageUp;
+    case SDL_SCANCODE_PAGEDOWN: return ImGuiKey_PageDown;
+    case SDL_SCANCODE_LEFT: return ImGuiKey_LeftArrow;
+    case SDL_SCANCODE_RIGHT: return ImGuiKey_RightArrow;
+    case SDL_SCANCODE_UP: return ImGuiKey_UpArrow;
+    case SDL_SCANCODE_DOWN: return ImGuiKey_DownArrow;
+    case SDL_SCANCODE_LCTRL:
+    case SDL_SCANCODE_RCTRL: return ImGuiMod_Ctrl;
+    case SDL_SCANCODE_LSHIFT:
+    case SDL_SCANCODE_RSHIFT: return ImGuiMod_Shift;
+    case SDL_SCANCODE_LALT:
+    case SDL_SCANCODE_RALT: return ImGuiMod_Alt;
+    default: return ImGuiKey_None;
+    }
+}
 
 // Set by the ImGui backend's error callback, which carries no user data. The backend keeps going
 // after a failed call, so Record checks this at each stage and disables the overlay for good.
@@ -74,6 +113,7 @@ bool DebugOverlay::Initialize(const Core::Frontend::VulkanOverlayContext& new_co
     failed = false;
     vulkan_error_seen = false;
     input_router.SetCaptureRegions({});
+    input_router.SetKeyboardCapture(false, false);
     command_bar_visible = false;
     command_bar_height_px = 0.0f;
     show_debug_window = false;
@@ -159,6 +199,7 @@ void DebugOverlay::Record(void* command_buffer, u64 render_pass, u32 width, u32 
         LOG_ERROR(Frontend, "Debug overlay disabled: Vulkan backend setup failed");
         failed = true;
         input_router.SetCaptureRegions({});
+        input_router.SetKeyboardCapture(false, false);
         return;
     }
 
@@ -189,6 +230,7 @@ void DebugOverlay::Record(void* command_buffer, u64 render_pass, u32 width, u32 
         LOG_ERROR(Frontend, "Debug overlay disabled: a Vulkan call failed while drawing");
         failed = true;
         input_router.SetCaptureRegions({});
+        input_router.SetKeyboardCapture(false, false);
     }
 }
 
@@ -219,6 +261,15 @@ void DebugOverlay::ApplyQueuedInput() {
         case OverlayInputEvent::Kind::FocusGained:
             io.AddFocusEvent(true);
             break;
+        case OverlayInputEvent::Kind::KeyDown:
+        case OverlayInputEvent::Kind::KeyUp:
+            if (const ImGuiKey key = ToImGuiKey(event.key); key != ImGuiKey_None) {
+                io.AddKeyEvent(key, event.kind == OverlayInputEvent::Kind::KeyDown);
+            }
+            break;
+        case OverlayInputEvent::Kind::Text:
+            io.AddInputCharactersUTF8(event.text);
+            break;
         }
     }
 }
@@ -242,6 +293,8 @@ void DebugOverlay::PublishCaptureRegions() {
     }
     // What was just built is what the event thread tests the next events against.
     input_router.SetCaptureRegions(std::move(regions));
+    const ImGuiIO& io = ImGui::GetIO();
+    input_router.SetKeyboardCapture(io.WantCaptureKeyboard, io.WantTextInput);
 }
 
 void DebugOverlay::BuildCommandBar() {

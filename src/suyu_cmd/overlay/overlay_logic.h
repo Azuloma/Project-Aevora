@@ -8,16 +8,25 @@
 // both so tests/recompiler_smoke/overlay_logic_unit.cpp can exercise it without a GPU.
 
 #include <algorithm>
+#include <atomic>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <string_view>
 #include <vector>
 
 namespace SuyuCmd {
 
 /// Height of the strip at the top of the window that reveals the command bar.
 inline constexpr float kCommandBarHoverZoneHeightPx = 20.0f;
+
+/// Scancodes at or above this are never tracked; SDL's own scancode table ends at 512.
+inline constexpr std::size_t kOverlayTrackedKeys = 512;
+
+/// Longest UTF-8 text a single Text event carries, including the terminating zero.
+inline constexpr std::size_t kOverlayTextBytes = 32;
 
 /// Upper bound on queued events. The UI thread drains once per presented frame; this only
 /// matters if presentation stalls while the mouse keeps moving.
@@ -68,6 +77,9 @@ struct OverlayInputEvent {
         MouseLeave,  ///< the pointer left the window
         Reset,       ///< drop all pointer and press state: focus lost, minimized, or events lost
         FocusGained, ///< the window can take input again
+        KeyDown,     ///< key: SDL scancode; a repeat is never queued
+        KeyUp,       ///< key: SDL scancode
+        Text,        ///< text: whole UTF-8 code points, zero-terminated
     };
 
     Kind kind{Kind::MouseMove};
@@ -75,6 +87,8 @@ struct OverlayInputEvent {
     float y{};
     std::uint8_t button{};
     bool down{};
+    std::uint16_t key{};
+    char text[kOverlayTextBytes]{};
 };
 
 /// Carries mouse events from the window's event thread to the overlay and decides, per event,
@@ -119,8 +133,62 @@ public:
         case OverlayInputEvent::Kind::FocusGained:
             PushLocked(event);
             return false;
+        case OverlayInputEvent::Kind::KeyDown:
+        case OverlayInputEvent::Kind::KeyUp:
+            return RouteKeyLocked(event, false);
+        case OverlayInputEvent::Kind::Text:
+            if (!keyboard_wanted.load(std::memory_order_relaxed)) {
+                return false;
+            }
+            PushLocked(event);
+            return true;
         }
         return false;
+    }
+
+    /// Key press or release from the event thread. `is_repeat` presses are not queued (ImGui
+    /// repeats on its own) but still belong to the overlay if it holds the key.
+    bool RouteKey(std::uint16_t key, bool down, bool is_repeat) {
+        OverlayInputEvent event{down ? OverlayInputEvent::Kind::KeyDown
+                                     : OverlayInputEvent::Kind::KeyUp};
+        event.key = key;
+        std::lock_guard lock{mutex};
+        return RouteKeyLocked(event, is_repeat);
+    }
+
+    /// Queues `text` as Text events cut at code-point boundaries. Returns true if the overlay
+    /// took it.
+    bool RouteText(std::string_view text) {
+        if (!keyboard_wanted.load(std::memory_order_relaxed)) {
+            return false;
+        }
+        std::lock_guard lock{mutex};
+        while (!text.empty()) {
+            std::size_t length = std::min(text.size(), kOverlayTextBytes - 1);
+            while (length < text.size() && length > 0 && (text[length] & 0xC0) == 0x80) {
+                --length;
+            }
+            if (length == 0) {
+                break;
+            }
+            OverlayInputEvent event{OverlayInputEvent::Kind::Text};
+            std::copy_n(text.data(), length, event.text);
+            PushLocked(event);
+            text.remove_prefix(length);
+        }
+        return true;
+    }
+
+    /// Published by the UI thread after each frame: whether the overlay wants key presses
+    /// (`keys`) and whether SDL text input should be running (`text`).
+    void SetKeyboardCapture(bool keys, bool text) {
+        keyboard_wanted.store(keys, std::memory_order_relaxed);
+        text_input_wanted.store(text, std::memory_order_relaxed);
+    }
+
+    /// Read by the event thread to start or stop SDL text input.
+    bool TextInputWanted() const {
+        return text_input_wanted.load(std::memory_order_relaxed);
     }
 
     /// Moves all queued events, oldest first, into `out` (which is cleared first).
@@ -185,11 +253,45 @@ private:
         return false;
     }
 
+    /// A press belongs to whoever it started on until its release, like a mouse button.
+    bool RouteKeyLocked(const OverlayInputEvent& event, bool is_repeat) {
+        if (event.key >= kOverlayTrackedKeys) {
+            return false;
+        }
+        if (event.kind == OverlayInputEvent::Kind::KeyDown) {
+            if (overlay_keys.test(event.key)) {
+                if (!is_repeat) {
+                    PushLocked(event);
+                }
+                return true;
+            }
+            if (game_keys.test(event.key)) {
+                return false;
+            }
+            if (keyboard_wanted.load(std::memory_order_relaxed)) {
+                overlay_keys.set(event.key);
+                PushLocked(event);
+                return true;
+            }
+            game_keys.set(event.key);
+            return false;
+        }
+        if (overlay_keys.test(event.key)) {
+            overlay_keys.reset(event.key);
+            PushLocked(event);
+            return true;
+        }
+        game_keys.reset(event.key);
+        return false;
+    }
+
     /// Forgets who holds which button and where the pointer is, and tells the overlay to do the
     /// same.
     void ResetLocked() {
         overlay_buttons = 0;
         game_buttons = 0;
+        overlay_keys.reset();
+        game_keys.reset();
         pointer_known = false;
         RestartQueueLocked();
     }
@@ -247,6 +349,10 @@ private:
     bool pointer_known{};
     std::uint32_t overlay_buttons{}; ///< Buttons whose press the overlay took.
     std::uint32_t game_buttons{};    ///< Buttons whose press the game received.
+    std::bitset<kOverlayTrackedKeys> overlay_keys; ///< Keys whose press the overlay took.
+    std::bitset<kOverlayTrackedKeys> game_keys;    ///< Keys whose press the game received.
+    std::atomic<bool> keyboard_wanted{};
+    std::atomic<bool> text_input_wanted{};
 };
 
 } // namespace SuyuCmd
