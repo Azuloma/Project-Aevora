@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <string_view>
 
+#include "common/env_option.h"
 #include "core/arm/dynarmic/dynarmic_exclusive_access.h"
 #include "core/arm/dynarmic/dynarmic_exclusive_monitor.h"
 #include "core/memory.h"
@@ -17,10 +18,10 @@ DynarmicExclusiveMonitor::~DynarmicExclusiveMonitor() = default;
 
 namespace {
 
-// SUYU_EXCL_LOCKFREE_MARK=1 marks reservations without the global lock; off unless exactly "1".
+// Reservations are marked without the global lock unless SUYU_EXCL_LOCKFREE_MARK is exactly "0".
 const bool kLockFreeMarks = [] {
     const char* e = std::getenv("SUYU_EXCL_LOCKFREE_MARK");
-    return e && std::string_view{e} == "1";
+    return Common::EnvFlagDefaultOn(e ? std::string_view{e} : std::string_view{});
 }();
 
 // The translating accesses, which do their rasterizer handling and logging as they go. They run

@@ -151,7 +151,7 @@ def registry_dump():
 # On-by-default export options (see common/env_option.h) that the baseline environment pins off.
 OPTIONS_PINNED_OFF = ('SUYU_AOT_FM_INLINE', 'SUYU_AOT_DIRECT_CHAIN', 'SUYU_AOT_INDIRECT_CHAIN',
                       'SUYU_AOT_FP_SHARED', 'SUYU_AOT_FPX_VEC', 'SUYU_AOT_SPLIT_MAIN',
-                      'SUYU_AOT_CROSS_CHAIN')
+                      'SUYU_AOT_CROSS_CHAIN', 'SUYU_AOT_CHAIN_START')
 
 
 class Run:
@@ -169,8 +169,6 @@ class Run:
         # a switch change them explicitly (default_option_scenarios, the chain matrix).
         for variable in OPTIONS_PINNED_OFF:
             self.env[variable] = '0'
-        # Opt-in options stay off unless a scenario switches them on.
-        self.env.pop('SUYU_AOT_CHAIN_START', None)
         self.out = self.work / 'out'
         self.fixture = self.work / 'SynthFixture'
         self.process = None
@@ -420,6 +418,8 @@ class Run:
                             recorded.get('fpx_vec') is True, 'fpx_vec=%s' % recorded.get('fpx_vec'))
                 self.record('defaults: unset means cross-module chaining on',
                             recorded.get('cross_chain') is True, 'cross_chain=%s' % recorded.get('cross_chain'))
+                self.record('defaults: unset means chain start entries on',
+                            recorded.get('chain_start') is True, 'chain_start=%s' % recorded.get('chain_start'))
                 self.record('defaults: unset means main is split into a DLL',
                             recorded.get('module_bindings', {}).get('main') == 'dll',
                             str(recorded.get('module_bindings')))
@@ -454,6 +454,8 @@ class Run:
                             recorded.get('fp_shared') is False, 'fp_shared=%s' % recorded.get('fp_shared'))
                 self.record('defaults: 0 switches cross-module chaining off',
                             recorded.get('cross_chain') is False, 'cross_chain=%s' % recorded.get('cross_chain'))
+                self.record('defaults: 0 switches chain start entries off',
+                            recorded.get('chain_start') is False, 'chain_start=%s' % recorded.get('chain_start'))
                 self.record('defaults: 0 keeps main in the launcher (no split)',
                             'dll' not in (recorded.get('module_bindings') or {}).values(),
                             str(recorded.get('module_bindings')))
@@ -900,9 +902,8 @@ class Run:
                         manifest_record().get(field) is False)
             export(field + ' off, reused', expect_reused=True)
 
-        # Chain start entries are opt-in and need the direct chain: asked for without it the
-        # request changes nothing; with it the manifest and bundle id record it, and an export
-        # the size check refuses (injected here, the fixture is tiny) leaves no output.
+        # Chain start (default on, pinned off here) needs the direct chain; with it the manifest and
+        # bundle id record it, and a size-check refusal (injected: the fixture is tiny) leaves no output.
         before = manifest_record()
         restart_with('SUYU_AOT_CHAIN_START', '1')
         try:
@@ -919,6 +920,18 @@ class Run:
                             after.get('bundle_id') != before.get('bundle_id'),
                             '%s -> %s' % (before.get('bundle_id'), after.get('bundle_id')))
                 export('chain start, again', expect_reused=True)
+                # 0 with the direct chain kept on: only the chain start switch can turn it off.
+                restart_with('SUYU_AOT_CHAIN_START', '0')
+                export('chain start 0 with the direct chain', expect_log='chain_start')
+                off = manifest_record()
+                self.record('matrix: chain start 0 with the direct chain on: recorded off',
+                            off.get('chain_start') is False and off.get('direct_chain') is True and
+                            off.get('bundle_id') != after.get('bundle_id'))
+                restart_with('SUYU_AOT_CHAIN_START', '1')
+                export('chain start on again', expect_log='chain_start')
+                self.record('matrix: chain start 1 again: the bundle id with it returns',
+                            manifest_record().get('bundle_id') == after.get('bundle_id') and
+                            manifest_record().get('chain_start') is True)
                 for split in ('1', '0'):
                     kind = 'main DLL' if split == '1' else 'launcher'
                     refusal_out = self.work / ('out-chain-start-refusal-' + split)
@@ -936,7 +949,7 @@ class Run:
             finally:
                 restart_with('SUYU_AOT_DIRECT_CHAIN', '0')
         finally:
-            restart_with('SUYU_AOT_CHAIN_START', None)
+            restart_with('SUYU_AOT_CHAIN_START', '0')
         export('chain start switched off again', expect_log='chain_start')
         self.record('matrix: chain start off again: the original bundle id returns',
                     manifest_record().get('bundle_id') == before.get('bundle_id') and

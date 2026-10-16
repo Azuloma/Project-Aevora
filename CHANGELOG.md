@@ -6,7 +6,14 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 
 *Development entry 25 toward v0.0.1. Not a release; no build artifacts are published.*
 
+### Changed
+- `SUYU_SPINLOCK_TTAS`, `SUYU_EXCL_LOCKFREE_MARK` and `SUYU_AOT_CHAIN_START` are on by default; only the exact value `0` switches one off (any other text, including `1`, an empty value and unset, leaves it on). The stub and monitor read their variable once per process, so a switch needs a restart. TTAS and the lock-free marks affect the AOT launcher's host-side exclusive path only; the JIT's inline exclusive code is unchanged.
+- Chain start (`g_emit_chain_start`) is skipped quietly when `SUYU_AOT_DIRECT_CHAIN=0` made it impossible; only an explicit `=1` warns. The per-image size refusal message now says to set `SUYU_AOT_CHAIN_START=0` to export without chain start entries.
+- `tests/export_integration` pins `SUYU_AOT_CHAIN_START` off in its baseline like the other default-on options; the defaults scenarios check unset (on) and `0` (off), and the chain matrix adds `0` with the direct chain on, back to `1`, and the returning bundle id. `tests/exclusive_access/run.py` runs the test once per setting (unset, `0`, `1`, `2`).
+
 ### Added
+- Added the `SUYU_SPINLOCK_TTAS` test-and-test-and-set variant of the x64 SpinLock stub: `EmitSpinLockLock` gained `bool ttas = false` (an `xchg` acquire, then `pause` plus a plain `cmp dword [ptr], 0` spin before retrying; no effect with waitpkg) and `SpinLockUsesTtas()` reports what the shared stub was emitted with. The default emission, the unlock and the JIT call site are unchanged.
+- Added the TTAS checks to `tests/exclusive_access`: the default emission equals the legacy sequence byte for byte, the TTAS emission differs and re-reads the lock word while waiting, both locks exclude while held and keep every increment of three contending threads, and the environment selects the shared stub. Negative controls: a lock that never checks must let the second thread in, an expectation that disagrees with the environment fails, and a broken `cmp` immediate fails the byte check before any execution test that could spin forever.
 - Added the opt-in `SUYU_RECOMP_ACCESS_STATS=1` (exact `1`) diagnostic: the host load/store callbacks that recompiled code reaches are classified by reason (tagged, out_of_range, unmapped, debug, rasterizer, page_cross, watched, other) from the page entry, counted per thread, timed with the TSC around the real callback, and reported every 10 s as an `access-stats` line with per-reason counts and `avg_ns_<reason>`. Off by default; when off the bridge callbacks are the unchanged ones and generated code, ABI and exports are untouched.
 - Added the opt-in `SUYU_RECOMP_ACCESS_SITES=1` (needs ACCESS_STATS) diagnostic: three host return addresses per callback access are counted in per-thread tables and the busiest 16 stacks are reported as `access-sites` lines with `module+0xrva` (a stack walk per access, so timings are not representative). New files `recomp_access_stats.h`, `recomp_access_sites.h`, `recomp_host_frames.{h,cpp}`.
 - Added `smoke_access_stats_unit` and `smoke_access_sites_unit`, registered in `tests/recompiler_smoke/CMakeLists.txt` and `run.py`; they carry negative controls (four weakened classifiers; a site key built from the first frame only).
@@ -14,10 +21,16 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Verified
 - Both units pass standalone (`cl /W4`, no warnings); the weakened site-key variant fails as intended; the host (`suyu`, `suyu-cmd`) builds at a304400 and f943708 with exit 0 and no new warnings.
 - Measured on PLA with the diagnostics (see WORK_PLAN and OLD_HISTORY, session 29): about 80,000-105,000 host callbacks per second, 98.6% on GPU-tracked pages, about 1.6 core-ms per frame in callback time.
+- TTAS, measured at d0ae37b with a fully static export (`static -> JIT: 0`, same position, diagnostics off for FPS): 24.3 FPS off and 24.3 FPS on, both unsampled. Sampled (36,000 RIP samples each), the SpinLock stub page held 2085 samples (5.79%) off and 2115 (5.88%) on, and the host exclusive functions 5.28% off and 5.50% on (within the sampling error of about 0.12 points each). Inside the page the samples moved as designed: after the first `xchg` 917 off versus 559 on, the retry side (re-executed `xchg` off, `pause`/`cmp`/`jne` on) 428 versus 874, the unlock `xchg` 621 versus 613. The wait moved from `xchg` to a plain-load spin, but the lock time in total did not shrink: no speed effect is shown.
+- `tests/exclusive_access/run.py` passes in all four settings (unset, `0`, `1`, `2`), each with locked and lock-free marks and exact u8..u128 counters; the host builds with exit 0.
+- `--only-defaults` (31 cases) and `--only-aot-cache-matrix` (287 cases) pass with 0 failures. Negative controls failed as intended: chain start defaulting off, and `SUYU_AOT_CHAIN_START=0` ignored with the direct chain on.
+- Two Orca Code reviewer rounds on the TTAS change (3 findings: a sleep-based start in the exclusion test, the early exit after the instruction checks, comment length) and on the default-on change (3 findings: the `=0` case needed the direct chain on, outdated opt-in wording in the docs, a three-line comment) were handled in code and tests; the docs findings are covered by the next Markdown batch.
 
 ### Not verified
 - The full smoke run (`tests/recompiler_smoke/run.py`) and the other existing suites were not run for these commits; no Code reviewer round was taken.
 - No speed effect is claimed; the diagnostics are for measurement only.
+- No PLA run was made with the three options on by default; the lock-free marks have had no long PLA soak and the monitor's default (`kLockFreeMarks`) is not covered by a standalone test (it needs a `Core::System`; `EnvFlagDefaultOn` itself is covered by `smoke_env_option_unit`). The size effect of chain start on the current PLA images is unmeasured; the earlier export with it (indirect chain also on) was 1,706.8 MiB.
+- The smoke run and FPXV were not repeated for the default-on and TTAS changes; the generator output is unchanged.
 
 ## v0.0.1-dev24 - Unreleased
 

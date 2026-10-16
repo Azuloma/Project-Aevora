@@ -17,7 +17,7 @@ void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32
                       bool ttas = false);
 void EmitSpinLockUnlock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp);
 
-// True when the shared SpinLock stub was emitted with SUYU_SPINLOCK_TTAS=1.
+// True unless the shared SpinLock stub was emitted with SUYU_SPINLOCK_TTAS=0.
 bool SpinLockUsesTtas() noexcept;
 
 }  // namespace Dynarmic

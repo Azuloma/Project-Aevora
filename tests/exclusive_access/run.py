@@ -58,8 +58,8 @@ def main():
     if subprocess.run(command, check=False).returncode != 0:
         return 1
     # The shared stub reads SUYU_SPINLOCK_TTAS once per process, so each setting is its own run;
-    # only the exact value 1 enables it.
-    for option, expectation in ((None, "default"), ("1", "ttas"), ("2", "default")):
+    # only the exact value 0 disables TTAS.
+    for option, expectation in ((None, "ttas"), ("0", "default"), ("1", "ttas"), ("2", "ttas")):
         env = {key: value for key, value in os.environ.items() if key != "SUYU_SPINLOCK_TTAS"}
         if option is not None:
             env["SUYU_SPINLOCK_TTAS"] = option

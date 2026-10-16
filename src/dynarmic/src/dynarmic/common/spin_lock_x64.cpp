@@ -109,7 +109,7 @@ void SpinLockImpl::Initialize() noexcept {
     code.align();
     lock = code.getCurr<void (*)(volatile int*)>();
     const char* const ttas_option = std::getenv("SUYU_SPINLOCK_TTAS");
-    ttas = ttas_option != nullptr && std::strcmp(ttas_option, "1") == 0;
+    ttas = ttas_option == nullptr || std::strcmp(ttas_option, "0") != 0;
     EmitSpinLockLock(code, ABI_PARAM1, code.eax, false, ttas);
     code.ret();
     code.align();

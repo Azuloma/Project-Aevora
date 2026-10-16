@@ -4255,13 +4255,15 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
         suyu::recomp::g_emit_fpx_vec = false;
     }
     const bool fpx_vec = suyu::recomp::EmitFpxVec();
-    // Chain start entries (SUYU_AOT_CHAIN_START=1, opt-in) need the direct chain; the manifest
+    // Chain start entries (SUYU_AOT_CHAIN_START, on unless "0") need the direct chain; the manifest
     // and bundle id record them, and an export projected past the image limit is refused.
-    suyu::recomp::g_emit_chain_start =
-        Common::EnvFlagDefaultOff(qEnvironmentVariable("SUYU_AOT_CHAIN_START").toStdString());
+    suyu::recomp::g_emit_chain_start = enabled("SUYU_AOT_CHAIN_START");
     if (suyu::recomp::g_emit_chain_start && !suyu::recomp::g_emit_direct_chain) {
-        LOG_WARNING(Frontend, "Chain start entries (SUYU_AOT_CHAIN_START) need "
-                              "SUYU_AOT_DIRECT_CHAIN; exporting without them");
+        // Quiet when DIRECT_CHAIN=0 made this impossible; only an explicit request warns.
+        if (qEnvironmentVariable("SUYU_AOT_CHAIN_START") == QStringLiteral("1")) {
+            LOG_WARNING(Frontend, "Chain start entries (SUYU_AOT_CHAIN_START) need "
+                                  "SUYU_AOT_DIRECT_CHAIN; exporting without them");
+        }
         suyu::recomp::g_emit_chain_start = false;
     }
     const bool chain_start = suyu::recomp::EmitChainStart();
@@ -4986,8 +4988,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
             if (!budget.fits || ShouldInjectFailure("chain_start_budget", mod.name)) {
                 reject_export(tr("With chain start entries (SUYU_AOT_CHAIN_START) the %1 image, "
                                  "through module '%2', is projected to need %3 MiB, above the "
-                                 "%4 MiB allowed below the 2 GiB image limit. Unset "
-                                 "SUYU_AOT_CHAIN_START to export without them.")
+                                 "%4 MiB allowed below the 2 GiB image limit. Set "
+                                 "SUYU_AOT_CHAIN_START=0 to export without them.")
                                   .arg(image_name, mod.name)
                                   .arg(budget.projected_image_bytes >> 20)
                                   .arg(budget.allowed_image_bytes >> 20));
