@@ -10,6 +10,7 @@ host tree's own dynarmic, common and fmt libraries. Run it from an MSVC x64 deve
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -56,8 +57,16 @@ def main():
     print("building:", " ".join(command[:6]), "...")
     if subprocess.run(command, check=False).returncode != 0:
         return 1
-    print("running:", exe)
-    return subprocess.run([str(exe)], check=False).returncode
+    # The shared stub reads SUYU_SPINLOCK_TTAS once per process, so each setting is its own run;
+    # only the exact value 1 enables it.
+    for option, expectation in ((None, "default"), ("1", "ttas"), ("2", "default")):
+        env = {key: value for key, value in os.environ.items() if key != "SUYU_SPINLOCK_TTAS"}
+        if option is not None:
+            env["SUYU_SPINLOCK_TTAS"] = option
+        print(f"running: {exe} {expectation} (SUYU_SPINLOCK_TTAS={option})")
+        if subprocess.run([str(exe), expectation], env=env, check=False).returncode != 0:
+            return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: 0BSD
  */
 
+#include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <optional>
 #include "dynarmic/backend/x64/xbyak.h"
@@ -22,7 +24,23 @@ static const auto default_cg_mode = nullptr; //Allow RWE
 
 namespace Dynarmic {
 
-void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp, bool waitpkg) {
+void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp, bool waitpkg,
+                      bool ttas) {
+    if (ttas && !waitpkg) {
+        Xbyak::Label retry, spin, acquired;
+        code.L(retry);
+        code.mov(tmp, 1);
+        code.xchg(code.dword[ptr], tmp);
+        code.test(tmp, tmp);
+        code.jz(acquired, code.T_NEAR);
+        code.L(spin);
+        code.pause();
+        code.cmp(code.dword[ptr], 0);
+        code.jne(spin);
+        code.jmp(retry, code.T_NEAR);
+        code.L(acquired);
+        return;
+    }
     Xbyak::Label start, loop;
     code.jmp(start, code.T_NEAR);
     code.L(loop);
@@ -42,12 +60,8 @@ void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32
         code.db(0x0F); code.db(0xAE);
         code.db(uint8_t((3 << 6) | ((6 & 7) << 3) | (ptr.getIdx() & 7)));
 
-        // tmp.bit[0] = 0: C0.1 | Slow Wakup | Better Savings
-        // tmp.bit[0] = 1: C0.2 | Fast Wakup | Lesser Savings
-        // edx:eax is implicitly used as a 64-bit deadline timestamp
-        // Use the maximum so that we use the operating system's maximum
-        // allowed wait time within the IA32_UMWAIT_CONTROL register
-        // Enter power state designated by tmp and wait for a write to lock_ptr
+        // ebx bit 0: 0 = C0.1 (slow wakeup, better savings), 1 = C0.2 (fast wakeup).
+        // edx:eax is the deadline; the maximum defers to the OS limit in IA32_UMWAIT_CONTROL.
         code.mov(Xbyak::util::eax, 0xFFFFFFFF);
         code.mov(Xbyak::util::edx, Xbyak::util::eax);
         // TODO: We can only be here because tmp is 1 already - however we repeatedly overwrite it...
@@ -70,9 +84,7 @@ void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32
 
 void EmitSpinLockUnlock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp) {
     code.xor_(tmp, tmp);
-    // An xchg with a memory operand is implicitly locked, so it already orders everything before
-    // the release against everything after it; a following mfence only adds a full pipeline
-    // drain on every exclusive access.
+    // A memory xchg is implicitly locked and already orders the release; an mfence only adds a drain.
     code.xchg(code.dword[ptr], tmp);
 }
 
@@ -83,12 +95,11 @@ struct SpinLockImpl {
     Xbyak::CodeGenerator code = Xbyak::CodeGenerator(4096, default_cg_mode);
     void (*lock)(volatile int*) = nullptr;
     void (*unlock)(volatile int*) = nullptr;
+    bool ttas = false;
 };
 
 std::once_flag flag;
-/// @brief Bear in mind that initializing the variable as-is on ctor time will trigger bugs
-/// because some OSes do not prepare mprotect() properly at static ctor time
-/// We can't really do anything about it, so just live with this fact
+/// Constructed lazily: some OSes do not prepare mprotect() properly at static ctor time.
 std::optional<SpinLockImpl> impl;
 
 void SpinLockImpl::Initialize() noexcept {
@@ -97,7 +108,9 @@ void SpinLockImpl::Initialize() noexcept {
     Xbyak::Reg64 const ABI_PARAM1 = Backend::X64::HostLocToReg64(Backend::X64::ABI_PARAM1);
     code.align();
     lock = code.getCurr<void (*)(volatile int*)>();
-    EmitSpinLockLock(code, ABI_PARAM1, code.eax, false);
+    const char* const ttas_option = std::getenv("SUYU_SPINLOCK_TTAS");
+    ttas = ttas_option != nullptr && std::strcmp(ttas_option, "1") == 0;
+    EmitSpinLockLock(code, ABI_PARAM1, code.eax, false, ttas);
     code.ret();
     code.align();
     unlock = code.getCurr<void (*)(volatile int*)>();
@@ -120,6 +133,11 @@ void SpinLock::Lock() noexcept {
 void SpinLock::Unlock() noexcept {
     std::call_once(flag, &SpinLockImpl::GlobalInitialize);
     impl->unlock(&storage);
+}
+
+bool SpinLockUsesTtas() noexcept {
+    std::call_once(flag, &SpinLockImpl::GlobalInitialize);
+    return impl->ttas;
 }
 
 }  // namespace Dynarmic

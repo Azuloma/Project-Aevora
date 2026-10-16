@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: Copyright 2026 suyu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-// Exercises Core::ExclusiveAccess (src/core/arm/dynarmic/dynarmic_exclusive_access.h) against the
-// real Dynarmic::ExclusiveMonitor and spin lock, with plain buffers standing in for guest memory.
-// The pointer-resolving half (Memory::GetExclusivePointer) needs a Core::System and is exercised
-// by the PLA run instead.
+// Exercises Core::ExclusiveAccess against the real ExclusiveMonitor and spin lock, with buffers as
+// guest memory; Memory::GetExclusivePointer needs a Core::System and is covered by the PLA run.
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <barrier>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -18,6 +18,8 @@
 #include <vector>
 
 #include "core/arm/dynarmic/dynarmic_exclusive_access.h"
+#include "dynarmic/backend/x64/xbyak.h"
+#include "dynarmic/common/spin_lock_x64.h"
 
 namespace {
 
@@ -85,7 +87,7 @@ template <typename T>
 void CounterTest(const char* name) {
     std::uint64_t expected = std::uint64_t{kCores} * kIncrementsPerCore;
     if constexpr (!std::is_same_v<T, u128> && sizeof(T) < sizeof(std::uint64_t)) {
-        expected &= std::numeric_limits<T>::max(); // the counter wraps at its width
+        expected &= (std::numeric_limits<T>::max)(); // the counter wraps at its width
     }
     const std::uint64_t actual = RunCounter<T>(IncrementExclusive<T>);
     std::printf("%s counter: %llu (expected %llu)\n", name,
@@ -93,11 +95,8 @@ void CounterTest(const char* name) {
     Check(actual == expected, name);
 }
 
-// All cores read the same old value (the loads are the only concurrent accesses), then store one
-// after another in a fixed order (the barrier phases keep the plain stores from overlapping any
-// other access, so no step is a data race). With the reservation protocol exactly the first store
-// lands; storing without it (the negative control) lets every core "succeed" and the counter
-// advances once for three increments, which is the lost update the protocol exists to prevent.
+// All cores read the same old value, then store in a fixed order (barriers keep the plain stores
+// race-free). The protocol lets only the first store land; the negative control lets all succeed.
 void SameOldValueRace(bool use_reservation) {
     Dynarmic::ExclusiveMonitor monitor{kCores};
     alignas(16) std::array<std::uint8_t, 64> memory{};
@@ -214,10 +213,149 @@ void ReservationSemantics() {
     Check(WriteCompared<std::uint32_t>(monitor, 0, kAddrA, a, 4), "other core's reservation survives ClearProcessor");
 }
 
+using LockFn = void (*)(volatile int*);
+
+enum class LockKind { Default, Ttas, NoLock };
+
+// The pre-TTAS lock sequence, written out here so a change to the default emission is caught.
+void EmitLegacyLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp) {
+    Xbyak::Label start, loop;
+    code.jmp(start, code.T_NEAR);
+    code.L(loop);
+    code.pause();
+    code.L(start);
+    code.mov(tmp, 1);
+    code.xchg(code.dword[ptr], tmp);
+    code.test(tmp, tmp);
+    code.jnz(loop, code.T_NEAR);
+}
+
+#ifdef _WIN32
+const Xbyak::Reg64 kParam = Xbyak::util::rcx;
+const Xbyak::Reg32 kScratch = Xbyak::util::eax;
+#else
+const Xbyak::Reg64 kParam = Xbyak::util::rdi;
+const Xbyak::Reg32 kScratch = Xbyak::util::eax;
+#endif
+
+struct EmittedLock {
+    Xbyak::CodeGenerator code{4096};
+    LockFn lock = nullptr;
+    LockFn unlock = nullptr;
+    std::vector<std::uint8_t> lock_bytes;
+
+    explicit EmittedLock(LockKind kind) {
+        code.align();
+        lock = code.getCurr<LockFn>();
+        const std::uint8_t* const lock_begin = code.getCurr();
+        switch (kind) {
+        case LockKind::Default:
+            Dynarmic::EmitSpinLockLock(code, kParam, kScratch, false);
+            break;
+        case LockKind::Ttas:
+            Dynarmic::EmitSpinLockLock(code, kParam, kScratch, false, true);
+            break;
+        case LockKind::NoLock:
+            code.mov(code.dword[kParam], 1); // negative control: takes the lock without checking it
+            break;
+        }
+        lock_bytes.assign(lock_begin, code.getCurr());
+        code.ret();
+        code.align();
+        unlock = code.getCurr<LockFn>();
+        Dynarmic::EmitSpinLockUnlock(code, kParam, kScratch);
+        code.ret();
+    }
+};
+
+// While one thread holds the lock, a second must not get in until the release.
+bool ExcludesWhileHeld(const EmittedLock& emitted) {
+    volatile int word = 0;
+    std::atomic<bool> second_started{false};
+    std::atomic<bool> second_entered{false};
+    emitted.lock(&word);
+    std::thread second([&] {
+        second_started = true;
+        emitted.lock(&word);
+        second_entered = true;
+        emitted.unlock(&word);
+    });
+    while (!second_started.load()) {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const bool excluded = !second_entered.load();
+    emitted.unlock(&word);
+    second.join();
+    return excluded && second_entered.load();
+}
+
+// Plain load and store to a shared atomic: lost updates show up when the lock fails to exclude.
+std::uint64_t LockedIncrements(const EmittedLock& emitted) {
+    volatile int word = 0;
+    std::atomic<std::uint64_t> counter{0};
+    std::vector<std::thread> threads;
+    for (std::size_t core = 0; core < kCores; ++core) {
+        threads.emplace_back([&] {
+            for (int i = 0; i < kIncrementsPerCore; ++i) {
+                emitted.lock(&word);
+                counter.store(counter.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+                emitted.unlock(&word);
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    return counter.load();
+}
+
+void SpinLockEmission() {
+    // Default emission equals the legacy sequence byte for byte; the TTAS one differs and re-reads
+    // the lock word with `cmp dword [ptr], 0` while waiting.
+    Xbyak::CodeGenerator reference{4096};
+    const std::uint8_t* const reference_begin = reference.getCurr();
+    EmitLegacyLock(reference, kParam, kScratch);
+    const std::vector<std::uint8_t> legacy(reference_begin, reference.getCurr());
+    const EmittedLock plain{LockKind::Default};
+    const EmittedLock ttas{LockKind::Ttas};
+    Check(plain.lock_bytes == legacy, "default emission is unchanged");
+    Check(ttas.lock_bytes != legacy, "TTAS emission differs from the default");
+    const std::uint8_t cmp_probe[] = {0x83, 0x39, 0x00};
+    const auto contains_probe = [&](const std::vector<std::uint8_t>& bytes) {
+        return std::search(bytes.begin(), bytes.end(), std::begin(cmp_probe), std::end(cmp_probe)) !=
+               bytes.end();
+    };
+#ifdef _WIN32
+    Check(contains_probe(ttas.lock_bytes), "TTAS emission waits on a plain load");
+    Check(!contains_probe(plain.lock_bytes), "default emission does not wait on a plain load");
+#endif
+    if (g_failures != 0) {
+        return; // a broken sequence could spin forever in the execution checks below
+    }
+
+    Check(ExcludesWhileHeld(plain), "default lock excludes while held");
+    Check(ExcludesWhileHeld(ttas), "TTAS lock excludes while held");
+    const EmittedLock no_lock{LockKind::NoLock};
+    Check(!ExcludesWhileHeld(no_lock), "negative control: a lock that does not check must let the second in");
+
+    const std::uint64_t expected = std::uint64_t{kCores} * kIncrementsPerCore;
+    Check(LockedIncrements(plain) == expected, "default lock keeps every increment");
+    Check(LockedIncrements(ttas) == expected, "TTAS lock keeps every increment");
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
+    // The environment decides the shared stub; the runner passes what it set.
+    const bool expect_ttas = argc > 1 && std::strcmp(argv[1], "ttas") == 0;
+    Check(Dynarmic::SpinLockUsesTtas() == expect_ttas, "SUYU_SPINLOCK_TTAS selects the shared stub");
+    SpinLockEmission();
+    if (g_failures != 0) {
+        std::printf("FAILED (%d)\n", g_failures);
+        return 1;
+    }
     for (const bool lock_free : {false, true}) {
         g_lock_free = lock_free;
         std::printf("-- marks %s\n", lock_free ? "lock-free" : "locked");

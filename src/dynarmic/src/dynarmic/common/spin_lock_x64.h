@@ -12,7 +12,12 @@
 
 namespace Dynarmic {
 
-void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp, bool waitpkg);
+// ttas spins on a plain load between exchanges; it has no effect together with waitpkg.
+void EmitSpinLockLock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp, bool waitpkg,
+                      bool ttas = false);
 void EmitSpinLockUnlock(Xbyak::CodeGenerator& code, Xbyak::Reg64 ptr, Xbyak::Reg32 tmp);
+
+// True when the shared SpinLock stub was emitted with SUYU_SPINLOCK_TTAS=1.
+bool SpinLockUsesTtas() noexcept;
 
 }  // namespace Dynarmic
