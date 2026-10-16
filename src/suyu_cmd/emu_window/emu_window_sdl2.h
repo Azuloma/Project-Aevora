@@ -3,12 +3,16 @@
 
 #pragma once
 
+#include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
 
 #include "core/frontend/emu_window.h"
 #include "core/frontend/graphics_context.h"
+#include "suyu_cmd/overlay/controller_settings.h"
+#include "suyu_cmd/overlay/rebind_session.h"
 
 struct SDL_Window;
 union SDL_Event;
@@ -80,6 +84,17 @@ protected:
     /// Runs the actions the overlay's UI queued. Event thread only.
     virtual void RunOverlayActions() {}
 
+    /// What the overlay's Controller window shows. Event thread only.
+    SuyuCmd::ControllerSnapshot BuildControllerSnapshot();
+
+    /// Applies one Controller window request to Player 1. Event thread only.
+    SuyuCmd::UiActionResult HandleControllerRequest(const SuyuCmd::ControllerRequest& request);
+
+    /// Checks a running rebind once; returns the outcome worth reporting. Event thread only.
+    std::optional<SuyuCmd::UiActionResult> PollControllerRebind();
+
+    void CancelControllerRebind();
+
     /// Called by WaitEvent when a key is pressed or released.
     void OnKeyEvent(int key, u8 state);
 
@@ -145,6 +160,11 @@ protected:
 
     /// Keeps track of how often to update the title bar during gameplay
     u64 last_time = 0;
+
+    SuyuCmd::RebindHooks MakeRebindHooks();
+
+    /// The running "press the input you want" capture, created on first use.
+    std::unique_ptr<SuyuCmd::RebindSession> rebind_session;
 
     /// Set at startup and whenever a gamepad comes or goes; see AutoAssignControllers.
     bool gamepad_check_pending = true;

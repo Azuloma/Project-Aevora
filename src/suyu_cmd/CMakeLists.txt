@@ -28,12 +28,14 @@ if (SUYU_CMD OR YUZU_CMD)
         native_status.h
         overlay/build_identity.cpp
         overlay/build_identity.h
+        overlay/controller_settings.h
         overlay/debug_overlay.cpp
         overlay/debug_overlay.h
         overlay/graphics_settings.h
         overlay/overlay_actions.h
         overlay/overlay_logic.h
         overlay/overlay_stats.h
+        overlay/rebind_session.h
         sdl_config.cpp
         resolution_scale_host.h
         sdl_config.h

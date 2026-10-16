@@ -42,6 +42,11 @@ protected:
     void RunOverlayActions() override;
     void InstallOverlayResolutionScale();
     void PublishOverlayResolutionScale();
+    void InstallOverlayController();
+    void ServiceOverlayController(bool actions_ran);
+
+    bool controller_dirty{true};
+    std::uint64_t last_controller_publish_ms{};
 
 private:
     /// Not owned: see SuyuCmd::AcquireDebugOverlay.

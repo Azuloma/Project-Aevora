@@ -88,6 +88,62 @@ void MapDefault(InputCommon::InputSubsystem& input, const Common::ParamPackage& 
         player.motions[motion] = param.Serialize();
     }
 }
+
+constexpr SuyuCmd::BindingLayout kBindingLayout{Settings::NativeButton::NumButtons,
+                                                Settings::NativeAnalog::NumAnalogs};
+
+// The layout the emulator ships as its keyboard default.
+void ApplyDefaultKeyboardLayout(Settings::PlayerInput& player) {
+    static constexpr std::array<int, Settings::NativeButton::NumButtons> kButtons = {
+        SDL_SCANCODE_A, SDL_SCANCODE_S, SDL_SCANCODE_Z, SDL_SCANCODE_X,
+        SDL_SCANCODE_T, SDL_SCANCODE_G, SDL_SCANCODE_F, SDL_SCANCODE_H,
+        SDL_SCANCODE_Q, SDL_SCANCODE_W, SDL_SCANCODE_M, SDL_SCANCODE_N,
+        SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_B,
+    };
+    static constexpr std::array<std::array<int, 4>, Settings::NativeAnalog::NumAnalogs> kAnalogs{{
+        {SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT},
+        {SDL_SCANCODE_I, SDL_SCANCODE_K, SDL_SCANCODE_J, SDL_SCANCODE_L},
+    }};
+    for (std::size_t i = 0; i < kButtons.size() && i < player.buttons.size(); ++i) {
+        player.buttons[i] = InputCommon::GenerateKeyboardParam(kButtons[i]);
+    }
+    for (std::size_t i = 0; i < kAnalogs.size() && i < player.analogs.size(); ++i) {
+        player.analogs[i] = InputCommon::GenerateAnalogParamFromKeys(
+            kAnalogs[i][0], kAnalogs[i][1], kAnalogs[i][2], kAnalogs[i][3], 0, 0.5f);
+    }
+}
+
+// A choice made by the player: auto-assign leaves the controls alone from here on.
+void CommitPlayerChoice(Core::System& system) {
+    if (g_export_package) {
+        SdlConfig::auto_assign_controllers = false;
+    }
+    SaveNativeControls();
+    system.HIDCore().ReloadInputDevices();
+}
+
+SuyuCmd::Player1Hooks MakePlayer1Hooks(Core::System& system) {
+    return {
+        .set =
+            [](bool analog, std::size_t index, const std::string& value) {
+                auto& player = Settings::values.players.GetValue()[0];
+                (analog ? player.analogs[index] : player.buttons[index]) = value;
+            },
+        .mark_connected = [] { Settings::values.players.GetValue()[0].connected = true; },
+        .commit = [&system] { CommitPlayerChoice(system); },
+    };
+}
+
+std::string ShownBinding(const std::string& param) {
+    if (param.empty()) {
+        return "(unset)";
+    }
+    std::string shown = Common::ParamPackage{param}.Get("display", param);
+    if (shown.size() > 60) {
+        shown.resize(60);
+    }
+    return shown;
+}
 } // namespace
 
 #ifdef _WIN32
@@ -421,27 +477,10 @@ void DevApplyPadMapping(DevPanelState& st) {
 }
 
 void DevApplyKeyboardMapping(DevPanelState& st) {
-    // Same layout the emulator ships as its keyboard default.
-    static constexpr std::array<int, Settings::NativeButton::NumButtons> kButtons = {
-        SDL_SCANCODE_A, SDL_SCANCODE_S, SDL_SCANCODE_Z, SDL_SCANCODE_X,
-        SDL_SCANCODE_T, SDL_SCANCODE_G, SDL_SCANCODE_F, SDL_SCANCODE_H,
-        SDL_SCANCODE_Q, SDL_SCANCODE_W, SDL_SCANCODE_M, SDL_SCANCODE_N,
-        SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_B,
-    };
-    static constexpr std::array<std::array<int, 4>, Settings::NativeAnalog::NumAnalogs> kAnalogs{{
-        {SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT},
-        {SDL_SCANCODE_I, SDL_SCANCODE_K, SDL_SCANCODE_J, SDL_SCANCODE_L},
-    }};
     // GetValue() hands back a reference to the live array, so the mappings are
     // written straight into the setting.
     auto& player = Settings::values.players.GetValue()[0];
-    for (std::size_t i = 0; i < kButtons.size() && i < player.buttons.size(); ++i) {
-        player.buttons[i] = InputCommon::GenerateKeyboardParam(kButtons[i]);
-    }
-    for (std::size_t i = 0; i < kAnalogs.size() && i < player.analogs.size(); ++i) {
-        player.analogs[i] = InputCommon::GenerateAnalogParamFromKeys(
-            kAnalogs[i][0], kAnalogs[i][1], kAnalogs[i][2], kAnalogs[i][3], 0, 0.5f);
-    }
+    ApplyDefaultKeyboardLayout(player);
     player.connected = true;
     if (st.system != nullptr) {
         st.system->HIDCore().ReloadInputDevices();
@@ -978,7 +1017,10 @@ void EmuWindow_SDL2::WaitEvent() {
 
     // Wait with a deadline so the idle status refresh runs; a timeout is a tick, not a failure.
     SDL_ClearError();
-    if (!SDL_WaitEventTimeout(&event, kEventWaitSliceMs)) {
+    const Sint32 wait_slice_ms = rebind_session && rebind_session->Active()
+                                     ? static_cast<Sint32>(SuyuCmd::kRebindPollIntervalMs)
+                                     : kEventWaitSliceMs;
+    if (!SDL_WaitEventTimeout(&event, wait_slice_ms)) {
         if (const char* error = SDL_GetError(); error != nullptr && error[0] != '\0') {
             LOG_ERROR(Frontend, "SDL_WaitEventTimeout failed: {}", error);
             SDL_ClearError();
@@ -1172,6 +1214,140 @@ void EmuWindow_SDL2::HideBuildProgress() {
         build_progress_window = nullptr;
     }
 #endif
+}
+
+SuyuCmd::ControllerSnapshot EmuWindow_SDL2::BuildControllerSnapshot() {
+    SuyuCmd::ControllerSnapshot snapshot;
+    const auto devices = input_subsystem->GetInputDevices();
+    for (const auto& device : devices) {
+        const std::string engine = device.Get("engine", "");
+        if (engine == "sdl" || engine == "joycon" || engine == "gcpad") {
+            snapshot.devices.push_back(
+                {device.Serialize(), device.Get("display", device.Get("class", "Unknown"))});
+        }
+    }
+    const auto& player = Settings::values.players.GetValue()[0];
+    for (std::size_t i = 0; i < Settings::NativeButton::NumButtons; ++i) {
+        snapshot.rows.push_back(
+            {Settings::NativeButton::mapping[i], ShownBinding(player.buttons[i])});
+    }
+    for (std::size_t i = 0; i < Settings::NativeAnalog::NumAnalogs; ++i) {
+        snapshot.rows.push_back(
+            {Settings::NativeAnalog::mapping[i], ShownBinding(player.analogs[i])});
+    }
+    const auto pads = ControllerPads(devices);
+    auto& players = Settings::values.players.GetValue();
+    snapshot.can_combine =
+        SuyuCmd::CombineJoycons(players, pads, SdlConfig::default_buttons, {}).has_value();
+    snapshot.can_split =
+        SuyuCmd::SplitJoycons(players, pads, SdlConfig::default_buttons, {}).has_value();
+    if (rebind_session && rebind_session->Active()) {
+        snapshot.rebinding = true;
+        snapshot.rebind_row = rebind_session->Row();
+        snapshot.rebind_remaining_ms = rebind_session->RemainingMs(SDL_GetTicks());
+    }
+    return snapshot;
+}
+
+SuyuCmd::UiActionResult EmuWindow_SDL2::HandleControllerRequest(
+    const SuyuCmd::ControllerRequest& request) {
+    using Kind = SuyuCmd::ControllerRequest::Kind;
+    const SuyuCmd::Player1Hooks hooks = MakePlayer1Hooks(system);
+    auto& player = Settings::values.players.GetValue()[0];
+    switch (request.kind) {
+    case Kind::MapDevice: {
+        const auto devices = input_subsystem->GetInputDevices();
+        const auto device = std::find_if(devices.begin(), devices.end(), [&](const auto& d) {
+            return d.Serialize() == request.device_id;
+        });
+        if (device == devices.end()) {
+            return {false, "The controller is no longer connected"};
+        }
+        MapDefault(*input_subsystem, *device, player);
+        hooks.mark_connected();
+        hooks.commit();
+        return {true, "Controller mapped to Player 1."};
+    }
+    case Kind::UseKeyboard:
+        ApplyDefaultKeyboardLayout(player);
+        hooks.mark_connected();
+        hooks.commit();
+        return {true, "Keyboard controls restored for Player 1."};
+    case Kind::BeginRebind:
+        if (request.row >= kBindingLayout.Rows()) {
+            return {false, "Unknown controller binding"};
+        }
+        if (!rebind_session) {
+            rebind_session = std::make_unique<SuyuCmd::RebindSession>(MakeRebindHooks());
+        }
+        rebind_session->Begin(request.row, kBindingLayout.IsAnalog(request.row), SDL_GetTicks());
+        return {};
+    case Kind::ClearBinding:
+        return SuyuCmd::ClearBinding(hooks, kBindingLayout, request.row);
+    case Kind::CancelRebind:
+        CancelControllerRebind();
+        return {};
+    case Kind::CombineJoycons:
+    case Kind::SplitJoycons: {
+        const bool combine = request.kind == Kind::CombineJoycons;
+        const auto pads = ControllerPads(input_subsystem->GetInputDevices());
+        auto& players = Settings::values.players.GetValue();
+        const auto map_pad = [this](const Common::ParamPackage& pad,
+                                    Settings::PlayerInput& target) {
+            MapDefault(*input_subsystem, pad, target);
+        };
+        const auto slot =
+            combine ? SuyuCmd::CombineJoycons(players, pads, SdlConfig::default_buttons, map_pad)
+                    : SuyuCmd::SplitJoycons(players, pads, SdlConfig::default_buttons, map_pad);
+        if (!slot) {
+            return {false, "No Joy-Cons to change right now."};
+        }
+        hooks.commit();
+        const std::string player_number = std::to_string(*slot + 1);
+        return {true, combine ? "Joy-Cons combined into Player " + player_number + "."
+                              : "Joy-Cons split: the left one is Player " + player_number +
+                                    ", the right one the next player."};
+    }
+    }
+    return {false, "Unknown controller request"};
+}
+
+SuyuCmd::RebindHooks EmuWindow_SDL2::MakeRebindHooks() {
+    return {
+        .begin =
+            [this](bool analog) {
+                input_subsystem->BeginMapping(analog ? InputCommon::Polling::InputType::Stick
+                                                     : InputCommon::Polling::InputType::Button);
+            },
+        .next_input =
+            [this] {
+                const auto captured = input_subsystem->GetNextInput();
+                return captured.Has("engine") ? captured.Serialize() : std::string{};
+            },
+        .stop = [this] { input_subsystem->StopMapping(); },
+    };
+}
+
+std::optional<SuyuCmd::UiActionResult> EmuWindow_SDL2::PollControllerRebind() {
+    if (!rebind_session || !rebind_session->Active()) {
+        return std::nullopt;
+    }
+    const SuyuCmd::RebindResult result = rebind_session->Poll(SDL_GetTicks());
+    switch (result.kind) {
+    case SuyuCmd::RebindResult::Kind::Captured:
+        return SuyuCmd::ApplyBinding(MakePlayer1Hooks(system), kBindingLayout, result.row,
+                                     result.captured);
+    case SuyuCmd::RebindResult::Kind::TimedOut:
+        return SuyuCmd::UiActionResult{false, "No input detected - nothing changed"};
+    default:
+        return std::nullopt;
+    }
+}
+
+void EmuWindow_SDL2::CancelControllerRebind() {
+    if (rebind_session) {
+        rebind_session->Cancel();
+    }
 }
 
 bool EmuWindow_SDL2::PumpEventsWhileLoading() {

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/frontend/vulkan_overlay.h"
+#include "suyu_cmd/overlay/controller_settings.h"
 #include "suyu_cmd/overlay/overlay_actions.h"
 #include "suyu_cmd/overlay/overlay_logic.h"
 #include "suyu_cmd/overlay/overlay_stats.h"
@@ -56,6 +57,22 @@ public:
         resolution_scale_applier = std::move(applier);
     }
 
+    /// Applies a Controller window request; set and called on the event thread only.
+    using ControllerApplier = std::function<UiActionResult(const ControllerRequest&)>;
+    void SetControllerApplier(ControllerApplier applier) {
+        controller_applier = std::move(applier);
+    }
+
+    /// What the Controller window shows; published by the event thread.
+    SnapshotBox<ControllerSnapshot>& GetControllerSnapshot() {
+        return controller_snapshot;
+    }
+
+    /// Whether the Controller window is open, so the event thread only builds its data then.
+    bool ControllerWindowOpen() const {
+        return controller_window_open.load(std::memory_order_relaxed);
+    }
+
     /// The table index the Graphics window shows as current; written by the event thread.
     void PublishResolutionScaleIndex(std::size_t index) {
         resolution_scale_index.store(index, std::memory_order_relaxed);
@@ -77,6 +94,8 @@ private:
     void BuildCommandBar();
     void BuildDebugWindow();
     void BuildGraphicsWindow();
+    void BuildControllerWindow();
+    void PostController(ControllerRequest request);
     void PostResolutionScale(std::size_t index);
     void BuildBackendSection();
     void BuildPerformanceSection();
@@ -95,6 +114,9 @@ private:
     UiActionChannel actions;
     ResolutionScaleApplier resolution_scale_applier; ///< Event thread only.
     std::atomic<std::size_t> resolution_scale_index{0};
+    ControllerApplier controller_applier; ///< Event thread only.
+    SnapshotBox<ControllerSnapshot> controller_snapshot;
+    std::atomic<bool> controller_window_open{false};
     std::vector<UiStatusMessage> status_messages; ///< Scratch for the per-frame status drain.
     std::vector<UiStatusMessage> recent_status;   ///< Newest last; worker thread only.
     std::vector<OverlayInputEvent> pending_input; ///< Scratch for ApplyQueuedInput.
@@ -106,6 +128,9 @@ private:
     bool show_debug_window{};
     bool show_graphics_window{};
     OverlayRect graphics_window_rect{};
+    bool show_controller_window{};
+    OverlayRect controller_window_rect{};
+    std::size_t controller_device_choice{};
     OverlayRect debug_window_rect{}; ///< Where the Debug window was drawn this frame.
     FrameTimeHistory frame_times;
     u32 target_width_px{};

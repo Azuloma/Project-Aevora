@@ -308,6 +308,7 @@ void DebugOverlay::BuildUi() {
     BuildCommandBar();
     BuildDebugWindow();
     BuildGraphicsWindow();
+    BuildControllerWindow();
 
     // A hidden OS pointer would leave nothing to aim with; draw one only while it is over the UI.
     ImGuiIO& io = ImGui::GetIO();
@@ -324,6 +325,9 @@ void DebugOverlay::PublishCaptureRegions() {
     }
     if (show_graphics_window) {
         regions.push_back(graphics_window_rect);
+    }
+    if (show_controller_window) {
+        regions.push_back(controller_window_rect);
     }
     if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
         // An open menu or combo list lies outside the windows; keep clicks on it with the UI.
@@ -357,6 +361,7 @@ void DebugOverlay::BuildCommandBar() {
         command_bar_height_px = ImGui::GetWindowHeight();
         if (ImGui::BeginMenu("Settings")) {
             ImGui::MenuItem("Graphics", nullptr, &show_graphics_window);
+            ImGui::MenuItem("Controller (Player 1)", nullptr, &show_controller_window);
             ImGui::EndMenu();
         }
         // Placeholder: the entry exists so the layout is settled, but does nothing yet.
@@ -429,6 +434,104 @@ void DebugOverlay::BuildGraphicsWindow() {
         }
     }
     ImGui::End();
+}
+
+void DebugOverlay::BuildControllerWindow() {
+    const bool was_open = controller_window_open.load(std::memory_order_relaxed);
+    controller_window_open.store(show_controller_window, std::memory_order_relaxed);
+    if (!show_controller_window) {
+        if (was_open) {
+            PostController({ControllerRequest::Kind::CancelRebind, 0, {}});
+        }
+        return;
+    }
+    using Kind = ControllerRequest::Kind;
+    ImGui::SetNextWindowPos({16.0f, 48.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({520.0f, 560.0f}, ImGuiCond_FirstUseEver);
+    const bool expanded = ImGui::Begin("Controller (Player 1)", &show_controller_window);
+    controller_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                              ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
+    if (expanded) {
+        const ControllerSnapshot view = controller_snapshot.Get();
+        if (view.devices.empty()) {
+            ImGui::TextWrapped("No controller detected - plug one in.");
+        } else {
+            controller_device_choice = std::min(controller_device_choice, view.devices.size() - 1);
+            if (ImGui::BeginCombo("Device", view.devices[controller_device_choice].name.c_str())) {
+                for (std::size_t i = 0; i < view.devices.size(); ++i) {
+                    ImGui::PushID(static_cast<int>(i));
+                    if (ImGui::Selectable(view.devices[i].name.c_str(),
+                                          i == controller_device_choice)) {
+                        controller_device_choice = i;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::Button("Map to Player 1")) {
+                PostController({Kind::MapDevice, 0, view.devices[controller_device_choice].id});
+            }
+            ImGui::SameLine();
+        }
+        if (ImGui::Button("Use keyboard")) {
+            PostController({Kind::UseKeyboard, 0, {}});
+        }
+        if (view.can_combine && ImGui::Button("Combine Joy-Cons")) {
+            PostController({Kind::CombineJoycons, 0, {}});
+        }
+        if (view.can_split && ImGui::Button("Split Joy-Cons")) {
+            PostController({Kind::SplitJoycons, 0, {}});
+        }
+        ImGui::Separator();
+        if (ImGui::BeginTable("bindings", 3, ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Input", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("Bound to", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+            for (std::size_t row = 0; row < view.rows.size(); ++row) {
+                const bool capturing = view.rebinding && view.rebind_row == row;
+                ImGui::PushID(static_cast<int>(row));
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(view.rows[row].label.c_str());
+                ImGui::TableNextColumn();
+                if (capturing) {
+                    ImGui::Text("Press an input... (%llu s)",
+                                static_cast<unsigned long long>(view.rebind_remaining_ms / 1000 + 1));
+                } else {
+                    ImGui::TextUnformatted(view.rows[row].shown.c_str());
+                }
+                ImGui::TableNextColumn();
+                if (capturing) {
+                    if (ImGui::Button("Cancel")) {
+                        PostController({Kind::CancelRebind, 0, {}});
+                    }
+                } else {
+                    if (ImGui::Button("Rebind")) {
+                        PostController({Kind::BeginRebind, row, {}});
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear")) {
+                        PostController({Kind::ClearBinding, row, {}});
+                    }
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        if (!recent_status.empty()) {
+            ImGui::TextWrapped("%s", recent_status.back().text.c_str());
+        }
+    }
+    ImGui::End();
+}
+
+void DebugOverlay::PostController(ControllerRequest request) {
+    actions.Post({"Controller", [this, request = std::move(request)] {
+                      if (!controller_applier) {
+                          return UiActionResult{false, "Controller settings are not available"};
+                      }
+                      return controller_applier(request);
+                  }});
 }
 
 void DebugOverlay::PostResolutionScale(std::size_t index) {

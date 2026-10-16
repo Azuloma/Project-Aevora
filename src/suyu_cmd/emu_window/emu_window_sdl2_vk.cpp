@@ -36,6 +36,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     if (debug_overlay) {
         debug_overlay->GetActions().BindEventThread();
         InstallOverlayResolutionScale();
+        InstallOverlayController();
     }
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Exports are renamed after the game at packaging time; reuse that name as the title.
@@ -258,6 +259,36 @@ void EmuWindow_SDL2_VK::InstallOverlayResolutionScale() {
     PublishOverlayResolutionScale();
 }
 
+void EmuWindow_SDL2_VK::InstallOverlayController() {
+    debug_overlay->SetControllerApplier([this](const SuyuCmd::ControllerRequest& request) {
+        return HandleControllerRequest(request);
+    });
+}
+
+void EmuWindow_SDL2_VK::ServiceOverlayController(bool actions_ran) {
+    constexpr std::uint64_t kIdleRefreshMs = 250;
+    constexpr std::uint64_t kRebindRefreshMs = 100;
+    if (const auto outcome = PollControllerRebind()) {
+        controller_dirty = true;
+        if (!outcome->ok || !outcome->message.empty()) {
+            debug_overlay->GetActions().PublishStatus({outcome->ok, outcome->message});
+        }
+    }
+    controller_dirty = controller_dirty || actions_ran;
+    if (!debug_overlay->ControllerWindowOpen()) {
+        return;
+    }
+    const std::uint64_t now_ms = SDL_GetTicks();
+    const bool rebinding = rebind_session && rebind_session->Active();
+    const std::uint64_t refresh_ms = rebinding ? kRebindRefreshMs : kIdleRefreshMs;
+    if (!controller_dirty && now_ms - last_controller_publish_ms < refresh_ms) {
+        return;
+    }
+    debug_overlay->GetControllerSnapshot().Publish(BuildControllerSnapshot());
+    controller_dirty = false;
+    last_controller_publish_ms = now_ms;
+}
+
 void EmuWindow_SDL2_VK::PublishOverlayResolutionScale() {
     const auto index = Settings::FindResolutionScaleIndex(
         Settings::values.resolution_setup.GetValue());
@@ -268,8 +299,9 @@ void EmuWindow_SDL2_VK::RunOverlayActions() {
     if (debug_overlay) {
         // Also catches changes made elsewhere, such as the F12 panel.
         PublishOverlayResolutionScale();
-        debug_overlay->GetActions().RunPending();
+        const std::size_t ran = debug_overlay->GetActions().RunPending();
         PublishOverlayResolutionScale();
+        ServiceOverlayController(ran > 0);
     }
 }
 
@@ -296,6 +328,8 @@ Core::Frontend::VulkanOverlay* EmuWindow_SDL2_VK::GetVulkanOverlay() {
 EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
     if (debug_overlay) {
         debug_overlay->SetResolutionScaleApplier({});
+        debug_overlay->SetControllerApplier({});
+        CancelControllerRebind();
         debug_overlay->GetActions().DetachEventThread();
     }
 #if defined(SDL_PLATFORM_MACOS)
