@@ -258,10 +258,11 @@ void EmuWindow_SDL2_VK::SyncOverlayTextInput() {
     if (wanted == SDL_TextInputActive(render_window)) {
         return;
     }
-    if (wanted) {
-        SDL_StartTextInput(render_window);
-    } else {
-        SDL_StopTextInput(render_window);
+    const bool changed = wanted ? SDL_StartTextInput(render_window)
+                                : SDL_StopTextInput(render_window);
+    if (!changed) {
+        LOG_ERROR(Frontend, "Overlay text input {} failed: {}", wanted ? "start" : "stop",
+                  SDL_GetError());
     }
 }
 

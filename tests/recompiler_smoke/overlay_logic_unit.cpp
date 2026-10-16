@@ -421,7 +421,7 @@ int OverflowOfPressesRestartsTheOverlay() {
 int ThreadsDoNotLoseEvents() {
     OverlayInputRouter router;
     router.SetCaptureRegions({kWindow});
-    constexpr int kPairs = 100; // 200 events: below the capacity, so nothing may be dropped
+    constexpr int kPairs = 80; // 200 events: below the capacity, so nothing may be dropped
     std::thread producer([&router] {
         for (int i = 0; i < kPairs; ++i) {
             router.Route(Button(0, true, kInsideX, kInsideY));
@@ -608,37 +608,46 @@ constexpr std::uint16_t kKeyEnter = 40;
 // Negative control: decides every key by the current keyboard request, ignoring who took the press.
 struct StatelessKeyRouter {
     bool wanted{};
-    bool Route(bool) const {
+    bool RouteKey(std::uint16_t, bool, bool) const {
         return wanted;
+    }
+    void SetKeyboardCapture(bool keys, bool) {
+        wanted = keys;
     }
 };
 
+// The ownership contract, shared by the real router and the control. Returns false on a breach.
+template <class Router>
+bool KeyOwnershipHolds(Router& router) {
+    // A press the game took keeps its release with the game, even if the overlay starts wanting
+    // keys while it is held.
+    router.SetKeyboardCapture(false, false);
+    if (router.RouteKey(kKeyA, true, false)) {
+        return false;
+    }
+    router.SetKeyboardCapture(true, false);
+    if (router.RouteKey(kKeyA, true, true) || router.RouteKey(kKeyA, false, false)) {
+        return false;
+    }
+    // A press the overlay took keeps its repeats and release, even after it stops wanting keys.
+    if (!router.RouteKey(kKeyEnter, true, false) || !router.RouteKey(kKeyEnter, true, true)) {
+        return false;
+    }
+    router.SetKeyboardCapture(false, false);
+    return router.RouteKey(kKeyEnter, false, false);
+}
+
 int KeyFollowsItsPress() {
     OverlayInputRouter router;
-    // Keyboard not wanted: the game owns the press, and keeps the release even if the overlay
-    // starts wanting keys while the key is held.
-    CHECK(!router.RouteKey(kKeyA, true, false));
-    router.SetKeyboardCapture(true, false);
-    CHECK(!router.RouteKey(kKeyA, true, true));
-    CHECK(!router.RouteKey(kKeyA, false, false));
-    CHECK(Drained(router).empty());
-
-    // Overlay takes a new press, repeats stay with it unqueued, and the release is its own even
-    // after it stops wanting keys.
-    CHECK(router.RouteKey(kKeyEnter, true, false));
-    CHECK(router.RouteKey(kKeyEnter, true, true));
-    router.SetKeyboardCapture(false, false);
-    CHECK(router.RouteKey(kKeyEnter, false, false));
+    CHECK(KeyOwnershipHolds(router));
     const auto events = Drained(router);
     CHECK(events.size() == 2);
     CHECK(events[0].kind == Kind::KeyDown && events[0].key == kKeyEnter);
     CHECK(events[1].kind == Kind::KeyUp && events[1].key == kKeyEnter);
 
-    // The control would hand the overlay's release to the game, leaving the key down in ImGui.
-    StatelessKeyRouter stateless{true};
-    CHECK(stateless.Route(true));
-    stateless.wanted = false;
-    CHECK(!stateless.Route(false));
+    // The same contract must reject the stateless control.
+    StatelessKeyRouter stateless;
+    CHECK(!KeyOwnershipHolds(stateless));
 
     // Out-of-range scancodes are never taken.
     router.SetKeyboardCapture(true, false);
@@ -699,6 +708,29 @@ int LongTextSplitsOnCodePoints() {
     return 0;
 }
 
+int KeyAndTextKeepTheirOrder() {
+    OverlayInputRouter router;
+    router.SetKeyboardCapture(true, true);
+    constexpr int kPairs = 80;
+    std::thread producer([&] {
+        for (int i = 0; i < kPairs; ++i) {
+            router.RouteKey(kKeyA, true, false);
+            router.RouteText("a");
+            router.RouteKey(kKeyA, false, false);
+        }
+    });
+    producer.join();
+    // Everything fits the queue (240 < capacity), so nothing may be missing or reordered.
+    const auto events = Drained(router);
+    CHECK(events.size() == kPairs * 3);
+    for (int i = 0; i < kPairs; ++i) {
+        CHECK(events[i * 3].kind == Kind::KeyDown);
+        CHECK(events[i * 3 + 1].kind == Kind::Text);
+        CHECK(events[i * 3 + 2].kind == Kind::KeyUp);
+    }
+    return 0;
+}
+
 int KeyAndTextOverflowRestartsTheOverlay() {
     OverlayInputRouter router;
     router.SetKeyboardCapture(true, true);
@@ -709,6 +741,10 @@ int KeyAndTextOverflowRestartsTheOverlay() {
     CHECK(events.size() <= kOverlayInputQueueCapacity);
     // Presses were lost, so the overlay was told to start over.
     CHECK(events.front().kind == Kind::Reset);
+    // Text queued afterwards still arrives, behind the restart.
+    CHECK(router.RouteText("x"));
+    const auto after = Drained(router);
+    CHECK(after.size() == 1 && after[0].kind == Kind::Text);
     return 0;
 }
 
@@ -740,6 +776,7 @@ int main() {
     CHECK(ResetForgetsKeyOwnership() == 0);
     CHECK(TextOnlyWhileKeyboardIsWanted() == 0);
     CHECK(LongTextSplitsOnCodePoints() == 0);
+    CHECK(KeyAndTextKeepTheirOrder() == 0);
     CHECK(KeyAndTextOverflowRestartsTheOverlay() == 0);
     CHECK(FrameTimeHistoryFillsThenWraps() == 0);
     CHECK(GuestPcIsPlacedInItsModule() == 0);

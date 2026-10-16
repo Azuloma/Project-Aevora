@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <SDL3/SDL_events.h>
 #include <SDL3/SDL_scancode.h>
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
@@ -43,6 +44,7 @@ ImGuiKey ToImGuiKey(std::uint16_t scancode) {
     switch (scancode) {
     case SDL_SCANCODE_0: return ImGuiKey_0;
     case SDL_SCANCODE_RETURN: return ImGuiKey_Enter;
+    case SDL_SCANCODE_KP_ENTER: return ImGuiKey_KeypadEnter;
     case SDL_SCANCODE_ESCAPE: return ImGuiKey_Escape;
     case SDL_SCANCODE_BACKSPACE: return ImGuiKey_Backspace;
     case SDL_SCANCODE_TAB: return ImGuiKey_Tab;
@@ -57,12 +59,12 @@ ImGuiKey ToImGuiKey(std::uint16_t scancode) {
     case SDL_SCANCODE_RIGHT: return ImGuiKey_RightArrow;
     case SDL_SCANCODE_UP: return ImGuiKey_UpArrow;
     case SDL_SCANCODE_DOWN: return ImGuiKey_DownArrow;
-    case SDL_SCANCODE_LCTRL:
-    case SDL_SCANCODE_RCTRL: return ImGuiMod_Ctrl;
-    case SDL_SCANCODE_LSHIFT:
-    case SDL_SCANCODE_RSHIFT: return ImGuiMod_Shift;
-    case SDL_SCANCODE_LALT:
-    case SDL_SCANCODE_RALT: return ImGuiMod_Alt;
+    case SDL_SCANCODE_LCTRL: return ImGuiKey_LeftCtrl;
+    case SDL_SCANCODE_RCTRL: return ImGuiKey_RightCtrl;
+    case SDL_SCANCODE_LSHIFT: return ImGuiKey_LeftShift;
+    case SDL_SCANCODE_RSHIFT: return ImGuiKey_RightShift;
+    case SDL_SCANCODE_LALT: return ImGuiKey_LeftAlt;
+    case SDL_SCANCODE_RALT: return ImGuiKey_RightAlt;
     default: return ImGuiKey_None;
     }
 }
@@ -254,7 +256,9 @@ void DebugOverlay::ApplyQueuedInput() {
             io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
             break;
         case OverlayInputEvent::Kind::Reset:
-            // Losing focus makes ImGui release every button and cancel any drag in progress.
+            // Cleared directly: a Reset followed by FocusGained in one batch would merge in ImGui.
+            io.ClearInputKeys();
+            io.ClearInputMouse();
             io.AddFocusEvent(false);
             io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
             break;
@@ -294,6 +298,12 @@ void DebugOverlay::PublishCaptureRegions() {
     // What was just built is what the event thread tests the next events against.
     input_router.SetCaptureRegions(std::move(regions));
     const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput != input_router.TextInputWanted()) {
+        // Wakes the event thread so SDL text input follows before the next key is translated.
+        SDL_Event wake{};
+        wake.type = SDL_EVENT_USER;
+        SDL_PushEvent(&wake);
+    }
     input_router.SetKeyboardCapture(io.WantCaptureKeyboard, io.WantTextInput);
 }
 

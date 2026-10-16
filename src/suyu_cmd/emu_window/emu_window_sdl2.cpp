@@ -1009,9 +1009,7 @@ void EmuWindow_SDL2::WaitEvent() {
 
     SyncOverlayTextInput();
 
-    // Wait with a deadline rather than forever: with no input there is no event
-    // to wake on, so a plain SDL_WaitEvent would never refresh the status.
-    // A timeout is the idle tick, not a failure.
+    // Wait with a deadline so the idle status refresh runs; a timeout is a tick, not a failure.
     SDL_ClearError();
     if (!SDL_WaitEventTimeout(&event, kEventWaitSliceMs)) {
         if (const char* error = SDL_GetError(); error != nullptr && error[0] != '\0') {
@@ -1026,7 +1024,7 @@ void EmuWindow_SDL2::WaitEvent() {
         return;
     }
 
-
+    SyncOverlayTextInput();
     const bool taken_by_overlay = RouteOverlayEvent(event);
 
     switch (event.type) {

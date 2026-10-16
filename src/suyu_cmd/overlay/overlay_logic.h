@@ -3,9 +3,8 @@
 
 #pragma once
 
-// Overlay behaviour that needs neither ImGui nor Vulkan: when the command bar shows, and how
-// mouse events travel from the window's event thread to the overlay's UI thread. Kept free of
-// both so tests/recompiler_smoke/overlay_logic_unit.cpp can exercise it without a GPU.
+// ImGui- and Vulkan-free overlay logic: command-bar visibility and event-thread to UI-thread
+// input routing, testable by tests/recompiler_smoke/overlay_logic_unit.cpp without a GPU.
 
 #include <algorithm>
 #include <atomic>
@@ -91,19 +90,9 @@ struct OverlayInputEvent {
     char text[kOverlayTextBytes]{};
 };
 
-/// Carries mouse events from the window's event thread to the overlay and decides, per event,
-/// whether the overlay or the game owns it.
-///
-/// Ownership is settled on the event thread from the event's own position against the regions
-/// the overlay last drew, so a click is never acted on by both. A press belongs to whoever it
-/// started on until its release: a drag that began on the overlay keeps the overlay's moves even
-/// outside its regions, and a drag the game started keeps the game's moves over the overlay. The
-/// queue only ever holds what the overlay should see - every move, but presses, releases and
-/// wheel steps only when the overlay owns them.
-///
-/// Thread contract: `Route` is called by the event thread, `Drain` and `SetCaptureRegions` by the
-/// overlay's UI thread. The regions lag the UI by up to one frame, which can cost a click made in
-/// the frame a window appears, never a double action.
+/// Decides on the event thread whether the overlay or the game owns each mouse, key and text
+/// event; a press stays with its first owner until released, so nothing is acted on twice.
+/// Event thread: `Route*`; UI thread: `Drain`, `SetCaptureRegions`, `SetKeyboardCapture`.
 class OverlayInputRouter {
 public:
     /// Queues what the overlay needs from `event`. Returns true if the game must not receive it.
@@ -317,9 +306,7 @@ private:
             }
         }
         if (queue.size() >= kOverlayInputQueueCapacity && !MakeRoomLocked()) {
-            // Nothing expendable is left, so a press or release is about to be lost and the
-            // overlay could keep a button down for good. Start it over from a clean state
-            // instead: the Reset cancels whatever it holds.
+            // A press or release would be lost and could stick; restart from a clean state.
             RestartQueueLocked();
             queue.push_back({OverlayInputEvent::Kind::FocusGained, 0.0f, 0.0f, 0, false});
         }
