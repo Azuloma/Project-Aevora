@@ -1947,3 +1947,110 @@ Read `CLAUDE.md`, this file, and indexed source locations; run `git status`/`git
 - Guard v2 requires all modules to answer alike: agreement on 2 enables v2, and any other agreed answer means not negotiated everywhere.
 - `Utf8ToWide` calls `MultiByteToWideChar` directly so malformed UTF-8 is an error without extra common sources.
 - The compact dispatcher `OwnerEntry` table keeps the hot path's tens of millions of calls per second on contiguous entries instead of one cache line per `RecompImage`.
+
+
+## Archived on 2026-10-16 from WORK_PLAN.md (session 29 cleanup)
+Verbatim copy of the WORK_PLAN.md sections as they stood at HEAD `9ba03c6` before the session 29 rewrite.
+
+### Status
+
+HEAD is aaaedd5, on 8dd61a1 and 884af21; uncommitted changes are Markdown only (CHANGELOG.md, this plan, and this cleanup). Host D:\HisuiWakeBuild\msvc-release was reconfigured and rebuilt at HEAD with GIT_REV aaaedd5696f61ed6822e06b6d58343cd95f4800c. The PLA export at that revision has cross/direct/indirect chain and FM inline enabled, chain start disabled; its 32-bit index totals 67,068 KiB (about 65.5 MiB).
+
+### What was done so far
+
+- Dev19: FPXV.
+- Dev20: sharded counters, two-line comment rule, and opt-in chain start.
+- Dev21: guest-time ledger, lookup diagnostics, and XMOD1.
+- Dev22: SUYU_RECOMP_EXCL_STATS and smoke_exclusive_stats_unit.
+- Dev23: cross chain default-on, opt-in lock-free marking, atomic monitor slots, and review fixes.
+- Dev24: 32-bit block index, index-miss segment-search removal, launcher index report, tests, negative controls, and full verification.
+- Session 28:
+  - Compared production clang-cl /O2 AOT blocks with x64 Dynarmic JIT dumps from the same ARM64 sequences.
+  - Hand counts found memory checks, block entry, RET, and flag materialization as the main short-block differences.
+  - Confirmed the current host was rebuilt at HEAD and recorded its GIT_REV.
+  - Produced the PLA export at aaaedd5 with cross/direct/indirect chain and FM inline enabled.
+  - Confirmed the 32-bit index report totals 67,068 KiB across the five modules.
+  - Compared baseline, lookup-change, and current FPS readings under the same conditions.
+  - Found no measurable FPS effect from lookup-miss removal or the 32-bit index; older exports were overwritten.
+  - Removed old build/test leftovers and retained the documented scratch cleanup rule and folders.
+
+### Key observations
+
+- At session 24, AOT versus JIT speed-limit-off differed by about 17.2 ms/frame busy-core time (98.5 versus 52.0/54.1); this is a lead, not a proof of per-component causality.
+- In 36,000 samples, recompiled_image.dll was 49.9%; low-RVA helpers, lookup, and dispatch were about 7.5%. Generated block bodies are the remaining high-value area; profile shares do not equal AOT-minus-JIT costs.
+- Block A (ldr/add/str/ret) was about 71 AOT instructions plus about 10 in lookup versus about 39 JIT fastmem; memory checks account for about 28 of the roughly 41-instruction difference, with entry about 16 and RET about 8. JIT omits page-cross/watch-word checks; AOT flag stores materialize four flags. These are hand counts for one short block, not whole-program measurements.
+- Baseline 3b3e244: 24.6 FPS (~40.7 ms/frame); 8dd61a1: one 25.2 FPS reading; aaaedd5: 24.5/25.0/24.0 (mean 24.5, ~40.8 ms/frame). Same-condition readings varied by about 1–1.5 FPS, so lookup and 32-bit index changes show no measurable FPS effect; older exports were overwritten.
+- No measured effect: lookup miss-path change and 32-bit index; chain experiment (2.00 versus 1.80 ms/frame) remains unexplained. Earlier helper/inlining and lock-free single readings are not settled performance evidence.
+
+### Open issues in priority order
+
+#### Group A — remaining AOT/JIT gap (about 17 ms/frame busy-core at session 24)
+
+1. Per-access checks: measure the nested naturally-aligned page-cross candidate; page-table walk and GG1 watch-word removal needs fault handling or a design change.
+2. Per-block entry costs: GG1 generation, halted, entry-point, and frame checks; SUYU_AOT_CHAIN_START covers entry testing with a 2 GiB budget.
+3. Flag materialization: four stores per compare versus JIT's packed word.
+4. RET and conditional-branch transfers: re-experiment with chaining only after explaining the earlier regression.
+
+Evidence for all four is instruction-count analysis, not a measured FPS gain; keep changes small and negatively controlled.
+
+#### Group B — carried work and environment limits
+
+5. Decide whether SUYU_EXCL_LOCKFREE_MARK becomes default-on; needs a long PLA soak.
+6. Test-and-test-and-set for the Dynarmic SpinLock stub, opt-in and JIT-neutral until measured.
+7. Shorten the exclusive bridge path.
+8. Remaining sdk<->main exits (about 8M each way per 10 s).
+9. XMOD1 untested items: real ArmRecomp accounting, RecordMiss, RecompGaps, IC IVAU through the chain, 256-budget stop, and optional positive publication log.
+10. Older all-static/legacy DLL launcher diagnostics, Python cryptography dependency, and held items (opcode totals, SVC attribution, Stage F, automatic all-static re-plan, MSVC cl title support, U2, two-lifetime seam, real loader/refusal paths, export-regression Qt lookup, old-manifest reuse, tracked .pyc files, mutex+map miss records, carried A/B exports, chain-start-off A/B, optional JIT attribution, and final sdk+0x346040 callee).
+
+### Immediate next action
+
+Ask the user to choose an issue; do not build or export without approval.
+
+### How to proceed
+
+Before more code, use D:\HisuiWakeBuild\diag\hotrva\sample_raw_rip2.ps1 on the current AOT export by RVA (only when the user is not measuring) to attribute the gap to block bodies. Judge instruction counts first, then at least three same-position FPS readings per build; require a gain beyond the 1–1.5 FPS noise spread. Keep each change small, add a negative-controlled test, and obtain one Code reviewer round before a full export.
+
+### Design notes
+
+The flat index replaces two binary searches with a read-only 4-byte-per-instruction-word table; its measured memory reduction is real, but its cache/TLB performance effect was not established. Generated registration uses current ABI names and prototypes; shared image handles remain live while published pointers exist; guard negotiation requires agreement across modules.
+
+## Session 29 investigation record (2026-10-14 to 2026-10-16)
+Recorded 2026-10-16 from session 29. Values are as measured; interpretations are marked. Raw evidence: D:\HisuiWakeBuild\logs (`access_stats_a304400_suyu_log.txt`, `access_time_f943708.txt`, `access_sites_f943708.txt`, `fmi_share_f943708.txt`, `block_cats_f943708.txt`, `block_regs_f943708.txt`, `rip_raw_f943708.txt`, `rip_raw_jit_f943708.txt` with `.modules`, `launcher_an_aot_f943708.txt`, `launcher_an_jit_f943708.txt`); scripts in D:\HisuiWakeBuild\tmp_gt; launcher/PDB and JIT `suyu.exe`/PDB in D:\HisuiWakeBuild\backup\aaaedd5_aot, f943708_aot, f943708_jit (PDB GUID/Age matched the executables).
+
+### Sampling at aaaedd5 (before the diagnostics)
+
+36,000 samples over CPUCore_0..2 of the AOT launcher: `recompiled_image.dll` 49.8%, ntdll 26.6% (23.1% in `ZwWaitForAlertByThreadId`, 1.3% condition-variable wait), launcher exe 17.3%, dynamic code 5.9%. Launcher categories (percent of all samples): generated `blk_*` 5.23, other 4.50, dispatch/lookup/slice 3.32, SVC/kernel 2.17, memory helpers 1.34, locks 0.49. DLL block bodies were flat: 5,726 distinct hot functions, the top 10 cover 6.9%, the top 1,000 cover 30.7%; low-RVA runtime helpers (0x1160, 0x48d0, 0x2d60) were about 2.7%. ntdll outside the waits was about 1.5% (`ZwProtectVirtualMemory` 0.55, `RtlRunOnceBeginInitialize` 0.50, `ZwAlertThreadByThreadIdEx` 0.44); their callers were not identified.
+
+### Arena (host base + guest address) fastmem design investigation (read-only; not implemented)
+
+Verified facts. JIT: `config.fastmem_pointer = page_table->fastmem_arena` (`arm_dynarmic_64.cpp:248-252`; `Auto` accuracy sets `fastmem_address_space_bits = 64`, so no range test); access is `[r13 + vaddr]` (`emit_x64_memory.h:169-205`); faults are handled by a SEH handler registered with `RtlAddFunctionTable` over the JIT block that looks the faulting RIP up in `fastmem_patch_info`, pushes a fake call into a per-site thunk and returns to the next instruction (`exception_handler_windows.cpp`, `emit_x64_memory.cpp.inc:30-47,102-109`); `recompile_on_fastmem_failure` rebuilds a failed site without fastmem. Host memory: the arena is `DeviceMemory().buffer.VirtualBasePointer()` with offset = guest VA, reserved 2^39 bytes (`device_memory.cpp`); special pages are represented by OS protection (`PAGE_NOACCESS` placeholders for unmapped, `Protect` to no access for debug pages, to none or read for rasterizer pages depending on `use_reactive_flushing`, which defaults to true off Android, and read-only for code); the table-based AOT accessors read `Common::PageTable::PageEntryData` (32 bytes) with a range test, a page-cross test, one table load with the pointer mask, and for GG1 stores the watch word. AOT slow path: `recomp_*_slow` -> `HostLoad`/`HostStore` (48-bit mask, `Core::Memory` accessors, `ReportUnmapped`). Generated code keeps guest registers in `c->x[]` and writes `c->pc` only at block exit.
+Design conclusions. A direct-access design needs: a range test kept (tagged and out-of-range addresses must reach the 48-bit-masked slow path); hardware faults standing in for unmapped/debug/rasterizer/page-cross; GG1's contract kept by the invariant that watched code pages are never writable in the arena (to be verified at activation); the ABI feature bit 4 and a `fm_arena` field after `fm_limit` (offset 888) with its handshake; unchanged output when off. Fault recovery in generated C needs an explicit fault site because the compiler owns register allocation: the candidate is a GNU `asm goto` access with an image-relative exception table in a dedicated section and a vectored exception handler that rewrites `Rip` to the recovery label.
+Probe (clang-cl 22.1.8, `/O2`, standalone, deleted afterwards): `asm goto` with an output operand, a `.pushsection .rex` table of `.rva` pairs found through the PE section headers, and a vectored handler recovered 4 of 4 faulting accesses (NOACCESS load, NOACCESS store, store to a read-only page, a load straddling into a NOACCESS page) and passed the normal load/store; without the handler it crashed with 0xC0000005. Not verified: partial writes of a page-straddling store, the cost of a Windows exception per fault, vector and pair sites, instruction-cache effects.
+Why it was not pursued: the host callbacks measured below are 98.6% rasterizer pages at 80,000-105,000 per second, which would be faults without per-site demotion (the AOT cannot recompile a site like the JIT), and the inline memory-check share bounds the possible gain at about 4-6% of samples. A software alternative (one bit per page, `fastbit(p) = simple(p) && simple(p+1)`, which also removes the page-cross test) was described but not built.
+
+### Host callback diagnostics (a304400, f943708)
+
+`SUYU_RECOMP_ACCESS_STATS=1` swaps `bridge.load`/`store` for counting wrappers that classify each access by reason from the page entry and time the real callback with the TSC; `SUYU_RECOMP_ACCESS_SITES=1` also records three host return addresses per access (`RtlCaptureStackBackTrace`, anchored at the wrapper's return address) in per-thread tables. Unit tests `smoke_access_stats_unit` and `smoke_access_sites_unit` carry negative controls (weakened classifiers; a site key built from the first frame only fails).
+a304400 counters (static position, steady state after about 54 s): about 105,000 callbacks/s, loads 4.86e5 and stores 5.6e5 per 10 s; rasterizer 98.6%, page_cross 1.4%, others 0 (watched 0). f943708 timing run: 80,000/s (stores 3.2e5 per 10 s; the difference to the earlier run is unexplained), `load_ms` 43 and `store_ms` about 352 per 10 s, mean 500 ns on rasterizer accesses, loads about 90 ns, stores about 1.1 us. Sites run (timings not representative): 293-294 distinct stacks, about 741,000 counted per 10 s, top 16 = 80%. Symbolized with the PDB: `blk_sdk_53ae94` 67k, `blk_sdk_53ad64` (two sites) 115k plus `recomp_stp32` called from it 55k, `blk_sdk_53ae20` with `recomp_stp64` 39k, `blk_sdk_4660e0` 37k, `blk_sdk_473fe0` 30k per 10 s, and main-module blocks at guest 0x2a1f94c, 0x2a2131c, 0x184454, 0x1e1d944 (33k-49k each). The three adjacent sdk blocks 53ad64/53ae20/53ae94 are about 37% of all callbacks (likely a copy loop; not disassembled).
+
+### Inline memory-check share (f943708, no diagnostics)
+
+Hot functions were disassembled and each instruction weighted by RIP samples. FMI check windows (the `fm_limit` compare through the page-cross test, and the table load through `and -4`/null test, plus the GG1 watch word): 1,297 samples = 3.60% of all (DLL 2.78% over the top 700 functions covering 60% of DLL samples, exe 0.83%), later 3.91% with all categories below; the unresolved table sites (39%, the pointer mask lies in another code block) are counted by their first instruction only, and the table-load latency skids onto the data access, so this is a lower bound. Extrapolating to the unanalysed DLL functions gives about 5.5%; the range compare stays in any arena design, so the removable share is smaller.
+
+### Block overhead categories (generated blocks)
+
+Generated-block samples in the analysed functions: DLL 9,558 plus exe 1,454 = 30.6% of all samples (41.9% of busy). By category (all / busy): GEN guard 0.41 / 0.56, halted 0.14 / 0.20, entry pc 0.48 / 0.65, chain budget 0.10 / 0.14, in-block transfers 0.16 / 0.22, flag stores 0.10 / 0.13, FMI checks 3.91 / 5.36, prologue/epilogue 1.46 / 1.99, GPR file accesses 5.61 / 7.69, vector register file 1.34 / 1.83; classified total 13.71 / 18.78. Block structure seen: generation guard (two `mov [rip+..]`, `cmp`, `jne`), halted test (`[ctx+0x128]`), entry-pc dispatch (`[ctx+0x100]`, module base, compare, jump table), per-access FMI sequences, a budget decrement at `[ctx+0x360]` and an indirect jump after the lookup call at exit.
+Guest register file: 1,464 static GPR loads vs 21,525 stores; samples 33 vs 1,990; 1,277 of the store samples (3.55% of all) are stores directly after the guest data load that produced the value (static 1,312 of 21,525), i.e. data-load latency attributed to the consumer, which the JIT also pays; stores overwritten within a straight-line span 0.25% (the analysis stops at jump targets and calls, so redundancy is under-counted). Conclusion: promoting guest registers to block locals cannot remove a large share.
+
+### AOT vs JIT per frame (same position, speed limit off)
+
+FPS AOT 24.5 (40.8 ms), JIT 30 (33.3 ms). Sampling the JIT `suyu.exe` (f943708 build): dynamic code 57.9%, ntdll 35.8% (29.8% wait, 3.1% condition-variable wait, 1.0% alert), exe 5.9% (SVC/kernel 3.21, other 1.59, memory helpers 0.52). The AOT run: DLL 49.5, ntdll 26.7, exe 17.2 (`blk_*` 5.30, other 4.69, dispatch/lookup/slice 3.18, SVC/kernel 2.05, memory helpers 1.23, locks 0.56), dynamic 6.0 (one page). Converted at 3 cores x frame time: AOT 122.4 core-ms/frame, JIT 100.0; busy (not ntdll/kernelbase) 89.4 vs 64.2; generated code 67.1 vs 57.9; other code 21.9 vs 5.9. Host exclusive functions summed by name: 5.57% (AOT) vs 0.15% (JIT). The 6.0% dynamic page: 2,166 samples in a 0x30-byte range at 0x308e1501000, offsets 0x0e (934), 0x24 (659), 0x07 (440) and a few others, on CPUCore_0/1/2 = 852/664/650; with the stub layout (`jmp start` 5 bytes, `pause` at 5, `mov eax,1` at 7, `xchg` at 0xc, `test` at 0xe, unlock after `align()`) these are the instructions right after the lock xchg, the pause and the unlock xchg. Whether the page is the SpinLock stub was inferred, not checked in memory.
+Exclusive monitor structure: one `SpinLock lock` in `Dynarmic::ExclusiveMonitor` (`interface/exclusive_monitor.h`), after `exclusive_addresses` (4 slots) and `exclusive_values`, shared by all cores; `EmitSpinLockLock` is `jmp start; loop: pause; start: mov eax,1; xchg [ptr],eax; test; jnz loop` (the `lock` prefix commented out, `xchg` is implicitly locked); the JIT inlines the same emitter (`emit_x64_memory.h:353`); the AOT bridge locks per exclusive access in `DynarmicExclusiveMonitor` after resolving the plain host pointer outside the lock.
+
+### Method notes and pitfalls
+
+- Attribute host callbacks by stack frames; `ctx.pc` is stale in chains. Frame 0 can be inside the generated block itself (helpers inlined) or an out-of-line `recomp_stp32/64`.
+- `llvm-symbolizer` through a PowerShell pipe returned `??`; feeding it from a Python subprocess worked. The exported launcher differs from `bin\suyu-cmd-static.exe` by 270,848 bytes (appended data) but has the same PDB GUID/Age.
+- Sampler module list lacks the `dll_base=` key that `hot_analysis.py` expects; a one-line `.modules` file with `dll_base=0x.. size=0x..` works. Disassembly of PE functions: wrap bytes in a COFF object (`mkcoff.py` style) and run `llvm-objdump -d -M intel`.
+- Visual Studio 18 BuildTools `vcvars64.bat` prints a harmless `vswhere.exe` message under `cmd.exe /c`; a standalone `cl` or `clang-cl` build still works.
+- The host rebuild after a CMake source-list change is a full rebuild of about 1,600 steps (about 15 minutes); an incremental build after a source-only change takes about a minute.

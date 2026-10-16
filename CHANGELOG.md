@@ -2,6 +2,23 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev25 - Unreleased
+
+*Development entry 25 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added the opt-in `SUYU_RECOMP_ACCESS_STATS=1` (exact `1`) diagnostic: the host load/store callbacks that recompiled code reaches are classified by reason (tagged, out_of_range, unmapped, debug, rasterizer, page_cross, watched, other) from the page entry, counted per thread, timed with the TSC around the real callback, and reported every 10 s as an `access-stats` line with per-reason counts and `avg_ns_<reason>`. Off by default; when off the bridge callbacks are the unchanged ones and generated code, ABI and exports are untouched.
+- Added the opt-in `SUYU_RECOMP_ACCESS_SITES=1` (needs ACCESS_STATS) diagnostic: three host return addresses per callback access are counted in per-thread tables and the busiest 16 stacks are reported as `access-sites` lines with `module+0xrva` (a stack walk per access, so timings are not representative). New files `recomp_access_stats.h`, `recomp_access_sites.h`, `recomp_host_frames.{h,cpp}`.
+- Added `smoke_access_stats_unit` and `smoke_access_sites_unit`, registered in `tests/recompiler_smoke/CMakeLists.txt` and `run.py`; they carry negative controls (four weakened classifiers; a site key built from the first frame only).
+
+### Verified
+- Both units pass standalone (`cl /W4`, no warnings); the weakened site-key variant fails as intended; the host (`suyu`, `suyu-cmd`) builds at a304400 and f943708 with exit 0 and no new warnings.
+- Measured on PLA with the diagnostics (see WORK_PLAN and OLD_HISTORY, session 29): about 80,000-105,000 host callbacks per second, 98.6% on GPU-tracked pages, about 1.6 core-ms per frame in callback time.
+
+### Not verified
+- The full smoke run (`tests/recompiler_smoke/run.py`) and the other existing suites were not run for these commits; no Code reviewer round was taken.
+- No speed effect is claimed; the diagnostics are for measurement only.
+
 ## v0.0.1-dev24 - Unreleased
 
 *Development entry 24 toward v0.0.1. Not a release; no build artifacts are published.*
