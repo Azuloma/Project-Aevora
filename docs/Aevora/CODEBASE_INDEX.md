@@ -1,6 +1,6 @@
 # Aevora Codebase Index
 
-Snapshot of the source tree at `36a1a40` (2026-10-11), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
+Snapshot of the source tree at `2fdf3f9` (2026-10-16), updated from a read-only survey. It is a navigation aid, not a verified architecture specification.
 
 - References marked **(v)** were checked directly against the source. Other `path:line` references come from automated exploration and can drift as files change; search for the symbol if a line does not match.
 - Statements marked *inference* were not confirmed by reading the full implementation.
@@ -247,13 +247,19 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | MCP server in Qt app | `src/suyu/mcp_server.{h,cpp}`, created at `main.cpp:5346-5445` (v). Port comes from `SUYU_MCP_PORT`. There are also "Hacker"/"Gamer" modes (`main.cpp:585-590` (v), `gamer_environment.*`). Fork-specific; purpose and security exposure not yet reviewed. |
 | `src/suyu_cmd` | SDL command-line frontend (`suyu.cpp`). Also used as the static launcher host (export build kit). The launcher's window title comes from the executable name in `emu_window/emu_window_sdl2_vk.cpp` (~`:35-62`); convert paths with `Common::FS::PathToUTF8String`, never `path::string()`, on Windows. |
 | `src/suyu_cmd/overlay/debug_overlay.{h,cpp}` | Dear ImGui Vulkan overlay UI: command bar, Debug window sections, build identity, native status, recompiled CPU, and GPU diagnostics; created by default unless `SUYU_DEBUG_OVERLAY=0`. |
-| `SuyuCmd::AcquireDebugOverlay` | `src/suyu_cmd/overlay/debug_overlay.cpp:57` (v, 2026-10-09) | Process-wide overlay acquisition; intentionally never destroys the object because the renderer retains a raw pointer and owns shutdown. |
-| `src/suyu_cmd/overlay/overlay_logic.h` | ImGui-free command-bar visibility and bounded cross-thread mouse-input router. |
-| `src/suyu_cmd/emu_window/emu_window_sdl2.cpp:132,196,290,427,577,669,881` | F12 panel: `kResScaleEntries`, `DevApplyResScale`, `DevBindSelected`, `DevApplyPadMapping`, `DevPanelProc`, `ShowDevMenu`, and `OnKeyEvent` F12 branch. |
+| `SuyuCmd::AcquireDebugOverlay` | `src/suyu_cmd/overlay/debug_overlay.cpp:108` **(v, 2026-10-16)** | Process-wide overlay acquisition; intentionally never destroys the object because the renderer retains a raw pointer and owns shutdown. |
+| `src/suyu_cmd/overlay/overlay_logic.h:96-256` **(v)** | ImGui-free command-bar visibility plus bounded mouse, keyboard, and UTF-8 text-input routing. |
+| `src/suyu_cmd/overlay/overlay_actions.h:21-41` **(v)** | Bounded FIFO UI action/status channel bound to the event thread. |
+| `src/suyu_cmd/overlay/graphics_settings.h:18-26` **(v)** | Save-only Resolution Scale action rule and hooks. |
+| `src/suyu_cmd/overlay/controller_settings.h:23-148` **(v)** | Player 1 controller snapshot, binding rules, and request helpers. |
+| `src/suyu_cmd/overlay/rebind_session.h:18-111` **(v)** | Non-blocking five-second controller rebind state machine and hooks. |
+| `src/suyu_cmd/resolution_scale_host.h:13-25` **(v)** | Event-thread Resolution Scale host hooks. |
+| `src/common/resolution_scale_table.h:14-50` **(v)** | Shared 13-entry Resolution Scale table and enum-order validation. |
+| `src/suyu_cmd/emu_window/emu_window_sdl2.cpp:553-575` **(v)** | F12 mods discovery under `<exe>/mods/<title-id>/<mod-name>`. |
 | `src/suyu_cmd/controller_assign.h:27,135` | `PadBinding` and `Slots`, the controller-slot and Joy-Con assignment definitions shared by automatic assignment and the F12 panel. |
 | `src/suyu_cmd/overlay/overlay_stats.h` | Frame-time history, guest-PC/module placement, fallback counters/verdict, execution-mode text, and timing helpers. |
 | `src/suyu_cmd/overlay/build_identity.{h,cpp}` | Parses packaged `aot_manifest.json` display fields and stores the launcher build identity. |
-| `src/suyu_cmd/emu_window/emu_window_sdl2.h:75`, `emu_window_sdl2.cpp:1028` **(v)**; `emu_window_sdl2_vk.{h,cpp}:40,198` **(v)** | `EmuWindow_SDL2::RouteOverlayEvent` and Vulkan SDL event translation route overlay-owned mouse input before game dispatch. |
+| `src/suyu_cmd/emu_window/emu_window_sdl2.h:74-91`, `emu_window_sdl2.cpp:1009-1035,1217-1362` **(v)**; `emu_window_sdl2_vk.{h,cpp}:40-42,194-305` **(v)** | `RouteOverlayEvent`/`WaitEvent`/`RunOverlayActions`/`SyncOverlayTextInput`, controller snapshot/request/rebind host methods, and Vulkan SDL overlay translation route overlay input before game dispatch. |
 | `src/suyu_cmd/native_status.cpp:110-134` **(v)** | `SampleNativeStatus` publishes the current shader-build count in `NativeStatusSnapshot::shaders_building`. |
 | Qt configuration tabs | `src/suyu/configuration/` (`configure_dialog.cpp`, `configure_per_game.cpp`, `configure_graphics_extensions.cpp` for `Category::RendererExtensions`). Labels and tooltips come from `src/suyu/configuration/shared_translation.cpp`; `src/qt_common/config/shared_translation.cpp` is a separate copy. |
 | `src/qt_common`, `src/frontend_common` | Shared Qt utilities; cross-frontend config, content/firmware/mod/playtime managers. |
@@ -280,7 +286,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 |---|---|
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
 | `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, production bundle-loading and mixed-image checks, the three-module xmod fixture, loader stub and lookup-boundary cases, `check_prebuild` split consumer checks, and `smoke_env_option_unit`; MSVC golden hashes require `/utf-8`, matching the real build. |
-| `tests/recompiler_smoke/overlay_logic_unit.cpp`, `build_identity_unit.cpp` | Standalone tests for overlay command/input/statistics logic and AOT manifest build-identity parsing. |
+| `tests/recompiler_smoke/overlay_logic_unit.cpp`, `overlay_actions_unit.cpp`, `graphics_settings_unit.cpp`, `controller_settings_unit.cpp`, `build_identity_unit.cpp` | Standalone tests for overlay command/input, action queue, graphics/controller settings, and AOT manifest build-identity parsing. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` **(v)** | Standalone `RecompThreadTimeLedger` unit; registered as `smoke_thread_time_unit` and invoked by `run.py`. |
 | `tests/recompiler_smoke/guest_time_unit.cpp` | `smoke_guest_time_unit`, registered in `CMakeLists.txt:115-117` and `run.py:854`. (v, 2026-10-11) |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` **(v, 2026-10-10)** | Standalone `RecompShardedCounters` unit; registered as `smoke_sharded_counters_unit` and invoked by `run.py`, with a race-free shared-slot negative control. |

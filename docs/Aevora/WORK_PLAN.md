@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-16 (session 30). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
+Handoff prepared: 2026-10-16 (session 31). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
 
 ## Objective
 
@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD ac96270 = v0.0.1-dev25. The host was reconfigured and rebuilt at ac96270; re-check `GIT_REV ac96270` at session start. The last PLA export is `D:\HisuiWakeExports\_NEW` at ac96270, fully static, with TTAS, lock-free marks, and chain start default-on; launcher and PDB are in `D:\HisuiWakeBuild\backup\ac96270_aot`. Older backups are `d0ae37b_aot` and `f943708_aot`/`_jit`; evidence logs and samples are in `D:\HisuiWakeBuild\logs`, analysis scripts in `D:\HisuiWakeBuild\tmp_gt`. Optimization is paused; ImGui Stage F is the focus. These Markdown changes and previous batches are uncommitted until the user commits.
+HEAD 2fdf3f9 contains F0-F4. The last PLA export is unchanged at ac96270, so the host `GIT_REV` still reads ac96270 only if the host was not reconfigured: re-check `GIT_REV` against HEAD before exporting. The last PLA export is `D:\HisuiWakeExports\_NEW` at ac96270, fully static, with TTAS, lock-free marks, and chain start default-on; launcher and PDB are in `D:\HisuiWakeBuild\backup\ac96270_aot`. Older backups are `d0ae37b_aot` and `f943708_aot`/`_jit`; evidence logs and samples are in `D:\HisuiWakeBuild\logs`, analysis scripts in `D:\HisuiWakeBuild\tmp_gt`. Optimization is paused; ImGui Stage F is the focus. These Markdown changes and previous batches are uncommitted until the user commits.
 
 ## What was done so far
 
@@ -20,20 +20,21 @@ HEAD ac96270 = v0.0.1-dev25. The host was reconfigured and rebuilt at ac96270; r
 - Dev24: 32-bit block index, index-miss shortcut, launcher index report; see CHANGELOG.md.
 - Dev25: access diagnostics, SpinLock TTAS, and default-on TTAS/lock-free marks/chain start; see CHANGELOG.md.
 - Session 30: measured TTAS and ac96270 PLA export; main DLL 1,721.8 MiB, launcher 483.5 MiB, 26 FPS versus 24.3 FPS unattributed; see CHANGELOG.md.
+- Stage F0-F4: overlay survey, keyboard/text forwarding, action queue, Graphics window, and Player 1 Controller window; commits through `2fdf3f9` are complete.
 
 ## Immediate next action
 
-Run F0, the read-only Code Explorer survey, then implement F1; see the Stage F plan.
+Implement F5: Mods/folders/status parity with the F12 panel. Mods are `<exe>/mods/<title-id>/<mod-name>` read at `src/suyu_cmd/emu_window/emu_window_sdl2.cpp:~552-575` **(v)**; before F6 the user should confirm overlay parity on PLA.
 
 ## Stage F plan (ImGui Settings, current focus)
 
 Goal: Settings -> Graphics and Controller (Player 1) windows plus the Mods/folders and status content of the F12 panel in the ImGui overlay, then retire the F12 panel. Each stage has one behavior, tests with a negative control, one Code reviewer round, and a user commit; settings changes use the action queue and shared definitions.
 
-- F0 survey: SDL event pump and queue drain; settings/HID callers; SDL text input; resolution table; mods discovery; every F12 reference. Read-only, output path:line references.
-- F1 keyboard/text forwarding: owned key presses, text events, focus reset, bounded queue, atomic text-input request; add router tests and a weakened-router negative control.
-- F2 UI action queue: bounded ordered event-thread queue and status channel; test ordering, overflow, cross-thread drain, and wrong-side execution.
-- F3 Graphics: Resolution Scale only, next-launch note, one shared 13-entry table, and apply-action tests.
-- F4 Controller: Player 1 device/binding/Joy-Con actions, non-blocking rebind state machine, and standalone tests.
+- F0 survey: done (read-only; no code).
+- F1 keyboard/text forwarding: done, commits `22a1045`, `350af77`.
+- F2 UI action queue: done, commits `2d1a42e`, `2b219fa`.
+- F3 Graphics: done, commits `468cd47`, `7ab529e`.
+- F4 Controller: done, commits `6498ed1`, `2fdf3f9`.
 - F5 Mods/folders/status: parity with the F12 panel.
 - F6 retire F12: remove panel/key branch and update all references after user confirms PLA parity.
 
@@ -41,7 +42,15 @@ Goal: Settings -> Graphics and Controller (Player 1) windows plus the Mods/folde
 
 ### Group E - ImGui Stage F
 
-F0 survey, F1 keyboard/text, F2 action queue, F3 Graphics, F4 Player 1 Controller, F5 Mods/folders/status, and F6 F12 retirement; follow the Stage F plan above.
+F0 survey, F1 keyboard/text, F2 action queue, F3 Graphics, and F4 Player 1 Controller are done. F5 Mods/folders/status and F6 F12 retirement remain; follow the Stage F plan above.
+
+### Not verified / open
+
+- No manual check of the overlay windows in a running game or with real devices (ImGui layout, combo, menus, rebind with a real pad, Map/Combine/Split, popup capture region). The user should test on PLA/any title before F6 retires F12.
+- Backend limitation (also in F12 and Qt): `BeginMapping` puts every input engine in configuration mode, which stops value updates; a key or axis held when a capture starts and released during it keeps its stored pressed value after `StopMapping`, so the game can see a stuck input until it is pressed and released again (`src/input_common/main.cpp`, `input_engine.cpp`). Needs an input-backend policy; not fixed.
+- `controller_assign.h` has no unit test (it needs `ParamPackage`, which standalone test targets do not link), so the new `only_slot` filter and host wiring (`HandleControllerRequest`, `MakeRebindHooks`) are covered only by pure-logic seams and review.
+- The Qt Resolution Scale table remains a second copy (gated by the drift test, not derived).
+- Comments longer than two lines still exist elsewhere in touched files (reviewers listed examples in `emu_window_sdl2.cpp`, `emu_window_sdl2_vk.cpp`, `suyu_cmd/CMakeLists.txt`); trim them when touched.
 
 ### Paused optimization backlog
 
@@ -86,3 +95,9 @@ Use the Stage F rhythm: one behavior per stage, tests with a negative control, o
 ## Design notes
 
 The arena fastmem design record is archived in OLD_HISTORY.md and was not implemented. The TTAS record and measurements are archived there; TTAS produced no measured gain and remains default-on by user decision.
+
+- `AcquireDebugOverlay` never destroys the overlay because the renderer keeps a raw pointer and shuts it down in its own destructor; on an early-exit path the window (declared after the system in `main`) is destroyed first. Never destroying it also avoids Vulkan calls during static destruction after the device is gone.
+- The overlay's ImGui state is owned by the scheduler worker thread (`Record` runs NewFrame/UI/Render/submission there); `Initialize` and `Shutdown` run on the renderer thread while the worker is quiescent.
+- Mouse capture regions lag the UI by up to one frame: a click made in the frame a window appears can be lost, never doubled.
+- F3 uses save-only Resolution Scale application because the running renderer reads rescaling info without synchronization; `CreateGPU` recomputes it at the next launch.
+- F1 Reset clears ImGui keys and mouse state because a Reset+FocusGained pair in one batch merges inside ImGui 1.92.9b and would leave keys down.

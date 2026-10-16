@@ -2,6 +2,33 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev26 - Unreleased
+
+*Development entry 26 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added F1 ImGui overlay keyboard/text forwarding: owned key presses, bounded UTF-8 text events, focus reset, capture requests, and SDL text-input synchronization.
+- Added the F2 bounded FIFO UI action/status channel with event-thread binding, reentrancy guard, detach refusal, loading-time pump, and overflow status.
+- Added the F3 Graphics window with Resolution Scale, a shared 13-entry table, save-only next-launch application, and a Qt/table drift check.
+- Added the F4 Player 1 Controller window with device selection, mapping, keyboard and Joy-Con actions, binding rows, and a non-blocking five-second rebind session with analog validation.
+
+### Changed
+- Shared controller snapshots and Player 1 binding helpers keep UI reads mutex-protected and route mutations through the event thread; F12 changes are reflected in the overlay.
+- Overlay popup regions capture the whole display while open, and overlay reset clears ImGui keys and mouse state after focus loss.
+- Commits: `22a1045`, `350af77`, `2d1a42e`, `2b219fa`, `468cd47`, `7ab529e`, `6498ed1`, `2fdf3f9` (F1-F4 and review fixes).
+
+### Verified
+- Standalone tests pass after each stage with negative controls: `overlay_logic_unit`, `overlay_actions_unit`, `graphics_settings_unit`, and `controller_settings_unit`. Real-router mutations checked key-release ownership, reentrancy, detach refusal, same-value skip, and the analog `accept` predicate.
+- `suyu-cmd` builds with exit 0 after every stage. The three new CMake registrations and `run.py` calls were added; the CMake-driven test build was not run, and tests were built directly with `cl`.
+- One Code reviewer round per stage was completed; F1 six, F2 four, F3 three, and F4 seven findings were fixed.
+
+### Not verified
+- No manual check of overlay windows in a running game or with real devices (ImGui layout, combo, menus, rebind with a real pad, Map/Combine/Split, popup capture region). The user should test on PLA/any title before F6 retires F12.
+- Backend limitation (also in F12 and Qt): `BeginMapping` puts every input engine in configuration mode, which stops value updates; a key or axis held when a capture starts and released during it keeps its stored pressed value after `StopMapping`, so the game can see a stuck input until it is pressed and released again (`src/input_common/main.cpp`, `input_engine.cpp`). Needs an input-backend policy; not fixed.
+- `controller_assign.h` has no unit test (it needs `ParamPackage`, which standalone test targets do not link), so the new `only_slot` filter and host wiring (`HandleControllerRequest`, `MakeRebindHooks`) are covered only by pure-logic seams and review.
+- The Qt Resolution Scale table remains a second copy (gated by the drift test, not derived).
+- Comments longer than two lines still exist elsewhere in touched files (reviewers listed examples in `emu_window_sdl2.cpp`, `emu_window_sdl2_vk.cpp`, `suyu_cmd/CMakeLists.txt`); trim them when touched.
+
 ## v0.0.1-dev25 - Unreleased
 
 *Development entry 25 toward v0.0.1. Not a release; no build artifacts are published.*
