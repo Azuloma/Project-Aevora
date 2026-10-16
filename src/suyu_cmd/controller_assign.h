@@ -407,11 +407,12 @@ inline bool AssignControllers(
 
 /// F12 "Combine Joy-Cons": a connected pair whose halves are on two different players becomes
 /// one player, Dual Joy-Cons, in the lower slot; the other slot is cleared and disconnected.
-/// With @p map_pad empty nothing changes and only the slot it would use is returned.
+/// With @p map_pad empty nothing changes and only the slot it would use is returned. With
+/// @p only_slot set, only a pair that has a half on that slot is considered.
 inline std::optional<std::size_t> CombineJoycons(
     std::array<Settings::PlayerInput, 10>& players, const std::vector<Common::ParamPackage>& devices,
     const std::array<int, Settings::NativeButton::NumButtons>& stock_keys,
-    const PadMapper& map_pad) {
+    const PadMapper& map_pad, std::optional<std::size_t> only_slot = std::nullopt) {
     using namespace detail;
     const Slots slots{players, devices, stock_keys};
     for (const auto& pair : devices) {
@@ -419,7 +420,8 @@ inline std::optional<std::size_t> CombineJoycons(
             continue;
         }
         const auto holding = slots.Holding(pair);
-        if (holding.size() < 2) {
+        if (holding.size() < 2 || (only_slot && std::find(holding.begin(), holding.end(),
+                                                          *only_slot) == holding.end())) {
             continue;
         }
         if (map_pad) {
@@ -438,11 +440,11 @@ inline std::optional<std::size_t> CombineJoycons(
 /// F12 "Split Joy-Cons": a pair on one player becomes two sideways Joy-Cons, the left half on
 /// that player and the right half on the next free player after it, each with its own
 /// default mapping. With @p map_pad empty nothing changes and only the pair's slot is
-/// returned.
+/// returned. With @p only_slot set, only a pair on that slot is considered.
 inline std::optional<std::size_t> SplitJoycons(
     std::array<Settings::PlayerInput, 10>& players, const std::vector<Common::ParamPackage>& devices,
     const std::array<int, Settings::NativeButton::NumButtons>& stock_keys,
-    const PadMapper& map_pad) {
+    const PadMapper& map_pad, std::optional<std::size_t> only_slot = std::nullopt) {
     using namespace detail;
     const Slots slots{players, devices, stock_keys};
     for (const auto& pair : devices) {
@@ -451,7 +453,8 @@ inline std::optional<std::size_t> SplitJoycons(
         }
         const auto holding = slots.Holding(pair);
         if (holding.size() != 1 || players[holding.front()].controller_type !=
-                                       Settings::ControllerType::DualJoyconDetached) {
+                                       Settings::ControllerType::DualJoyconDetached ||
+            (only_slot && holding.front() != *only_slot)) {
             continue;
         }
         // SDL lists a pair under its right half's GUID, suyu's own driver under its left.

@@ -296,6 +296,72 @@ int SnapshotBoxHandsOverWholeValues() {
     return 0;
 }
 
+// A stick row only takes a capture with both axes; a button or key leaves it listening.
+bool StickRowIgnoresButtons(bool with_accept) {
+    FakePoller poller;
+    RebindHooks hooks = poller.Hooks();
+    if (with_accept) {
+        hooks.accept = [](bool analog, const std::string& captured) {
+            return !analog || captured.find("axis_x") != std::string::npos;
+        };
+    }
+    RebindSession session{hooks};
+    session.Begin(15, true, 0);
+    poller.next = "engine:sdl,button:3";
+    const RebindResult button = session.Poll(10);
+    if (button.kind != RebindResult::Kind::None || !session.Active() || poller.stops != 0) {
+        return false;
+    }
+    poller.next = "engine:sdl,axis_x:0,axis_y:1";
+    const RebindResult stick = session.Poll(20);
+    if (stick.kind != RebindResult::Kind::Captured || stick.captured.find("axis_x") == std::string::npos) {
+        return false;
+    }
+    // A button row still takes a button.
+    session.Begin(2, false, 30);
+    poller.next = "engine:sdl,button:3";
+    return session.Poll(40).kind == RebindResult::Kind::Captured && poller.begins == poller.stops;
+}
+
+int AnalogRowsAcceptOnlySticks() {
+    CHECK(StickRowIgnoresButtons(true));
+    CHECK(!StickRowIgnoresButtons(false));
+
+    // Ignored captures do not extend the deadline.
+    FakePoller poller;
+    RebindHooks hooks = poller.Hooks();
+    hooks.accept = [](bool, const std::string&) { return false; };
+    RebindSession session{hooks};
+    session.Begin(0, false, 0);
+    poller.next = "anything";
+    CHECK(session.Poll(kRebindTimeoutMs).kind == RebindResult::Kind::TimedOut);
+    return 0;
+}
+
+int OtherRequestsEndARunningCapture() {
+    using Kind = ControllerRequest::Kind;
+    CHECK(!RequestCancelsRebind(Kind::BeginRebind));
+    for (const Kind kind : {Kind::MapDevice, Kind::UseKeyboard, Kind::ClearBinding,
+                            Kind::CancelRebind, Kind::CombineJoycons, Kind::SplitJoycons}) {
+        CHECK(RequestCancelsRebind(kind));
+    }
+    return 0;
+}
+
+int DeviceChoiceFollowsItsId() {
+    ControllerSnapshot snapshot;
+    snapshot.devices = {{"idA", "Pad A"}, {"idB", "Pad B"}};
+    CHECK(FindDevice(snapshot, "idB") == 1);
+    // Another pad is unplugged and the list reorders: the choice is still the same pad.
+    snapshot.devices = {{"idB", "Pad B"}};
+    CHECK(FindDevice(snapshot, "idB") == 0);
+    // The chosen pad itself is gone: nothing is selected, never a neighbour.
+    snapshot.devices = {{"idA", "Pad A"}};
+    CHECK(!FindDevice(snapshot, "idB"));
+    CHECK(!FindDevice(snapshot, ""));
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -308,6 +374,9 @@ int main() {
     CHECK(BindingRulesHoldOnlyForTheRealFunctions() == 0);
     CHECK(CapturedBindingFlowsThroughTheActionQueue() == 0);
     CHECK(SnapshotBoxHandsOverWholeValues() == 0);
+    CHECK(AnalogRowsAcceptOnlySticks() == 0);
+    CHECK(OtherRequestsEndARunningCapture() == 0);
+    CHECK(DeviceChoiceFollowsItsId() == 0);
     std::puts("All synthetic CONTROLLER SETTINGS smoke checks passed.");
     return 0;
 }

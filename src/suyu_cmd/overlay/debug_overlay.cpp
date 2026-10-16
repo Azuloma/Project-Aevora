@@ -456,21 +456,24 @@ void DebugOverlay::BuildControllerWindow() {
         if (view.devices.empty()) {
             ImGui::TextWrapped("No controller detected - plug one in.");
         } else {
-            controller_device_choice = std::min(controller_device_choice, view.devices.size() - 1);
-            if (ImGui::BeginCombo("Device", view.devices[controller_device_choice].name.c_str())) {
+            const auto chosen = FindDevice(view, controller_device_id);
+            const char* const preview =
+                chosen ? view.devices[*chosen].name.c_str() : "Select a controller";
+            if (ImGui::BeginCombo("Device", preview)) {
                 for (std::size_t i = 0; i < view.devices.size(); ++i) {
                     ImGui::PushID(static_cast<int>(i));
-                    if (ImGui::Selectable(view.devices[i].name.c_str(),
-                                          i == controller_device_choice)) {
-                        controller_device_choice = i;
+                    if (ImGui::Selectable(view.devices[i].name.c_str(), chosen == i)) {
+                        controller_device_id = view.devices[i].id;
                     }
                     ImGui::PopID();
                 }
                 ImGui::EndCombo();
             }
-            if (ImGui::Button("Map to Player 1")) {
-                PostController({Kind::MapDevice, 0, view.devices[controller_device_choice].id});
+            ImGui::BeginDisabled(!chosen);
+            if (ImGui::Button("Map to Player 1") && chosen) {
+                PostController({Kind::MapDevice, 0, view.devices[*chosen].id});
             }
+            ImGui::EndDisabled();
             ImGui::SameLine();
         }
         if (ImGui::Button("Use keyboard")) {

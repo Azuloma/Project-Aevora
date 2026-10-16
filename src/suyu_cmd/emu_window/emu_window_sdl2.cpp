@@ -42,11 +42,8 @@ constexpr u64 kStatusRefreshMs = 750;
 constexpr u64 kControlsSaveMs = 2000;
 constexpr Sint32 kEventWaitSliceMs = 250;
 
-// The controllers among the input devices: gamepads SDL recognises and whatever suyu's own
-// Joy-Con / Pro Controller driver lists. SDL also lists wheels, flight sticks and virtual or
-// RGB devices as joysticks, and none of those should take a player. The input backend names
-// an SDL device by its GUID with the name checksum cleared. @p sdl_gamepads, when given, gets
-// how many gamepads SDL itself sees.
+// Gamepads SDL recognises plus suyu's own Joy-Con / Pro Controller driver; wheels and virtual
+// devices take no player. @p sdl_gamepads, when given, gets how many gamepads SDL sees.
 std::vector<Common::ParamPackage> ControllerPads(const std::vector<Common::ParamPackage>& devices,
                                                  std::size_t* sdl_gamepads = nullptr) {
     std::set<std::string> gamepad_guids;
@@ -886,6 +883,7 @@ void EmuWindow_SDL2::OnFingerUp() {
 void EmuWindow_SDL2::OnKeyEvent(int key, u8 state) {
 #ifdef _WIN32
     if (state == SDL_PRESSED && key == SDL_SCANCODE_F12) {
+        CancelControllerRebind();
         ShowDevMenu(system, input_subsystem);
         return;
     }
@@ -1238,9 +1236,9 @@ SuyuCmd::ControllerSnapshot EmuWindow_SDL2::BuildControllerSnapshot() {
     const auto pads = ControllerPads(devices);
     auto& players = Settings::values.players.GetValue();
     snapshot.can_combine =
-        SuyuCmd::CombineJoycons(players, pads, SdlConfig::default_buttons, {}).has_value();
+        SuyuCmd::CombineJoycons(players, pads, SdlConfig::default_buttons, {}, 0).has_value();
     snapshot.can_split =
-        SuyuCmd::SplitJoycons(players, pads, SdlConfig::default_buttons, {}).has_value();
+        SuyuCmd::SplitJoycons(players, pads, SdlConfig::default_buttons, {}, 0).has_value();
     if (rebind_session && rebind_session->Active()) {
         snapshot.rebinding = true;
         snapshot.rebind_row = rebind_session->Row();
@@ -1252,6 +1250,9 @@ SuyuCmd::ControllerSnapshot EmuWindow_SDL2::BuildControllerSnapshot() {
 SuyuCmd::UiActionResult EmuWindow_SDL2::HandleControllerRequest(
     const SuyuCmd::ControllerRequest& request) {
     using Kind = SuyuCmd::ControllerRequest::Kind;
+    if (SuyuCmd::RequestCancelsRebind(request.kind)) {
+        CancelControllerRebind();
+    }
     const SuyuCmd::Player1Hooks hooks = MakePlayer1Hooks(system);
     auto& player = Settings::values.players.GetValue()[0];
     switch (request.kind) {
@@ -1297,10 +1298,10 @@ SuyuCmd::UiActionResult EmuWindow_SDL2::HandleControllerRequest(
             MapDefault(*input_subsystem, pad, target);
         };
         const auto slot =
-            combine ? SuyuCmd::CombineJoycons(players, pads, SdlConfig::default_buttons, map_pad)
-                    : SuyuCmd::SplitJoycons(players, pads, SdlConfig::default_buttons, map_pad);
+            combine ? SuyuCmd::CombineJoycons(players, pads, SdlConfig::default_buttons, map_pad, 0)
+                    : SuyuCmd::SplitJoycons(players, pads, SdlConfig::default_buttons, map_pad, 0);
         if (!slot) {
-            return {false, "No Joy-Cons to change right now."};
+            return {false, "No Joy-Cons to change for Player 1 right now."};
         }
         hooks.commit();
         const std::string player_number = std::to_string(*slot + 1);
@@ -1325,6 +1326,12 @@ SuyuCmd::RebindHooks EmuWindow_SDL2::MakeRebindHooks() {
                 return captured.Has("engine") ? captured.Serialize() : std::string{};
             },
         .stop = [this] { input_subsystem->StopMapping(); },
+        .accept =
+            [](bool analog, const std::string& captured) {
+                // A stick needs both axes; a button or key would store a dead stick binding.
+                const Common::ParamPackage package{captured};
+                return !analog || (package.Has("axis_x") && package.Has("axis_y"));
+            },
     };
 }
 

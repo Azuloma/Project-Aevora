@@ -158,10 +158,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     // The Vulkan surface still exists and the renderer supplies frame captures.
     if (!headless_capture) {
         SDL_ShowWindow(render_window);
-        // Showing a window does not focus it. Without this the window sits behind the
-        // launching terminal, and on macOS a non-frontmost window has its CAMetalLayer
-        // throttled, which looks like an emulator performance problem rather than a
-        // window management one.
+        // Showing a window does not focus it; a non-frontmost macOS window is throttled.
         SDL_RaiseWindow(render_window);
     }
     OnResize();

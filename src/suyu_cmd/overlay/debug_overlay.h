@@ -130,7 +130,7 @@ private:
     OverlayRect graphics_window_rect{};
     bool show_controller_window{};
     OverlayRect controller_window_rect{};
-    std::size_t controller_device_choice{};
+    std::string controller_device_id; ///< Empty until the player picks one.
     OverlayRect debug_window_rect{}; ///< Where the Debug window was drawn this frame.
     FrameTimeHistory frame_times;
     u32 target_width_px{};

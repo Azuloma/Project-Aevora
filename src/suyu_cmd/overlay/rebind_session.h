@@ -24,6 +24,8 @@ struct RebindHooks {
     std::function<void(bool analog)> begin; ///< Starts the backend's poller.
     std::function<std::string()> next_input; ///< Serialized input seen, or empty.
     std::function<void()> stop;              ///< Stops the poller.
+    /// Whether a capture suits the binding kind; others are ignored. Empty accepts everything.
+    std::function<bool(bool analog, const std::string& captured)> accept;
 };
 
 struct RebindResult {
@@ -61,6 +63,7 @@ public:
         Stop();
         hooks.begin(analog);
         active = true;
+        analog_target = analog;
         row = target_row;
         started_ms = now_ms;
     }
@@ -71,7 +74,7 @@ public:
             return {};
         }
         std::string captured = hooks.next_input();
-        if (!captured.empty()) {
+        if (!captured.empty() && (!hooks.accept || hooks.accept(analog_target, captured))) {
             const std::size_t captured_row = row;
             Stop();
             return {RebindResult::Kind::Captured, captured_row, std::move(captured)};
@@ -104,6 +107,7 @@ private:
 
     RebindHooks hooks;
     bool active{};
+    bool analog_target{};
     std::size_t row{};
     std::uint64_t started_ms{};
 };

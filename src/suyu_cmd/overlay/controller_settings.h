@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,6 +52,12 @@ struct ControllerRequest {
     std::string device_id;
 };
 
+/// Every request except starting a capture ends a running one first, so a late capture cannot
+/// overwrite what the request just set.
+inline bool RequestCancelsRebind(ControllerRequest::Kind kind) {
+    return kind != ControllerRequest::Kind::BeginRebind;
+}
+
 struct ControllerRow {
     std::string label;
     std::string shown;
@@ -71,6 +78,17 @@ struct ControllerSnapshot {
     std::size_t rebind_row{};
     std::uint64_t rebind_remaining_ms{};
 };
+
+/// Position of the device with `id` in the snapshot, if it is still listed.
+inline std::optional<std::size_t> FindDevice(const ControllerSnapshot& snapshot,
+                                             const std::string& id) {
+    for (std::size_t i = 0; i < snapshot.devices.size(); ++i) {
+        if (snapshot.devices[i].id == id) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
 
 /// One value handed from the event thread to the UI thread.
 template <class T>

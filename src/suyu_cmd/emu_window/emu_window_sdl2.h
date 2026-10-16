@@ -21,9 +21,8 @@ namespace Core {
 class System;
 }
 
-/// Defined in suyu.cpp. True once native recompiled CPU modules are
-/// registered — the running process is a standalone game export, so window
-/// chrome (title/icon) should read as the game, not the suyu dev frontend.
+/// Defined in suyu.cpp. True once native recompiled CPU modules are registered (a standalone
+/// game export), so the window title and icon read as the game.
 extern bool g_native_export_mode;
 
 /// Defined in suyu.cpp. True when this executable runs as an exported package (a static
@@ -71,9 +70,7 @@ public:
     bool PumpEventsWhileLoading();
 
 protected:
-    /// Offers a mouse or window-focus event to the frontend overlay before the game sees it.
-    /// Returns true if the overlay took it (the pointer is over its UI), in which case the game
-    /// must not get it.
+    /// Offers an input or focus event to the overlay first; true means the game must not get it.
     virtual bool RouteOverlayEvent(const SDL_Event& event) {
         return false;
     }
