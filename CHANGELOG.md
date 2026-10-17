@@ -2,6 +2,26 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev28 - Unreleased
+
+*Development entry 28 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+- Added BIZ UDPGothic Regular as the embedded ImGui overlay font. It is unmodified from `google/fonts` `ofl/bizudpgothic` at commit `6ce172f74aa355ea43eb964fa4a91570a4d3064d`; the TTF is 4,669,688 bytes with SHA-256 `258d7156c165f2ff774b6efee637c22c3b950de0d8a10e501137061bc8085d01`, and its name table carries the copyright and license. The font is licensed under SIL OFL 1.1 by Morisawa Inc. and Type Bank Co.; the copyright is `2022 The BIZ UDGothic Project Authors`.
+- Added `CMakeModules/EmbedBinary.cmake`, which generates little-endian uint64 words and the TTF size in `dist/suyu_cmd/overlay_font_data.cpp` at build time. The `aevora_overlay_font` static library is linked by every `suyu-cmd` target, and the build kit freezes it with the other in-tree libraries using static reading only.
+- Added `src/suyu_cmd/overlay/overlay_style.{h,cpp}` as the single source for overlay style, UI scale, theme colors, and font loading. The style uses a 1.25 scale, 13 px base font, a `#46478B` theme, 6 px window rounding at 100%, and a transparent main-menu-bar window background so only `MenuBarBg` is drawn; font-load failure logs an error and falls back to ImGui's default font.
+- Added `tests/recompiler_smoke/overlay_style_unit.cpp`, registered as `smoke_overlay_style_unit`, checking theme colors and alpha rules, 125% scaling, and equality between embedded bytes and the TTF, with negative controls for opaque bars, fixed alpha, swapped channels, flipped bytes, and truncated bytes.
+
+### Changed
+- Fixed the menu-bar background alpha rule after review found `WindowBg` composited under `MenuBarBg` at about 0.996 effective alpha; the window background is now alpha 0. Buttons remain opaque, hovered/active buttons are lightened by 12%/25%, closed Resolution Scale and Device combo frames use the theme, and open lists and the frame-time graph keep default colors. Fixed window sizes and column widths now use `Scaled()`; the 20 px hover reveal strip remains intentionally unscaled.
+
+### Verified
+- `rebuild-suyu.bat` exited 0 after the review fixes; logs are `D:\HisuiWakeBuild\logs\build_dev28.log` and `D:\HisuiWakeBuild\logs\build_dev28b.log`.
+- `overlay_style_unit` was built standalone with `cl` in a scratch folder and exited 0. The full `run.py` suite was not run, and the unit does not test ImGui style application or drawing.
+
+### Not verified
+- The overlay's font, 125% scale, colors, translucency, and rounding still need the user's hand test with host `suyu-cmd`. An exported build needs a commit, reconfigure, and full export first.
+
 ## v0.0.1-dev27 - Unreleased
 
 *Development entry 27 toward v0.0.1. Not a release; no build artifacts are published.*

@@ -37,6 +37,8 @@ if (SUYU_CMD OR YUZU_CMD)
         overlay/overlay_actions.h
         overlay/overlay_logic.h
         overlay/overlay_stats.h
+        overlay/overlay_style.cpp
+        overlay/overlay_style.h
         overlay/rebind_session.h
         sdl_config.cpp
         resolution_scale_host.h
@@ -332,6 +334,17 @@ if (SUYU_CMD OR YUZU_CMD)
 
     create_resource("../../dist/suyu.bmp" "suyu_cmd/suyu_icon.h" "suyu_icon")
 
+    # The overlay font is compiled once into a library shared by every suyu-cmd target.
+    set(AEVORA_OVERLAY_FONT_TTF "${PROJECT_SOURCE_DIR}/dist/fonts/BIZUDPGothic/BIZUDPGothic-Regular.ttf")
+    set(AEVORA_OVERLAY_FONT_CPP "${PROJECT_BINARY_DIR}/dist/suyu_cmd/overlay_font_data.cpp")
+    add_custom_command(
+        OUTPUT "${AEVORA_OVERLAY_FONT_CPP}"
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${AEVORA_OVERLAY_FONT_TTF} -DOUTPUT=${AEVORA_OVERLAY_FONT_CPP}
+                -DSYMBOL=aevora_overlay_font -P "${PROJECT_SOURCE_DIR}/CMakeModules/EmbedBinary.cmake"
+        DEPENDS "${AEVORA_OVERLAY_FONT_TTF}" "${PROJECT_SOURCE_DIR}/CMakeModules/EmbedBinary.cmake"
+        COMMENT "Embedding the overlay font" VERBATIM)
+    add_library(aevora_overlay_font STATIC "${AEVORA_OVERLAY_FONT_CPP}")
+
     include(ExportBuildKit)
     suyu_export_build_kit_add_probes()
 
@@ -356,7 +369,7 @@ if (SUYU_CMD OR YUZU_CMD)
 
         target_include_directories(${_t} PRIVATE ${RESOURCES_DIR})
 
-        target_link_libraries(${_t} PRIVATE SDL3::SDL3 Vulkan::Headers VulkanMemoryAllocator Aevora::imgui)
+        target_link_libraries(${_t} PRIVATE SDL3::SDL3 Vulkan::Headers VulkanMemoryAllocator Aevora::imgui aevora_overlay_font)
         # FFmpeg headers are not transitively exposed by core; add them explicitly
         target_include_directories(${_t} PRIVATE ${FFmpeg_INCLUDE_DIR})
 

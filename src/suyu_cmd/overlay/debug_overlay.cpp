@@ -20,6 +20,7 @@
 #include "suyu_cmd/native_status.h"
 #include "suyu_cmd/overlay/build_identity.h"
 #include "suyu_cmd/overlay/debug_overlay.h"
+#include "suyu_cmd/overlay/overlay_style.h"
 
 namespace SuyuCmd {
 
@@ -145,7 +146,7 @@ bool DebugOverlay::Initialize(const Core::Frontend::VulkanOverlayContext& new_co
     io.LogFilename = nullptr;
     // The window owns the OS pointer; ImGui only draws its own while the window hides it.
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-    ImGui::StyleColorsDark();
+    ApplyOverlayStyle();
 
     last_frame_time = std::chrono::steady_clock::now();
     LOG_INFO(Frontend, "Debug overlay initialized (ImGui {})", ImGui::GetVersion());
@@ -361,6 +362,7 @@ void DebugOverlay::BuildCommandBar() {
         return;
     }
 
+    ImGui::SetNextWindowBgAlpha(kMainMenuBarWindowBgAlpha);
     if (ImGui::BeginMainMenuBar()) {
         command_bar_height_px = ImGui::GetWindowHeight();
         if (ImGui::BeginMenu("Settings")) {
@@ -389,8 +391,8 @@ void DebugOverlay::BuildDebugWindow() {
     if (!show_debug_window) {
         return;
     }
-    constexpr ImVec2 kFirstPosition{16.0f, 48.0f};
-    constexpr ImVec2 kFirstSize{320.0f, 120.0f};
+    constexpr ImVec2 kFirstPosition{Scaled(16.0f), Scaled(48.0f)};
+    constexpr ImVec2 kFirstSize{Scaled(320.0f), Scaled(120.0f)};
 
     ImGui::SetNextWindowPos(kFirstPosition, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(kFirstSize, ImGuiCond_FirstUseEver);
@@ -425,8 +427,8 @@ void DebugOverlay::BuildGraphicsWindow() {
     if (!show_graphics_window) {
         return;
     }
-    ImGui::SetNextWindowPos({16.0f, 48.0f}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize({420.0f, 150.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos({Scaled(16.0f), Scaled(48.0f)}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({Scaled(420.0f), Scaled(150.0f)}, ImGuiCond_FirstUseEver);
     const bool expanded = ImGui::Begin("Graphics", &show_graphics_window);
     graphics_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
                             ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
@@ -434,7 +436,7 @@ void DebugOverlay::BuildGraphicsWindow() {
         const std::size_t current = resolution_scale_index.load(std::memory_order_relaxed);
         const auto& entries = Settings::kResolutionScaleEntries;
         const char* const preview = entries[std::min(current, entries.size() - 1)].label;
-        if (ImGui::BeginCombo("Resolution Scale", preview)) {
+        if (BeginThemedCombo("Resolution Scale", preview)) {
             for (std::size_t i = 0; i < entries.size(); ++i) {
                 if (ImGui::Selectable(entries[i].label, i == current)) {
                     PostResolutionScale(i);
@@ -461,8 +463,8 @@ void DebugOverlay::BuildControllerWindow() {
         return;
     }
     using Kind = ControllerRequest::Kind;
-    ImGui::SetNextWindowPos({16.0f, 48.0f}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize({520.0f, 560.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos({Scaled(16.0f), Scaled(48.0f)}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({Scaled(520.0f), Scaled(560.0f)}, ImGuiCond_FirstUseEver);
     const bool expanded = ImGui::Begin("Controller (Player 1)", &show_controller_window);
     controller_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
                               ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
@@ -474,7 +476,7 @@ void DebugOverlay::BuildControllerWindow() {
             const auto chosen = FindDevice(view, controller_device_id);
             const char* const preview =
                 chosen ? view.devices[*chosen].name.c_str() : "Select a controller";
-            if (ImGui::BeginCombo("Device", preview)) {
+            if (BeginThemedCombo("Device", preview)) {
                 for (std::size_t i = 0; i < view.devices.size(); ++i) {
                     ImGui::PushID(static_cast<int>(i));
                     if (ImGui::Selectable(view.devices[i].name.c_str(), chosen == i)) {
@@ -502,9 +504,9 @@ void DebugOverlay::BuildControllerWindow() {
         }
         ImGui::Separator();
         if (ImGui::BeginTable("bindings", 3, ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Input", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("Input", ImGuiTableColumnFlags_WidthFixed, Scaled(150.0f));
             ImGui::TableSetupColumn("Bound to", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, 130.0f);
+            ImGui::TableSetupColumn("##actions", ImGuiTableColumnFlags_WidthFixed, Scaled(130.0f));
             for (std::size_t row = 0; row < view.rows.size(); ++row) {
                 const bool capturing = view.rebinding && view.rebind_row == row;
                 ImGui::PushID(static_cast<int>(row));
@@ -553,8 +555,8 @@ void DebugOverlay::BuildModsFoldersWindow() {
     if (!was_open) {
         PostModsFolders({Kind::Rescan, FolderKind::Mods});
     }
-    ImGui::SetNextWindowPos({16.0f, 48.0f}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize({560.0f, 380.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos({Scaled(16.0f), Scaled(48.0f)}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({Scaled(560.0f), Scaled(380.0f)}, ImGuiCond_FirstUseEver);
     const bool expanded = ImGui::Begin("Mods and folders", &show_mods_folders_window);
     mods_folders_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
                                 ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
@@ -563,7 +565,7 @@ void DebugOverlay::BuildModsFoldersWindow() {
         const auto folder_row = [&](const char* label, const std::string& path, FolderKind kind) {
             ImGui::PushID(label);
             ImGui::TextUnformatted(label);
-            ImGui::SameLine(110.0f);
+            ImGui::SameLine(Scaled(110.0f));
             ImGui::TextWrapped("%s", path.empty() ? "(unknown)" : path.c_str());
             if (ImGui::Button("Open")) {
                 PostModsFolders({Kind::OpenFolder, kind});
@@ -724,7 +726,7 @@ void DebugOverlay::BuildPerformanceSection() {
                   frame_times.Max());
     ImGui::PlotLines("##frame_times", frame_times.Values(),
                      static_cast<int>(frame_times.Count()), frame_times.Offset(), summary, 0.0f,
-                     FLT_MAX, ImVec2(0.0f, 60.0f));
+                     FLT_MAX, ImVec2(0.0f, Scaled(60.0f)));
 }
 
 void DebugOverlay::BuildCpuSection() {

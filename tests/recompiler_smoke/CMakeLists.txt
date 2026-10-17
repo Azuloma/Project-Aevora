@@ -138,6 +138,17 @@ elseif(NOT GENERATED_DIR)
   if(MSVC)
     target_compile_options(smoke_build_identity_unit PRIVATE /utf-8)
   endif()
+  set(overlay_font_cpp "${CMAKE_CURRENT_BINARY_DIR}/overlay_font_data.cpp")
+  add_custom_command(OUTPUT "${overlay_font_cpp}"
+      COMMAND ${CMAKE_COMMAND}
+          -DINPUT=${SUYU_SOURCE}/dist/fonts/BIZUDPGothic/BIZUDPGothic-Regular.ttf
+          -DOUTPUT=${overlay_font_cpp} -DSYMBOL=aevora_overlay_font
+          -P "${SUYU_SOURCE}/CMakeModules/EmbedBinary.cmake"
+      DEPENDS "${SUYU_SOURCE}/CMakeModules/EmbedBinary.cmake"
+          "${SUYU_SOURCE}/dist/fonts/BIZUDPGothic/BIZUDPGothic-Regular.ttf" VERBATIM)
+  add_executable(smoke_overlay_style_unit overlay_style_unit.cpp "${overlay_font_cpp}")
+  target_compile_features(smoke_overlay_style_unit PRIVATE cxx_std_20)
+  target_include_directories(smoke_overlay_style_unit PRIVATE "${SUYU_SOURCE}/src")
   add_executable(smoke_env_option_unit env_option_unit.cpp)
   target_compile_features(smoke_env_option_unit PRIVATE cxx_std_20)
   target_include_directories(smoke_env_option_unit PRIVATE "${SUYU_SOURCE}/src")

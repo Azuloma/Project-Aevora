@@ -170,3 +170,9 @@ License: GPL-3.0-or-later
 Comment: CPM.cmake has had additional modifications from crueter to better work with CPMUtil
          https://git.crueter.xyz/CMake/CPMUtil
          https://git.crueter.xyz/CMake/Modules
+
+Files: dist/fonts/BIZUDPGothic/*
+Copyright: 2022 The BIZ UDGothic Project Authors (https://github.com/googlefonts/morisawa-biz-ud-gothic)
+License: OFL-1.1
+Comment: BIZ UDPGothic Regular by Morisawa Inc. and Type Bank Co., unmodified from
+         https://github.com/google/fonts/tree/main/ofl/bizudpgothic (commit 6ce172f74aa355ea43eb964fa4a91570a4d3064d)
