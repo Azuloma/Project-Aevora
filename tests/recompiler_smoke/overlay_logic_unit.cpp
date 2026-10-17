@@ -93,6 +93,11 @@ int StaysWhileOverBar() {
 int MenuKeepsBarUp() {
     CHECK(ShouldShowCommandBar({true, 300.0f, true, 24.0f, true}));
     CHECK(ShouldShowCommandBar({false, 0.0f, true, 24.0f, true}));
+    // A popup opened elsewhere (a combo in a window) does not summon a hidden bar.
+    CHECK(!ShouldShowCommandBar({true, 300.0f, false, 0.0f, true}));
+    CHECK(!ShouldShowCommandBar({false, 0.0f, false, 0.0f, true}));
+    // The hover zone still reveals it, popup or not.
+    CHECK(ShouldShowCommandBar({true, 5.0f, false, 0.0f, true}));
     return 0;
 }
 

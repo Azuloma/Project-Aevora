@@ -37,14 +37,15 @@ struct CommandBarInput {
     bool was_visible{};
     /// Height the bar had when last drawn; only read while it is visible.
     float bar_height_px{};
-    /// A popup opened from the bar is up; the bar must not vanish underneath it.
+    /// Some popup is open. It only keeps a visible bar up: a popup opened elsewhere (a combo)
+    /// must not make the bar appear and take focus from it.
     bool menu_open{};
 };
 
 /// The bar appears when the pointer enters the hover zone and stays while the pointer is over
 /// the bar itself or a menu from it is open.
 inline bool ShouldShowCommandBar(const CommandBarInput& input) {
-    if (input.menu_open) {
+    if (input.menu_open && input.was_visible) {
         return true;
     }
     if (!input.mouse_in_window) {
