@@ -908,17 +908,14 @@ void EmuWindow_SDL2::OnFrameDisplayed() {
     if (!tas_playback) {
         return;
     }
-    // Called on the render thread once per presented frame. The TAS driver
-    // consumes exactly one command per call, which is what keeps a recorded
-    // script deterministic against the frames the guest actually renders.
+    // Render thread, once per presented frame: one TAS command per call keeps a replay
+    // deterministic against the frames the guest renders.
     auto* const tas = input_subsystem->GetTas();
     tas->UpdateThread();
 
     const auto [state, progress, lengths] = tas->GetStatus();
     if (!tas_started) {
-        // Start on the first displayed frame rather than at load: before the
-        // guest presents anything there is no frame for command zero to land
-        // on. Reset reloads the script so playback always begins at the top.
+        // Start on the first displayed frame; Reset reloads the script so it begins at the top.
         tas->Reset();
         tas->StartStop();
         tas_started = true;
@@ -929,15 +926,11 @@ void EmuWindow_SDL2::OnFrameDisplayed() {
         tas_progress = progress;
         return;
     }
-    // Playback ran off the end of the script and tas_loop is off. Quitting here
-    // is what makes --tas usable unattended; without it the replay finishes and
-    // the process sits idle until something kills it.
+    // The script ended and tas_loop is off: quit so --tas can run unattended.
     LOG_INFO(Frontend, "TAS playback finished, {} of {} frames, exiting", tas_progress,
              lengths[0]);
     tas_playback = false;
-    // WaitEvent is blocked in SDL_WaitEvent on the main thread. SDL_PushEvent is
-    // thread safe, and the main thread turns SDL_EVENT_QUIT into is_open = false,
-    // so the shutdown stays on the thread that owns the window.
+    // SDL_PushEvent is thread safe; the main thread turns SDL_EVENT_QUIT into is_open = false.
     SDL_Event quit_event{};
     quit_event.type = SDL_EVENT_QUIT;
     SDL_PushEvent(&quit_event);
@@ -950,11 +943,8 @@ bool EmuWindow_SDL2::IsShown() const {
 void EmuWindow_SDL2::OnResize() {
     int width, height;
     SDL_GetWindowSizeInPixels(render_window, &width, &height);
-    // A minimized window reports 0x0. Feeding that through as a layout makes
-    // the renderer build a zero-extent swapchain, which the driver never
-    // presents from - the window comes back blank and the main loop stops
-    // answering. Keep the last good layout instead; the next real resize (or
-    // the restore) delivers correct dimensions.
+    // A minimized window reports 0x0 and a zero-extent swapchain never presents; keep the last
+    // good layout until the next real size.
     if (width <= 0 || height <= 0) {
         return;
     }
@@ -1358,39 +1348,18 @@ void EmuWindow_SDL2::CancelControllerRebind() {
     }
 }
 
-namespace {
-// Mods, user data and keys live beside the executable, as the F12 panel shows them.
-std::filesystem::path ExecutableFolder() {
-    const char* const base = SDL_GetBasePath();
-    return base != nullptr ? std::filesystem::path(std::u8string(base, base + std::strlen(base)))
-                           : std::filesystem::path{};
-}
-
-std::filesystem::path OverlayFolderPath(SuyuCmd::FolderKind folder) {
-    switch (folder) {
-    case SuyuCmd::FolderKind::User:
-        return ExecutableFolder() / "user";
-    case SuyuCmd::FolderKind::Mods:
-        return ExecutableFolder() / "mods";
-    case SuyuCmd::FolderKind::Keys:
-        return Common::FS::GetSuyuPath(Common::FS::SuyuPath::KeysDir);
-    }
-    return {};
-}
-} // namespace
-
-SuyuCmd::ModsFoldersSnapshot EmuWindow_SDL2::BuildModsFoldersSnapshot() {
-    SuyuCmd::ModsFoldersSnapshot snapshot;
-    snapshot.user_folder = SuyuCmd::Utf8(OverlayFolderPath(SuyuCmd::FolderKind::User));
-    snapshot.mods_folder = SuyuCmd::Utf8(OverlayFolderPath(SuyuCmd::FolderKind::Mods));
-    snapshot.keys_folder = SuyuCmd::Utf8(OverlayFolderPath(SuyuCmd::FolderKind::Keys));
-    snapshot.scan = SuyuCmd::ScanMods(OverlayFolderPath(SuyuCmd::FolderKind::Mods));
-    snapshot.scanned = true;
-    return snapshot;
+SuyuCmd::FolderPaths EmuWindow_SDL2::OverlayFolderPaths() {
+    // The runtime's own path table: the export bootstrap points LoadDir at <exe>/mods.
+    return {Common::FS::GetSuyuPath(Common::FS::SuyuPath::UserDir),
+            Common::FS::GetSuyuPath(Common::FS::SuyuPath::LoadDir),
+            Common::FS::GetSuyuPath(Common::FS::SuyuPath::KeysDir)};
 }
 
 SuyuCmd::UiActionResult EmuWindow_SDL2::OpenOverlayFolder(SuyuCmd::FolderKind folder) {
-    const std::filesystem::path path = OverlayFolderPath(folder);
+    const SuyuCmd::FolderPaths paths = OverlayFolderPaths();
+    const std::filesystem::path path = folder == SuyuCmd::FolderKind::User   ? paths.user
+                                       : folder == SuyuCmd::FolderKind::Mods ? paths.mods
+                                                                             : paths.keys;
     if (path.empty()) {
         return {false, "The folder location is unknown"};
     }
@@ -1403,11 +1372,13 @@ SuyuCmd::UiActionResult EmuWindow_SDL2::OpenOverlayFolder(SuyuCmd::FolderKind fo
     const auto result = reinterpret_cast<INT_PTR>(
         ShellExecuteW(nullptr, L"explore", path.wstring().c_str(), nullptr, nullptr, SW_SHOW));
     const bool opened = result > 32;
+    const std::string failure = "Windows error code " + std::to_string(result);
 #else
     const bool opened = SDL_OpenURL(SuyuCmd::FileUrlFromPath(SuyuCmd::Utf8(path)).c_str());
+    const std::string failure = SDL_GetError();
 #endif
     if (!opened) {
-        return {false, "Could not open " + SuyuCmd::Utf8(path)};
+        return {false, "Could not open " + SuyuCmd::Utf8(path) + ": " + failure};
     }
     return {};
 }
@@ -1456,9 +1427,8 @@ void EmuWindow_SDL2::AutoAssignControllers() {
     const auto sdl_listed = static_cast<std::size_t>(
         std::count_if(pads.begin(), pads.end(),
                       [](const auto& pad) { return pad.Get("engine", "") == "sdl"; }));
-    // SDL can list a gamepad a moment before the input backend registers it,
-    // so look again for a few ticks. Only a few: gamepads the backend leaves to
-    // another driver (Joy-Cons under suyu's own driver) never show up here.
+    // SDL lists a gamepad before the backend registers it: retry a few ticks, no more, since
+    // Joy-Cons under suyu's own driver never show up here.
     if (gamepad_retries > 0 && sdl_listed < sdl_gamepads) {
         --gamepad_retries;
         gamepad_check_pending = true;
@@ -1505,9 +1475,7 @@ void EmuWindow_SDL2::AutoAssignControllers() {
 // Credits to Samantas5855 and others for this function.
 void EmuWindow_SDL2::SetWindowIcon() {
 #ifdef _WIN32
-    // Native game exports embed the ROM's own icon into the exe's PE resources
-    // (RT_GROUP_ICON id 1, see suyu/game_export.cpp) — use that instead of the
-    // suyu logo so the window reads as the game, not the emulator.
+    // Exports embed the game's icon as RT_GROUP_ICON id 1 (suyu/game_export.cpp); prefer it.
     if (g_native_export_mode) {
         const HICON hicon = static_cast<HICON>(
             LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1), IMAGE_ICON, 256, 256,

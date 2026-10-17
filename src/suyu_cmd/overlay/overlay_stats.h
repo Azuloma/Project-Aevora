@@ -100,11 +100,8 @@ struct GuestLocation {
     std::uint64_t offset{};
 };
 
-/// Names the module with the highest base at or below `pc`. `modules` maps load address to module
-/// name, as the CPU backend records it. This is only the nearest lower base: module sizes are
-/// not known, so it is not a check that `pc` lies inside that module (an address in a gap, or
-/// beyond the last module, is still attributed to the module below it). pc 0 means the core has
-/// not recorded a recompiled dispatch and is never placed.
+/// Names the module with the highest base at or below `pc` (module sizes are unknown, so this
+/// is not an in-module check). `modules` maps load address to name; pc 0 is never placed.
 inline GuestLocation ResolveGuestPc(std::uint64_t pc,
                                     const std::map<std::uint64_t, std::string>& modules) {
     if (pc == 0) {
@@ -118,9 +115,7 @@ inline GuestLocation ResolveGuestPc(std::uint64_t pc,
     return {true, above->second, pc - above->first};
 }
 
-/// What the counters say about leaving recompiled code. Any one of them is enough: a Hybrid run
-/// that never falls back is still not proof of fully static execution, but a fallback is proof
-/// that it was not.
+/// Counters for leaving recompiled code; any one nonzero proves a fallback, none proves nothing.
 struct FallbackCounters {
     std::uint64_t jit_transitions{};
     std::uint64_t lookup_misses{};
@@ -133,9 +128,8 @@ inline bool FallbackObserved(const FallbackCounters& counters) {
            counters.unhandled != 0 || counters.no_fallback != 0;
 }
 
-/// What the counters can and cannot say. They count attempts to leave recompiled code, not
-/// handoffs that completed: `no_fallback` counts the attempts a strict (or JIT-less) run refused,
-/// and nothing counts the ones the JIT then actually ran.
+/// What the counters can say: they count attempts to leave recompiled code, not completed
+/// handoffs; `no_fallback` counts attempts a strict or JIT-less run refused.
 enum class FallbackVerdict : std::uint8_t {
     None,      ///< Nothing has tried to leave recompiled code so far.
     Attempted, ///< Uncovered code was reached and a JIT handoff was requested.

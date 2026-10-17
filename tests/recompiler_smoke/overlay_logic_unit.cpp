@@ -181,9 +181,8 @@ int GameKeepsWhatIsOutside() {
 }
 
 int ClickIsNeverActedOnTwice() {
-    // The UI finished a frame with the pointer elsewhere; move, press and release onto the
-    // window arrive before its next frame. The regions are the only input, so the outcome is
-    // the same however stale the UI's frame is.
+    // Move, press and release onto the window arrive before the UI's next frame; the regions
+    // alone decide, however stale that frame is.
     OverlayInputRouter router;
     router.SetCaptureRegions({kWindow});
     CHECK(router.Route(Move(kInsideX, kInsideY)));

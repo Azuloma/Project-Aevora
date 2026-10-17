@@ -44,6 +44,8 @@ protected:
     void PublishOverlayResolutionScale();
     void InstallOverlayController();
     void InstallOverlayModsFolders();
+
+    std::unique_ptr<SuyuCmd::ModsScanner> mods_scanner;
     void ServiceOverlayController(bool actions_ran);
 
     bool controller_dirty{true};

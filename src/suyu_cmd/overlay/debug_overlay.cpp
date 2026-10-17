@@ -566,6 +566,9 @@ void DebugOverlay::BuildModsFoldersWindow() {
         folder_row("User data", view.user_folder, FolderKind::User);
         folder_row("Mods", view.mods_folder, FolderKind::Mods);
         folder_row("Keys", view.keys_folder, FolderKind::Keys);
+        if (!recent_status.empty()) {
+            ImGui::TextWrapped("%s", recent_status.back().text.c_str());
+        }
         ImGui::Separator();
         ImGui::TextUnformatted("Mods found under mods/ (title id / mod name):");
         ImGui::SameLine();
@@ -573,13 +576,20 @@ void DebugOverlay::BuildModsFoldersWindow() {
             PostModsFolders({Kind::Rescan, FolderKind::Mods});
         }
         if (ImGui::BeginChild("mods", {0.0f, 0.0f}, ImGuiChildFlags_Borders)) {
+            constexpr ImVec4 kErrorColor{1.0f, 0.35f, 0.3f, 1.0f};
             if (!view.scanned) {
                 ImGui::TextUnformatted("(scanning)");
-            } else if (view.scan.mods.empty()) {
+            } else if (view.scan.directory_missing) {
+                ImGui::TextUnformatted("(the mods folder does not exist yet - Open creates it)");
+            } else if (view.scan.mods.empty() && view.scan.errors.empty()) {
                 ImGui::TextUnformatted("(none - drop <title id>/<mod name>/ into mods/)");
             }
+            for (const std::string& error : view.scan.errors) {
+                ImGui::TextColored(kErrorColor, "Could not read: %s", error.c_str());
+            }
             for (const ModEntry& mod : view.scan.mods) {
-                ImGui::Text("%s  /  %s", mod.title_id_folder.c_str(), mod.mod_name.c_str());
+                ImGui::Text("%s  /  %s%s", mod.title_id_folder.c_str(), mod.mod_name.c_str(),
+                            mod.cheat_file ? "  (cheat file)" : "");
             }
             if (view.scan.truncated) {
                 ImGui::Text("(only the first %zu are listed)", kMaxListedMods);

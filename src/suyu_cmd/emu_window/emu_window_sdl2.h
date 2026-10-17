@@ -93,8 +93,8 @@ protected:
 
     void CancelControllerRebind();
 
-    /// The folders and mods list the overlay shows. Event thread only.
-    SuyuCmd::ModsFoldersSnapshot BuildModsFoldersSnapshot();
+    /// The user, mods and keys folders as the runtime resolves them.
+    SuyuCmd::FolderPaths OverlayFolderPaths();
 
     /// Opens a folder in the file manager, creating it first. Event thread only.
     SuyuCmd::UiActionResult OpenOverlayFolder(SuyuCmd::FolderKind folder);

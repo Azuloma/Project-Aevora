@@ -64,9 +64,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
             exe.clear();
         }
 #endif
-        // A generic name beats an empty title bar when the lookup fails.
-        // path::string() converts through the Windows ANSI code page and throws
-        // for characters it cannot represent (e.g. "é" under code page 932).
+        // A generic name beats an empty title; path::string() throws on unmappable ANSI text.
         return exe.empty() ? std::string{"suyu"} : Common::FS::PathToUTF8String(exe.stem());
     }();
 #else
@@ -258,11 +256,23 @@ void EmuWindow_SDL2_VK::InstallOverlayResolutionScale() {
 }
 
 void EmuWindow_SDL2_VK::InstallOverlayModsFolders() {
+    mods_scanner = std::make_unique<SuyuCmd::ModsScanner>();
     debug_overlay->SetModsFoldersApplier([this](const SuyuCmd::ModsFoldersRequest& request) {
         if (request.kind == SuyuCmd::ModsFoldersRequest::Kind::OpenFolder) {
             return OpenOverlayFolder(request.folder);
         }
-        debug_overlay->GetModsFoldersSnapshot().Publish(BuildModsFoldersSnapshot());
+        const SuyuCmd::FolderPaths paths = OverlayFolderPaths();
+        SuyuCmd::ModsFoldersSnapshot snapshot;
+        snapshot.user_folder = SuyuCmd::Utf8(paths.user);
+        snapshot.mods_folder = SuyuCmd::Utf8(paths.mods);
+        snapshot.keys_folder = SuyuCmd::Utf8(paths.keys);
+        SuyuCmd::DebugOverlay* const overlay = debug_overlay;
+        overlay->GetModsFoldersSnapshot().Publish(snapshot);
+        mods_scanner->Request(paths.mods, [overlay, snapshot](SuyuCmd::ModsScan scan) mutable {
+            snapshot.scan = std::move(scan);
+            snapshot.scanned = true;
+            overlay->GetModsFoldersSnapshot().Publish(std::move(snapshot));
+        });
         return SuyuCmd::UiActionResult{};
     });
 }
@@ -338,6 +348,7 @@ EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
         debug_overlay->SetResolutionScaleApplier({});
         debug_overlay->SetControllerApplier({});
         debug_overlay->SetModsFoldersApplier({});
+        mods_scanner.reset();
         CancelControllerRebind();
         debug_overlay->GetActions().DetachEventThread();
     }
