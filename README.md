@@ -15,7 +15,7 @@
 <p>
 <p align="center">
   <a href="#Status">Status</a> |
-  <a href="#Implemented features">Implemented features</a> |
+  <a href="#Features">Features</a> |
   <a href="#License">License</a>
 <p>
 
@@ -45,7 +45,7 @@ Currently, it has become clear that the Suyu recompiler's code execution method 
 | Linux         | Not yet validated                                                 | No verified AOT build            |
 | Android       | Not supported; outside the project's scope                        | N/A                              |
 
-## Implemented features
+## Features
 
 - Native CPU processing in Static AoT recompiler
 - An implementation of ImGUI, useful for debugging and quick configuration changes
