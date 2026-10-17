@@ -130,14 +130,22 @@ protected:
     /// Called when users want to hide the mouse cursor
     void ShowCursor(bool show_cursor);
 
-    /// Called when user passes the fullscreen parameter flag
-    void Fullscreen();
+    /// Enters fullscreen (also the --fullscreen flag); false if only a maximized window resulted.
+    bool Fullscreen();
 
     /// Whether the window is fullscreen right now. Event thread only.
     bool IsFullscreen() const;
 
+    /// Fullscreen, or maximized because fullscreen was refused; what the View menu shows.
+    bool FullscreenRequested() const {
+        return IsFullscreen() || fullscreen_fell_back;
+    }
+
     /// Switches between fullscreen and windowed. Event thread only.
-    void ToggleFullscreen();
+    SuyuCmd::UiActionResult ToggleFullscreen();
+
+    /// Matches the OS cursor and the frontend to the window's actual fullscreen state.
+    void ApplyFullscreenState();
 
     /// Called after a toggle with the resulting state, so a frontend can adapt its cursor.
     virtual void OnFullscreenChanged(bool fullscreen) {}
@@ -176,6 +184,21 @@ protected:
     u64 last_time = 0;
 
     SuyuCmd::RebindHooks MakeRebindHooks();
+
+    /// Window geometry before fullscreen, restored when leaving it.
+    struct WindowedGeometry {
+        int x{};
+        int y{};
+        int width{};
+        int height{};
+        bool valid{};
+    } windowed_geometry;
+
+    /// Fullscreen was refused and the window was maximized instead; the next toggle restores it.
+    bool fullscreen_fell_back{};
+
+    /// Which fullscreen hotkey presses the game must not see.
+    SuyuCmd::HotkeyKeyTracker hotkey_keys;
 
     /// The running "press the input you want" capture, created on first use.
     std::unique_ptr<SuyuCmd::RebindSession> rebind_session;

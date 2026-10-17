@@ -966,21 +966,45 @@ bool EmuWindow_SDL2::IsFullscreen() const {
     return (SDL_GetWindowFlags(render_window) & SDL_WINDOW_FULLSCREEN) != 0;
 }
 
-void EmuWindow_SDL2::ToggleFullscreen() {
+SuyuCmd::UiActionResult EmuWindow_SDL2::ToggleFullscreen() {
+    SuyuCmd::UiActionResult result;
+    bool left_fullscreen = false;
     if (IsFullscreen()) {
+        left_fullscreen = true;
         if (!SDL_SetWindowFullscreen(render_window, false)) {
-            LOG_ERROR(Frontend, "Leaving fullscreen failed: {}", SDL_GetError());
+            result = {false, std::string{"Leaving fullscreen failed: "} + SDL_GetError()};
         }
-    } else {
-        Fullscreen();
+    } else if (fullscreen_fell_back) {
+        fullscreen_fell_back = false;
+        SDL_RestoreWindow(render_window);
+    } else if (!Fullscreen()) {
+        fullscreen_fell_back = true;
+        result = {false, "Fullscreen was refused; the window was maximized instead"};
     }
-    SDL_SyncWindow(render_window);
+    if (!SDL_SyncWindow(render_window)) {
+        LOG_WARNING(Frontend, "The fullscreen change is still pending: {}", SDL_GetError());
+    }
+    if (left_fullscreen && windowed_geometry.valid) {
+        SDL_SetWindowSize(render_window, windowed_geometry.width, windowed_geometry.height);
+        SDL_SetWindowPosition(render_window, windowed_geometry.x, windowed_geometry.y);
+    }
+    ApplyFullscreenState();
+    return result;
+}
+
+void EmuWindow_SDL2::ApplyFullscreenState() {
     const bool fullscreen = IsFullscreen();
     ShowCursor(!fullscreen);
     OnFullscreenChanged(fullscreen);
 }
 
-void EmuWindow_SDL2::Fullscreen() {
+bool EmuWindow_SDL2::Fullscreen() {
+    const bool maximized = (SDL_GetWindowFlags(render_window) & SDL_WINDOW_MAXIMIZED) != 0;
+    windowed_geometry.valid = !maximized && !IsFullscreen();
+    if (windowed_geometry.valid) {
+        SDL_GetWindowPosition(render_window, &windowed_geometry.x, &windowed_geometry.y);
+        SDL_GetWindowSize(render_window, &windowed_geometry.width, &windowed_geometry.height);
+    }
     switch (Settings::values.fullscreen_mode.GetValue()) {
     case Settings::FullscreenMode::Exclusive:
         // Set window size to render size before entering fullscreen -- SDL3 does not resize window
@@ -996,7 +1020,7 @@ void EmuWindow_SDL2::Fullscreen() {
         }
 
         if (SDL_SetWindowFullscreen(render_window, true)) {
-            return;
+            return true;
         }
 
         LOG_ERROR(Frontend, "Fullscreening failed: {}", SDL_GetError());
@@ -1004,7 +1028,7 @@ void EmuWindow_SDL2::Fullscreen() {
         [[fallthrough]];
     case Settings::FullscreenMode::Borderless:
         if (SDL_SetWindowFullscreen(render_window, true)) {
-            return;
+            return true;
         }
 
         LOG_ERROR(Frontend, "Borderless fullscreening failed: {}", SDL_GetError());
@@ -1014,7 +1038,7 @@ void EmuWindow_SDL2::Fullscreen() {
         // Works on all systems (unless something is seriously wrong), so no fallback for this one.
         LOG_INFO(Frontend, "Falling back on a maximised window...");
         SDL_MaximizeWindow(render_window);
-        break;
+        return false;
     }
 }
 
@@ -1070,20 +1094,33 @@ void EmuWindow_SDL2::WaitEvent() {
         if (taken_by_overlay) {
             break;
         }
-        if (SuyuCmd::IsFullscreenChord(static_cast<std::uint32_t>(event.key.scancode),
-                                       (SDL_GetModState() & SDL_KMOD_ALT) != 0,
-                                       kFullscreenKeys)) {
-            if (!event.key.repeat) {
-                ToggleFullscreen();
+        switch (hotkey_keys.OnKeyDown(static_cast<std::uint32_t>(event.key.scancode),
+                                      (event.key.mod & SDL_KMOD_ALT) != 0, event.key.repeat,
+                                      kFullscreenKeys)) {
+        case SuyuCmd::HotkeyKeyTracker::Route::Toggle:
+            if (const auto toggled = ToggleFullscreen(); !toggled.ok) {
+                LOG_ERROR(Frontend, "{}", toggled.message);
             }
             break;
+        case SuyuCmd::HotkeyKeyTracker::Route::Consume:
+            break;
+        case SuyuCmd::HotkeyKeyTracker::Route::Game:
+            OnKeyEvent(static_cast<int>(event.key.scancode), SDL_PRESSED);
+            break;
         }
-        OnKeyEvent(static_cast<int>(event.key.scancode), SDL_PRESSED);
         break;
     case SDL_EVENT_KEY_UP:
-        if (!taken_by_overlay) {
+        if (!taken_by_overlay &&
+            !hotkey_keys.OnKeyUp(static_cast<std::uint32_t>(event.key.scancode))) {
             OnKeyEvent(static_cast<int>(event.key.scancode), SDL_RELEASED);
         }
+        break;
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        hotkey_keys.Reset();
+        break;
+    case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+    case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+        ApplyFullscreenState();
         break;
     case SDL_EVENT_MOUSE_MOTION:
         // ignore if it came from touch

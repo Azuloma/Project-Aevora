@@ -279,17 +279,14 @@ void EmuWindow_SDL2_VK::InstallOverlayModsFolders() {
 }
 
 void EmuWindow_SDL2_VK::InstallOverlayFullscreen() {
-    debug_overlay->SetFullscreenToggler([this] {
-        ToggleFullscreen();
-        return SuyuCmd::UiActionResult{};
-    });
-    debug_overlay->PublishFullscreen(IsFullscreen());
+    debug_overlay->SetFullscreenToggler([this] { return ToggleFullscreen(); });
+    debug_overlay->PublishFullscreen(FullscreenRequested());
 }
 
 void EmuWindow_SDL2_VK::OnFullscreenChanged(bool fullscreen) {
     if (debug_overlay) {
         debug_overlay->SetHardwareCursorHidden(fullscreen);
-        debug_overlay->PublishFullscreen(fullscreen);
+        debug_overlay->PublishFullscreen(FullscreenRequested());
     }
 }
 
@@ -333,7 +330,7 @@ void EmuWindow_SDL2_VK::RunOverlayActions() {
     if (debug_overlay) {
         // Also catches changes made elsewhere, such as the F12 panel.
         PublishOverlayResolutionScale();
-        debug_overlay->PublishFullscreen(IsFullscreen());
+        debug_overlay->PublishFullscreen(FullscreenRequested());
         const std::size_t ran = debug_overlay->GetActions().RunPending();
         PublishOverlayResolutionScale();
         ServiceOverlayController(ran > 0);
