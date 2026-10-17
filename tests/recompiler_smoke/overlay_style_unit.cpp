@@ -96,28 +96,30 @@ int ScaleIs125Percent() {
 }
 
 // The embedded bytes against a reference; the controls feed a corrupted copy.
-bool BytesMatch(const std::vector<unsigned char>& reference) {
-    if (aevora_overlay_font_size_bytes != reference.size()) {
+bool BytesMatch(const std::uint64_t* words, std::size_t size_bytes,
+                const std::vector<unsigned char>& reference) {
+    if (size_bytes != reference.size()) {
         return false;
     }
-    return std::memcmp(aevora_overlay_font_words, reference.data(), reference.size()) == 0;
+    return std::memcmp(words, reference.data(), reference.size()) == 0;
 }
 
-int EmbeddedFontMatchesTheTtf(const std::string& source_root) {
-    const std::string path = source_root + "/dist/fonts/BIZUDPGothic/BIZUDPGothic-Regular.ttf";
-    std::ifstream file(path, std::ios::binary);
+int EmbeddedFontMatchesTheTtf(const std::string& source_root, const char* relative_path,
+                              const std::uint64_t* words, std::size_t size_bytes,
+                              std::size_t min_size_bytes) {
+    std::ifstream file(source_root + "/dist/fonts/" + relative_path, std::ios::binary);
     CHECK(file.good());
     std::vector<unsigned char> ttf((std::istreambuf_iterator<char>(file)),
                                    std::istreambuf_iterator<char>());
-    CHECK(ttf.size() > 1000000);
+    CHECK(ttf.size() > min_size_bytes);
     CHECK(ttf[0] == 0x00 && ttf[1] == 0x01 && ttf[2] == 0x00 && ttf[3] == 0x00);
-    CHECK(BytesMatch(ttf));
+    CHECK(BytesMatch(words, size_bytes, ttf));
 
     std::vector<unsigned char> flipped = ttf;
     flipped[flipped.size() / 2] ^= 0x01;
-    CHECK(!BytesMatch(flipped));
+    CHECK(!BytesMatch(words, size_bytes, flipped));
     std::vector<unsigned char> truncated(ttf.begin(), ttf.end() - 1);
-    CHECK(!BytesMatch(truncated));
+    CHECK(!BytesMatch(words, size_bytes, truncated));
     return 0;
 }
 
@@ -131,7 +133,12 @@ int main(int argc, char** argv) {
     CHECK(ThemeIs46478B() == 0);
     CHECK(HoverAndPressAreLighter() == 0);
     CHECK(ScaleIs125Percent() == 0);
-    CHECK(EmbeddedFontMatchesTheTtf(argv[1]) == 0);
+    CHECK(EmbeddedFontMatchesTheTtf(argv[1], "Roboto/Roboto-VariableFont.ttf",
+                                    aevora_overlay_font_latin_words,
+                                    aevora_overlay_font_latin_size_bytes, 100000) == 0);
+    CHECK(EmbeddedFontMatchesTheTtf(argv[1], "BIZUDPGothic/BIZUDPGothic-Regular.ttf",
+                                    aevora_overlay_font_japanese_words,
+                                    aevora_overlay_font_japanese_size_bytes, 1000000) == 0);
     std::puts("All synthetic OVERLAY STYLE smoke checks passed.");
     return 0;
 }

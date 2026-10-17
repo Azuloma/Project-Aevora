@@ -176,3 +176,9 @@ Copyright: 2022 The BIZ UDGothic Project Authors (https://github.com/googlefonts
 License: OFL-1.1
 Comment: BIZ UDPGothic Regular by Morisawa Inc. and Type Bank Co., unmodified from
          https://github.com/google/fonts/tree/main/ofl/bizudpgothic (commit 6ce172f74aa355ea43eb964fa4a91570a4d3064d)
+
+Files: dist/fonts/Roboto/*
+Copyright: 2011 The Roboto Project Authors (https://github.com/googlefonts/roboto-classic)
+License: OFL-1.1
+Comment: Roboto variable font by Christian Robertson, ParaType and Font Bureau, unmodified from
+         https://github.com/google/fonts/tree/main/ofl/roboto (commit 1c627bfa375fc51cf86fabeca4f6e08a95f0aa5c)

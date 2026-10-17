@@ -24,12 +24,20 @@ void ApplyOverlayStyle() {
     // Set after the scaling: ScaleAllSizes would truncate the rounded value to whole pixels.
     style.WindowRounding = Scaled(kWindowRoundingPx);
 
-    ImFontConfig font_config;
-    font_config.FontDataOwnedByAtlas = false;
-    ImFont* const font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(
-        const_cast<std::uint64_t*>(aevora_overlay_font_words),
-        static_cast<int>(aevora_overlay_font_size_bytes), 0.0f, &font_config);
-    if (font == nullptr) {
+    ImFontAtlas& atlas = *ImGui::GetIO().Fonts;
+    ImFontConfig latin_config;
+    latin_config.FontDataOwnedByAtlas = false;
+    if (atlas.AddFontFromMemoryTTF(const_cast<std::uint64_t*>(aevora_overlay_font_latin_words),
+                                   static_cast<int>(aevora_overlay_font_latin_size_bytes), 0.0f,
+                                   &latin_config) == nullptr) {
+        LOG_ERROR(Frontend, "Debug overlay could not load the embedded Roboto font");
+    }
+    // Merged after Roboto: it only supplies the glyphs Roboto does not have.
+    ImFontConfig japanese_config = latin_config;
+    japanese_config.MergeMode = true;
+    if (atlas.AddFontFromMemoryTTF(const_cast<std::uint64_t*>(aevora_overlay_font_japanese_words),
+                                   static_cast<int>(aevora_overlay_font_japanese_size_bytes),
+                                   0.0f, &japanese_config) == nullptr) {
         LOG_ERROR(Frontend, "Debug overlay could not load the embedded BIZ UDPGothic font");
     }
     style.FontSizeBase = kBaseFontSizePx;

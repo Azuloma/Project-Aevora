@@ -97,7 +97,7 @@ There will be no Patreon, Ko-fi, or other fundraising campaign, and the project 
 
 Aevora is Suyu-derived software and original code contributions are licensed under the **GNU General Public License, version 3 or later (`GPL-3.0-or-later`)**. See [LICENSE.txt](LICENSE.txt) for the full license text.
 
-The ImGui overlay embeds BIZ UDPGothic Regular, designed by Morisawa Inc. and Type Bank Co., under the SIL Open Font License 1.1; see [LICENSES/OFL-1.1.txt](LICENSES/OFL-1.1.txt) and the font's [OFL.txt](dist/fonts/BIZUDPGothic/OFL.txt).
+The ImGui overlay embeds Roboto, designed by Christian Robertson, ParaType, and Font Bureau, with BIZ UDPGothic Regular designed by Morisawa Inc. and Type Bank Co. for Japanese glyphs Roboto lacks; both are under the SIL Open Font License 1.1. See [LICENSES/OFL-1.1.txt](LICENSES/OFL-1.1.txt), [Roboto's OFL.txt](dist/fonts/Roboto/OFL.txt), and [BIZ UDPGothic's OFL.txt](dist/fonts/BIZUDPGothic/OFL.txt).
 
 Existing source files, third-party dependencies, and assets retain their respective copyright notices and license terms. See individual file headers, [LICENSES/](LICENSES/), and [.reuse/dep5](.reuse/dep5) for the retained notices.
 

@@ -334,16 +334,26 @@ if (SUYU_CMD OR YUZU_CMD)
 
     create_resource("../../dist/suyu.bmp" "suyu_cmd/suyu_icon.h" "suyu_icon")
 
-    # The overlay font is compiled once into a library shared by every suyu-cmd target.
-    set(AEVORA_OVERLAY_FONT_TTF "${PROJECT_SOURCE_DIR}/dist/fonts/BIZUDPGothic/BIZUDPGothic-Regular.ttf")
-    set(AEVORA_OVERLAY_FONT_CPP "${PROJECT_BINARY_DIR}/dist/suyu_cmd/overlay_font_data.cpp")
-    add_custom_command(
-        OUTPUT "${AEVORA_OVERLAY_FONT_CPP}"
-        COMMAND ${CMAKE_COMMAND} -DINPUT=${AEVORA_OVERLAY_FONT_TTF} -DOUTPUT=${AEVORA_OVERLAY_FONT_CPP}
-                -DSYMBOL=aevora_overlay_font -P "${PROJECT_SOURCE_DIR}/CMakeModules/EmbedBinary.cmake"
-        DEPENDS "${AEVORA_OVERLAY_FONT_TTF}" "${PROJECT_SOURCE_DIR}/CMakeModules/EmbedBinary.cmake"
-        COMMENT "Embedding the overlay font" VERBATIM)
-    add_library(aevora_overlay_font STATIC "${AEVORA_OVERLAY_FONT_CPP}")
+    # The overlay fonts are compiled once into a library shared by every suyu-cmd target.
+    set(AEVORA_OVERLAY_FONTS
+        "aevora_overlay_font_latin|Roboto/Roboto-VariableFont.ttf"
+        "aevora_overlay_font_japanese|BIZUDPGothic/BIZUDPGothic-Regular.ttf")
+    set(AEVORA_OVERLAY_FONT_SOURCES)
+    foreach(_font ${AEVORA_OVERLAY_FONTS})
+        string(REPLACE "|" ";" _font_parts "${_font}")
+        list(GET _font_parts 0 _font_symbol)
+        list(GET _font_parts 1 _font_file)
+        set(_font_ttf "${PROJECT_SOURCE_DIR}/dist/fonts/${_font_file}")
+        set(_font_cpp "${PROJECT_BINARY_DIR}/dist/suyu_cmd/${_font_symbol}_data.cpp")
+        add_custom_command(
+            OUTPUT "${_font_cpp}"
+            COMMAND ${CMAKE_COMMAND} -DINPUT=${_font_ttf} -DOUTPUT=${_font_cpp}
+                    -DSYMBOL=${_font_symbol} -P "${PROJECT_SOURCE_DIR}/CMakeModules/EmbedBinary.cmake"
+            DEPENDS "${_font_ttf}" "${PROJECT_SOURCE_DIR}/CMakeModules/EmbedBinary.cmake"
+            COMMENT "Embedding ${_font_file}" VERBATIM)
+        list(APPEND AEVORA_OVERLAY_FONT_SOURCES "${_font_cpp}")
+    endforeach()
+    add_library(aevora_overlay_font STATIC ${AEVORA_OVERLAY_FONT_SOURCES})
 
     include(ExportBuildKit)
     suyu_export_build_kit_add_probes()

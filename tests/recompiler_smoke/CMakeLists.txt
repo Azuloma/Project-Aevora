@@ -138,15 +138,22 @@ elseif(NOT GENERATED_DIR)
   if(MSVC)
     target_compile_options(smoke_build_identity_unit PRIVATE /utf-8)
   endif()
-  set(overlay_font_cpp "${CMAKE_CURRENT_BINARY_DIR}/overlay_font_data.cpp")
-  add_custom_command(OUTPUT "${overlay_font_cpp}"
-      COMMAND ${CMAKE_COMMAND}
-          -DINPUT=${SUYU_SOURCE}/dist/fonts/BIZUDPGothic/BIZUDPGothic-Regular.ttf
-          -DOUTPUT=${overlay_font_cpp} -DSYMBOL=aevora_overlay_font
-          -P "${SUYU_SOURCE}/CMakeModules/EmbedBinary.cmake"
-      DEPENDS "${SUYU_SOURCE}/CMakeModules/EmbedBinary.cmake"
-          "${SUYU_SOURCE}/dist/fonts/BIZUDPGothic/BIZUDPGothic-Regular.ttf" VERBATIM)
-  add_executable(smoke_overlay_style_unit overlay_style_unit.cpp "${overlay_font_cpp}")
+  set(overlay_font_cpps)
+  foreach(font_spec "aevora_overlay_font_latin|Roboto/Roboto-VariableFont.ttf"
+                    "aevora_overlay_font_japanese|BIZUDPGothic/BIZUDPGothic-Regular.ttf")
+    string(REPLACE "|" ";" font_parts "${font_spec}")
+    list(GET font_parts 0 font_symbol)
+    list(GET font_parts 1 font_file)
+    set(font_cpp "${CMAKE_CURRENT_BINARY_DIR}/${font_symbol}_data.cpp")
+    add_custom_command(OUTPUT "${font_cpp}"
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${SUYU_SOURCE}/dist/fonts/${font_file}
+            -DOUTPUT=${font_cpp} -DSYMBOL=${font_symbol}
+            -P "${SUYU_SOURCE}/CMakeModules/EmbedBinary.cmake"
+        DEPENDS "${SUYU_SOURCE}/CMakeModules/EmbedBinary.cmake"
+            "${SUYU_SOURCE}/dist/fonts/${font_file}" VERBATIM)
+    list(APPEND overlay_font_cpps "${font_cpp}")
+  endforeach()
+  add_executable(smoke_overlay_style_unit overlay_style_unit.cpp ${overlay_font_cpps})
   target_compile_features(smoke_overlay_style_unit PRIVATE cxx_std_20)
   target_include_directories(smoke_overlay_style_unit PRIVATE "${SUYU_SOURCE}/src")
   add_executable(smoke_env_option_unit env_option_unit.cpp)

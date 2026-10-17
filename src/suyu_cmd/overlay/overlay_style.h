@@ -74,9 +74,12 @@ constexpr ThemePalette MakeThemePalette(float window_bg_alpha) {
     };
 }
 
-// The embedded BIZ UDPGothic Regular TTF (SIL OFL 1.1), generated from dist/fonts at build time.
-extern "C" const std::uint64_t aevora_overlay_font_words[];
-extern "C" const std::size_t aevora_overlay_font_size_bytes;
+// Embedded TTFs (SIL OFL 1.1), generated from dist/fonts at build time: Roboto for Latin text and
+// BIZ UDPGothic Regular for the Japanese glyphs Roboto lacks.
+extern "C" const std::uint64_t aevora_overlay_font_latin_words[];
+extern "C" const std::size_t aevora_overlay_font_latin_size_bytes;
+extern "C" const std::uint64_t aevora_overlay_font_japanese_words[];
+extern "C" const std::size_t aevora_overlay_font_japanese_size_bytes;
 
 // Applies the font, scale, colors, and rounding to the current ImGui context.
 void ApplyOverlayStyle();

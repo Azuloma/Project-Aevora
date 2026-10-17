@@ -19,7 +19,7 @@ The main files are:
 
 ## Look and style
 
-`src/suyu_cmd/overlay/overlay_style.h` and `overlay_style.cpp` are the single source for overlay style. They apply a 1.25 UI scale (`ScaleAllSizes` and `FontScaleMain`) with a 13 px base font, load the embedded BIZ UDPGothic Regular font, and use the `#46478B` theme with 6 px window rounding at 100% (7.5 px after scaling). The main-menu-bar window background is alpha 0 so only `MenuBarBg` is drawn; font-load failure logs an error and falls back to ImGui's default font. Change a color or scale in `overlay_style.{h,cpp}` and keep fixed overlay dimensions routed through `Scaled()`.
+`src/suyu_cmd/overlay/overlay_style.h` and `overlay_style.cpp` are the single source for overlay style. They apply a 1.25 UI scale (`ScaleAllSizes` and `FontScaleMain`) with a 13 px base font, load embedded Roboto as the primary Latin font, then merge BIZ UDPGothic Regular behind it through `ImFontConfig::MergeMode` for Japanese glyphs Roboto lacks. The two embedded sources are `aevora_overlay_font_latin_*` and `aevora_overlay_font_japanese_*`; to swap a font, replace the corresponding TTF under `dist/fonts`, update its `font_spec` entry in the `src/suyu_cmd` and smoke-test CMake loops, and keep the source symbol's Latin/Japanese role aligned with the merge order. ImGui's `stb_truetype` ignores variable axes, so the default Roboto instance (Regular) is drawn. The style uses the `#46478B` theme with 6 px window rounding at 100% (7.5 px after scaling). The main-menu-bar window background is alpha 0 so only `MenuBarBg` is drawn; either font-load failure logs an error and falls back to ImGui's default font. Change a color or scale in `overlay_style.{h,cpp}` and keep fixed overlay dimensions routed through `Scaled()`.
 
 ## Input routing
 
@@ -53,7 +53,7 @@ To add a window or setting, define a small immutable snapshot/request contract, 
 
 ## Tests and input replay
 
-The standalone smoke units cover routing and popup ownership (`overlay_logic_unit`), queue ordering/overflow/thread affinity (`overlay_actions_unit`), the shared scale table and event-thread application (`graphics_settings_unit`), Player 1 rebind and binding rules (`controller_settings_unit`), fullscreen chord ownership (`fullscreen_toggle_unit`), and embedded overlay font/style bytes and theme rules (`overlay_style_unit`). Each includes a negative control; the relevant test sources are indexed in [CODEBASE_INDEX.md](CODEBASE_INDEX.md).
+The standalone smoke units cover routing and popup ownership (`overlay_logic_unit`), queue ordering/overflow/thread affinity (`overlay_actions_unit`), the shared scale table and event-thread application (`graphics_settings_unit`), Player 1 rebind and binding rules (`controller_settings_unit`), fullscreen chord ownership (`fullscreen_toggle_unit`), and both embedded overlay font/style byte streams and theme rules (`overlay_style_unit`). Each includes a negative control; the relevant test sources are indexed in [CODEBASE_INDEX.md](CODEBASE_INDEX.md).
 
 For an input bug, replay the real router/command-bar headers with ImGui 1.92.9b sources from `D:\HisuiWakeBuild\cpm\imgui\v1.92.9b` (`imgui.cpp`, `imgui_draw.cpp`, `imgui_tables.cpp`, `imgui_widgets.cpp`) before changing code ([WORK_PLAN.md](WORK_PLAN.md#how-to-work--procedures)).
 
