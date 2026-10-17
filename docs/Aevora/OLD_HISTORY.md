@@ -2161,6 +2161,27 @@ Implement one behavior at a time (the opt-in TTAS stub), add the unit/negative-c
 
 Planned SpinLock TTAS (opt-in, JIT-neutral): add `bool ttas = false` to `EmitSpinLockLock` in `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp`; the JIT call site (`emit_x64_memory.h`, waitpkg flag unchanged) keeps the default, so JIT code stays byte-identical. The stub (`SpinLockImpl::Initialize`, `waitpkg=false`) reads `SUYU_SPINLOCK_TTAS` once in `GlobalInitialize` (`getenv`, exactly `1`) and emits `start: mov eax,1; xchg [ptr],eax; test eax,eax; jz done; spin: pause; cmp dword [ptr],0; jne spin; jmp start; done: ret`. The unlock is unchanged. Verification: a unit test that the default emission is byte-identical to today's; the `tests/exclusive_access/run.py` legs (locked and lock-free) repeated with TTAS and exact u8..u128 counters; a negative control that must fail by wrong totals without a data race in the test and without an endless spin (for example a check-then-set lock that is not atomic); incremental host build, smoke and FPXV runs, one Code reviewer round. Expected effect: at most the failed-xchg/pause share of the 7.3 core-ms/frame page (about 1.5-5 core-ms/frame), because the cross-core transfer of the lock line is not removed; judge by sampler and excl-stats, not FPS.
 Arena fastmem design record (not implemented): direct access `[arena + va]` with hardware faults for special pages would reuse the JIT arena and page protections, but generated C has no recoverable fault sites; the probe in the record shows `asm goto` with an image-relative exception table and a vectored handler works under clang-cl 22.1.8, and the blockers are the rasterizer-page fault rate and the missing per-site demotion. See OLD_HISTORY.md (session 29 investigation record).
+
+## Archived on 2026-10-17 from WORK_PLAN.md (session 33 cleanup)
+
+### Status
+
+The earlier c456b32-plus-removal export is superseded; its backup folder is `D:\HisuiWakeBuild\backup\c456b32_androidrm_aot`. The Code Implementer role was removed; the main agent implements code and the Code reviewer reviews it. Optimization is paused.
+
+### What was done so far
+
+- The overlay replaced the F12 panel through Stage F0-F6, including keyboard/text routing, actions, Graphics, Player 1 Controller, Mods/folders, Game, and fullscreen support; see [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md).
+- The command-bar popup fix was confirmed by the user; F6 removed the Win32 F12 panel and branch.
+- The host was reconfigured and rebuilt after dev26 with no compile/link errors; only pre-existing C4005 `LOG_*` warnings remained.
+
+### Immediate next action
+
+1. The user takes the same-position averaged FPS and ms/frame reading on the `bbaff08` export (dev27 baseline) and reports the export dialog `aot_cache_outcome` / `aot_cache_publish` / `aot_cache_reused` fields.
+2. Then resume the optimization backlog, starting with B3, one item at a time (main agent implements, Code reviewer reviews), measured against that baseline.
+
+### How to proceed
+
+Read CLAUDE.md, README.md, this plan, and [CODEBASE_INDEX.md](CODEBASE_INDEX.md); inspect status and logs before work; ask the user when a choice is required; use one worker at a time; the main agent implements code changes itself and has them reviewed by the Code reviewer; keep changes focused; and record only verified facts in the next Markdown batch. Do not claim a hand-test or export result that was not reported or run.
 ## Archived on 2026-10-17 from WORK_PLAN.md (session 31 cleanup)
 
 Session 31 completed the overlay handoff. F1 added keyboard/text forwarding, owned key presses, bounded UTF-8 text, focus reset, capture requests, and SDL text-input synchronization (`22a1045`, `350af77`). F2 added the bounded FIFO action/status channel with event-thread binding, reentrancy guard, detach refusal, loading-time pump, and overflow status (`2d1a42e`, `2b219fa`). F3 added the Graphics window, shared 13-entry Resolution Scale table, save-only next-launch behavior, and Qt/table drift check (`468cd47`, `7ab529e`). F4 added the Player 1 Controller window, device selection, Map, keyboard and Joy-Con actions, binding rows, analog validation, and the non-blocking five-second rebind session (`6498ed1`, `2fdf3f9`).
@@ -2210,3 +2231,11 @@ Other open Group E items: a held key/axis can remain stuck when capture starts a
 ## Design notes
 
 `AcquireDebugOverlay` is never destroyed because the renderer retains a raw pointer and owns shutdown. ImGui state belongs to the scheduler worker; capture regions lag one frame. F3 is save-only because the running renderer reads rescaling information without synchronization. F1 Reset uses `ClearInputKeys`/`ClearInputMouse` because Reset+FocusGained merge in one ImGui batch. A popup keeps an already-visible command bar up but must not summon a hidden bar: combo popups are not menus, and the old rule let `BeginMainMenuBar` steal focus. Hotkey press ownership lasts until release; focus loss resets it.
+
+## Archived on 2026-10-17 from WORK_PLAN.md (session 33 cleanup)
+
+### Superseded WORK_PLAN Status paragraphs
+
+HEAD `bbaff08` (dev27). The user ran a full PLA export at `bbaff08`, finished 2026-10-17 23:00 into `D:\HisuiWakeExports\Pokémon Legends_ Arceus`. The launcher embeds `GIT_REV bbaff08` (the exporter reconfigured the tree at 22:30); `export-package.json` records producer `9113fa9` because the `suyu.exe` that ran the export was built before the commit; the source content is identical to `bbaff08`. Manifest: `chain_start`, cross/direct/indirect chain, `fm_inline`, `fp_shared`, `fpx_vec`, `translate_all` true; `fallback_enabled` false; `requires_runtime_codegen` false; `image_abi` 6; `image_features` 15. Main DLL 1,805,439,488 bytes (`size_of_image` 1,818,562,560); launcher 506,726,912 bytes (`size_of_image` 514,203,648); both below 2 GiB. Launcher and PDB are saved in `D:\HisuiWakeBuild\backup\bbaff08_aot`; EXE RSDS and PDB info stream GUID `108b7bc317890347bd92cb150e8ac4f8`, Age 1041 (equal). The export dialog cache fields (`aot_cache_outcome`/`aot_cache_publish`/`aot_cache_reused`) and the user's FPS reading are not reported yet.
+
+The earlier c456b32-plus-removal export is superseded; its backup folder is `D:\HisuiWakeBuild\backup\c456b32_androidrm_aot`. The Code Implementer role was removed; the main agent implements code and the Code reviewer reviews it. Optimization is paused.

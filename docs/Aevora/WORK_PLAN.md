@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-17 (session 33 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), [session 32 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-32-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
+Handoff prepared: 2026-10-17 (session 33 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), [session 32 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-32-cleanup), [session 33 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-33-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
 
 ## Objective
 
@@ -8,21 +8,23 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-PLA export finished 2026-10-17 19:57 into `D:\HisuiWakeExports\Pokémon Legends_ Arceus`: producer `c456b32`, but the launcher was compiled from the working tree with the uncommitted Android/iOS removal. Manifest: `chain_start`, cross/direct/indirect chain, `fm_inline`, `fp_shared`, `fpx_vec`, `translate_all` true; `fallback_enabled` false; `requires_runtime_codegen` false; `image_abi` 6; `image_features` 15. Main DLL 1,805,439,488 bytes (`size_of_image` 1,818,562,560); launcher 506,726,912 bytes (`size_of_image` 514,203,648); both below 2 GiB. Launcher and PDB are saved in `D:\HisuiWakeBuild\backup\c456b32_androidrm_aot`; EXE RSDS and PDB info stream GUID `108b7bc317890347bd92cb150e8ac4f8`, Age 1040 (equal). The export dialog cache fields (`aot_cache_outcome`/`publish`/`reused`) and the user's FPS reading were not reported yet.
+HEAD `bbaff08` (dev27). A full PLA export at `bbaff08` exists in `D:\HisuiWakeExports\Pokémon Legends_ Arceus`; the launcher and PDB backup is `D:\HisuiWakeBuild\backup\bbaff08_aot`. No FPS reading or export-dialog cache fields (`aot_cache_outcome`/`aot_cache_publish`/`aot_cache_reused`) have been reported.
 
-Host was rebuilt after the export with export cache entries cleared; `GIT_REV` is `9113fa9` (README-only commit), not the future removal commit. Android/iOS removal is implemented and verified (summary in [CHANGELOG.md](../../CHANGELOG.md)), uncommitted. Optimization is paused.
+The launcher embeds `GIT_REV bbaff08` (the exporter reconfigured the tree at 22:30); `export-package.json` records producer `9113fa9` because the `suyu.exe` that ran the export was built before the commit, and the source content is identical to `bbaff08`. The export finished 2026-10-17 23:00. Manifest: `chain_start`, cross/direct/indirect chain, `fm_inline`, `fp_shared`, `fpx_vec`, `translate_all` true; `fallback_enabled` false; `requires_runtime_codegen` false; `image_abi` 6; `image_features` 15. Main DLL 1,805,439,488 bytes (`size_of_image` 1,818,562,560); launcher 506,726,912 bytes (`size_of_image` 514,203,648); both below 2 GiB. EXE RSDS and PDB info stream GUID `108b7bc317890347bd92cb150e8ac4f8`, Age 1041 (equal). Backup: `D:\HisuiWakeBuild\backup\bbaff08_aot`.
+
+Host: `rebuild-suyu.bat` (clears `SUYU_CMD_RECOMP_DIR`, `SUYU_RECOMP_HYBRID`, `SUYU_CMD_RECOMP_PREBUILT_DIR`, reconfigures, builds `suyu` and `suyu-cmd`) exited 0 at 23:18; `GIT_REV bbaff08f81e024287f370bfc118b5701a2d0d063` matches HEAD. Logs: `D:\HisuiWakeBuild\logs\reconf_dev27.log` and `build_dev27.log`; removal evidence reports are in `D:\HisuiWakeBuild\logs\android_ios_removal\`.
+
+The user decided not to export or measure in this session; the next session starts with the dev27 FPS baseline. Optimization is paused.
 
 ## What was done so far
 
 - Dev19-dev27 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, ImGui overlay, and Android/iOS removal; details are in [CHANGELOG.md](../../CHANGELOG.md).
-- The overlay replaced the F12 panel through Stage F0-F6, including keyboard/text routing, actions, Graphics, Player 1 Controller, Mods/folders, Game, and fullscreen support; see [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md).
-- The command-bar popup fix was confirmed by the user; F6 removed the Win32 F12 panel and branch.
-- The host was reconfigured and rebuilt after dev26 with no compile/link errors; only pre-existing C4005 `LOG_*` warnings remained.
+- The overlay replaced the F12 panel through Stage F0-F6; architecture and contracts are in [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md).
 
 ## Immediate next action
 
-1. User commits the removal as dev27; then reconfigure, verify `GIT_REV`, run a full PLA export (the new commit invalidates the AOT cache), and take the same-position FPS and ms/frame baseline.
-2. Resume the optimization backlog after that, starting with B3.
+1. Ask the user for the same-position averaged FPS and ms/frame reading on the `bbaff08` export (dev27 baseline), plus the export dialog `aot_cache_outcome` / `aot_cache_publish` / `aot_cache_reused` fields.
+2. Then resume the optimization backlog, starting with B3, one item at a time, measured against that baseline.
 
 ## Open items
 
@@ -57,7 +59,7 @@ Overlay contracts are documented in [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md): the ac
 
 ## How to proceed
 
-Read CLAUDE.md, README.md, this plan, and [CODEBASE_INDEX.md](CODEBASE_INDEX.md); inspect status and logs before work; ask the user when a choice is required; use one worker at a time; send code implementation to the Orca Code Implementer unless the user explicitly assigns it to the main agent; keep changes focused; and record only verified facts in the next Markdown batch. Do not claim a hand-test or export result that was not reported or run.
+Read CLAUDE.md, README.md, this plan, and [CODEBASE_INDEX.md](CODEBASE_INDEX.md); inspect status and logs before work; ask the user when a choice is required; use one worker at a time; the main agent implements, Code reviewer reviews, Code Explorer surveys read-only, and md Implementer edits Markdown; keep changes focused; and record only verified facts in the next Markdown batch. The next session first asks the user for the FPS baseline on the `bbaff08` export before starting B3. Do not claim a hand-test or export result that was not reported or run.
 
 ## How to work / procedures
 

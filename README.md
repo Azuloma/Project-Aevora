@@ -57,7 +57,7 @@ These planned features are not guaranteed to be implemented, and may change depe
 - Ultrawide support
 - No Dynamic resolution
 - 60FPS Mode
-- Implementation of anti-aging (TAA, FXAA, MSAA)
+- Implementation of anti-aging (TAA, FXAA, SMAA)
 - Increased shadow resolution and distance
 - Increased LoD and draw distance
 - Enhanced ambient occlusion
