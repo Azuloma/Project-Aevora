@@ -9,11 +9,11 @@
 #include <ranges>
 #include <bit>
 
-#ifdef _WIN32
+#if defined(_WIN32)
 #include <winsock2.h>
 #include <windows.h>
 #include <iphlpapi.h>
-#elif defined(__linux__) || defined(__ANDROID__)
+#elif defined(__linux__)
 #include <cerrno>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -104,7 +104,7 @@ std::vector<Network::NetworkInterface> GetAvailableNetworkInterfaces() {
 #else
 
 std::vector<Network::NetworkInterface> GetAvailableNetworkInterfaces() {
-#if defined(__ANDROID__) || defined(__linux__)
+#if defined(__linux__)
     struct ifaddrs* ifaddr = nullptr;
     if (getifaddrs(&ifaddr) != 0) {
         LOG_ERROR(Network, "getifaddrs: {}", std::strerror(errno));
@@ -119,9 +119,6 @@ std::vector<Network::NetworkInterface> GetAvailableNetworkInterfaces() {
         u32 flags;
     };
     std::vector<RoutingEntry> routes{};
-#ifdef __ANDROID__
-    // Even through Linux based, we can't reliably obtain routing information from there :(
-#else
     if (std::ifstream file("/proc/net/route"); file.is_open()) {
         file.ignore((std::numeric_limits<std::streamsize>::max)(), '\n'); //ignore header
         for (std::string line; std::getline(file, line);) {
@@ -134,7 +131,6 @@ std::vector<Network::NetworkInterface> GetAvailableNetworkInterfaces() {
     } else {
         LOG_WARNING(Network, "\"/proc/net/route\" not found - using gateway 0");
     }
-#endif
     std::vector<Network::NetworkInterface> ifaces;
     for (auto ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
         if (ifa->ifa_addr == nullptr || ifa->ifa_netmask == nullptr /* Have a netmask and address */

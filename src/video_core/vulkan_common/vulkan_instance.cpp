@@ -22,12 +22,6 @@
 #include "video_core/vulkan_common/vulkan_instance.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
-#if defined(__APPLE__) && TARGET_OS_IPHONE
-// VK_NO_PROTOTYPES is enabled for the dispatch wrapper. Declare only the
-// statically linked bootstrap entry point; all other calls use that wrapper.
-extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance,
-                                                                        const char* name);
-#endif
 
 namespace Vulkan {
 namespace {
@@ -53,17 +47,13 @@ namespace {
     switch (window_type) {
     case Core::Frontend::WindowSystemType::Headless:
         break;
-#ifdef _WIN32
+#if defined(_WIN32)
     case Core::Frontend::WindowSystemType::Windows:
         extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
         break;
 #elif defined(__APPLE__)
     case Core::Frontend::WindowSystemType::Cocoa:
         extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
-        break;
-#elif defined(__ANDROID__)
-    case Core::Frontend::WindowSystemType::Android:
-        extensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
         break;
 #elif defined(__HAIKU__)
     case Core::Frontend::WindowSystemType::Xcb:
@@ -126,10 +116,6 @@ void RemoveUnavailableLayers(const vk::InstanceDispatch& dld, std::vector<const 
 vk::Instance CreateInstance(const Common::DynamicLibrary& library, vk::InstanceDispatch& dld,
                             u32 required_version, Core::Frontend::WindowSystemType window_type,
                             bool enable_validation) {
-#if defined(__APPLE__) && TARGET_OS_IPHONE
-    (void)library;
-    dld.vkGetInstanceProcAddr = &::vkGetInstanceProcAddr;
-#else
     if (!library.IsOpen()) {
         LOG_ERROR(Render_Vulkan, "Vulkan library not available");
         throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
@@ -138,16 +124,10 @@ vk::Instance CreateInstance(const Common::DynamicLibrary& library, vk::InstanceD
         LOG_ERROR(Render_Vulkan, "vkGetInstanceProcAddr not present in Vulkan");
         throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
     }
-#endif
     if (!vk::Load(dld)) {
         LOG_ERROR(Render_Vulkan, "Failed to load Vulkan function pointers");
         throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
     }
-    // Enumerate instance extensions exactly once. RequiredExtensions() used to enumerate a second
-    // time internally; if the driver returned a different set between the two calls (a real TOCTOU
-    // seen on some AMD iGPU drivers), an extension added to the list could be missing from the
-    // verification snapshot, throwing EXTENSION_NOT_PRESENT on an otherwise valid launch. Sharing
-    // one snapshot for both the optional-extension probe and the final check removes that window.
     auto const properties = vk::EnumerateInstanceExtensionProperties(dld);
     if (!properties) {
         LOG_ERROR(Render_Vulkan, "Failed to query instance extension properties");

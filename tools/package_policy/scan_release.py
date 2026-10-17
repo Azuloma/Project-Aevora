@@ -25,8 +25,8 @@ import tempfile
 import zipfile
 
 POLICY_PATH = Path(__file__).with_name('policy.json')
-KINDS = ('windows', 'linux', 'macos', 'android-apk', 'libretro-linux', 'libretro-windows',
-         'libretro-macos', 'libretro-android', 'source', 'dependency-sources')
+KINDS = ('windows', 'linux', 'macos', 'libretro-linux', 'libretro-windows',
+         'libretro-macos', 'source', 'dependency-sources')
 HEAD_BYTES = 16384 + 8
 WHOLE_FILE_LIMIT = 1 << 20
 NESTED_MAX_BYTES = 256 << 20
@@ -199,10 +199,7 @@ class Scanner:
             for problem in problems:
                 self.add('path-unsafe', prefix + entry.raw, problem)
             if path:
-                # An APK is installed, never unpacked onto a case-insensitive file
-                # system, and Android's resource shrinker emits names that differ
-                # only in case (res/0C.xml, res/0c.xml). Only exact repeats count.
-                key = path if (top and self.kind == 'android-apk') else path.lower()
+                key = path.lower()
                 if key in seen and not (is_dir and seen[key]):
                     self.add('path-unsafe', label, 'duplicate member name')
                 seen[key] = is_dir and seen.get(key, True)

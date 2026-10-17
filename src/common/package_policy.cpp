@@ -112,13 +112,6 @@ constexpr std::uint64_t kRomFsHeaderSize = 0x50;
 constexpr std::uint64_t kNsoHeaderSize = 0x100;
 constexpr std::uint64_t kNcaHeaderSize = 0xC00;
 
-// Settings a package may carry, by the section QSettings stores them under.
-// Left out on purpose: device and account selectors (vulkan_device,
-// output_device, input_device, device_name, current_user), program_args,
-// the version overrides WritePortableVersionOverride owns, the RNG seed and
-// custom RTC (debugging overrides), dump_audio_commands, and every setting in
-// the CpuDebug, CpuUnsafe, RendererDebug, Debugging, DataStorage, WebService,
-// Network, UI and input categories - even where they share these sections.
 constexpr std::string_view kExportableSettings[]{
     "Core/use_multi_core",
     "Core/memory_layout_mode",
@@ -164,7 +157,6 @@ constexpr std::string_view kExportableSettings[]{
     "Renderer/use_reactive_flushing",
     "Renderer/barrier_feedback_loops",
     "Renderer/enable_buffer_history",
-    "Renderer/use_optimized_vertex_buffers",
     "Renderer/enable_gpu_buffer_readback",
     "Renderer/use_fast_gpu_time",
     "Renderer/fast_gpu_time",
@@ -1025,10 +1017,6 @@ PromoteResult Promote(const Staging& staging, const fs::path& destination, Confl
 // ---- local export validation ----
 
 bool IsGameDataInAotCache(std::string_view relative_lower) {
-    // relative_lower starts at "aot_cache/". The analysed modules (exefs/nso), the
-    // bundled segments of a standalone runner (<module>/data), that runner itself
-    // (<module>/main.c) and debug dumps of guest code (debug/) are copies of the game's
-    // own executables, or a way to run them without suyu and the user's keys.
     const auto parts_of = [](std::string_view text) {
         std::vector<std::string_view> parts;
         while (!text.empty()) {
@@ -1091,9 +1079,6 @@ std::vector<Finding> ValidateLocalExport(const fs::path& root,
     for (const auto& dll : expect.runtime_dlls) {
         dlls.insert(NormalizeName(dll));
     }
-    // Recompiled module images of a split export: required beside the launcher.
-    // A name that is also a runtime DLL or the launcher cannot be told apart from
-    // it, so such an expectation is reported instead of silently accepted.
     std::set<std::string> module_dlls;
     std::map<std::string, std::uintmax_t> module_dll_sizes; // lower-cased name -> size, if found
     const std::string launcher = NormalizeName(expect.package_name + ".exe");

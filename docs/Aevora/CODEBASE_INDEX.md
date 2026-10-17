@@ -16,7 +16,7 @@ Snapshot of the source tree at `2fdf3f9` (2026-10-16), updated from a read-only 
 | `.patch/` | Patches CPM applies to fetched dependencies. |
 | `vcpkg.json`, `vcpkg-configuration.json`, `vcpkg-overlays/`, `conanfile.txt`, `shell.nix` | Alternate/legacy package manifests (*inference*: CPM is the active path). |
 | `tests/` | Recompiler and export test projects (see section 7). |
-| `research/` | Recompiler research harnesses (`ios/`, `tests/`). |
+| `research/` | Recompiler research tests (`tests/` and `tests/fixtures/shader_constant_buffers.h`, used by `research/tests/test_review_regressions.py`). |
 | `tools/` | Export build kit, CPM scripts, package-policy audit, shader tools, Windows helpers. |
 | `scripts/` | Build-fix notes and helper scripts. Inspect before running; some clear caches. |
 | `dist/`, `hooks/` | Desktop/icon/udev assets; git pre-commit hook installed by CMake. |
@@ -269,7 +269,6 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `src/qt_common`, `src/frontend_common` | Shared Qt utilities; cross-frontend config, content/firmware/mod/playtime managers. |
 | `src/libretro_core` | Libretro core (`SUYU_BUILD_LIBRETRO_CORE`, default OFF). |
 | `src/nintendo_library` | `Nintendo::Library` with authentication/purchase-history types. Fork-specific; no confirmed UI use. Review before any release. |
-| `src/android` | Android frontend (upstream lineage). Outside the Windows x64 target. |
 | `src/web_service`, `src/dedicated_room`, `src/yuzu_room_standalone`, `src/network` | Upstream online/room features. |
 
 ## 6. Build system and dependencies

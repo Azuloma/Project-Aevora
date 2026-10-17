@@ -19,82 +19,6 @@
 // ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 // OTHER DEALINGS IN THE SOFTWARE.
 // For more information, please refer to <http://unlicense.org/>
-//
-// ***********************************************************************
-//
-//
-//
-//
-// Howto:
-// Call these functions from your code:
-//  MicroProfileOnThreadCreate
-//  MicroProfileMouseButton
-//  MicroProfileMousePosition
-//  MicroProfileModKey
-//  MicroProfileFlip                <-- Call this once per frame
-//  MicroProfileDraw                <-- Call this once per frame
-//  MicroProfileToggleDisplayMode   <-- Bind to a key to toggle profiling
-//  MicroProfileTogglePause         <-- Bind to a key to toggle pause
-//
-// Use these macros in your code in blocks you want to time:
-//
-//  MICROPROFILE_DECLARE
-//  MICROPROFILE_DEFINE
-//  MICROPROFILE_DECLARE_GPU
-//  MICROPROFILE_DEFINE_GPU
-//  MICROPROFILE_SCOPE
-//  MICROPROFILE_SCOPEI
-//  MICROPROFILE_SCOPEGPU
-//  MICROPROFILE_SCOPEGPUI
-//  MICROPROFILE_META
-//
-//
-//  Usage:
-//
-//  {
-//      MICROPROFILE_SCOPEI("GroupName", "TimerName", nColorRgb):
-//      ..Code to be timed..
-//  }
-//
-//  MICROPROFILE_DECLARE / MICROPROFILE_DEFINE allows defining groups in a shared place, to ensure sorting of the timers
-//
-//  (in global scope)
-//  MICROPROFILE_DEFINE(g_ProfileFisk, "Fisk", "Skalle", nSomeColorRgb);
-//
-//  (in some other file)
-//  MICROPROFILE_DECLARE(g_ProfileFisk);
-//
-//  void foo(){
-//      MICROPROFILE_SCOPE(g_ProfileFisk);
-//  }
-//
-//  Once code is instrumented the gui is activeted by calling MicroProfileToggleDisplayMode or by clicking in the upper left corner of
-//  the screen
-//
-// The following functions must be implemented before the profiler is usable
-//  debug render:
-//      void MicroProfileDrawText(int nX, int nY, uint32_t nColor, const char* pText, uint32_t nNumCharacters);
-//      void MicroProfileDrawBox(int nX, int nY, int nX1, int nY1, uint32_t nColor, MicroProfileBoxType = MicroProfileBoxTypeFlat);
-//      void MicroProfileDrawLine2D(uint32_t nVertices, float* pVertices, uint32_t nColor);
-//  Gpu time stamps: (See below for d3d/opengl helper)
-//      uint32_t MicroProfileGpuInsertTimeStamp();
-//      uint64_t MicroProfileGpuGetTimeStamp(uint32_t nKey);
-//      uint64_t MicroProfileTicksPerSecondGpu();
-//  threading:
-//      const char* MicroProfileGetThreadName(); Threadnames in detailed view
-//
-// Default implementations of Gpu timestamp functions:
-//      Opengl:
-//          in .c file where MICROPROFILE_IMPL is defined:
-//          #define MICROPROFILE_GPU_TIMERS_GL
-//          call MicroProfileGpuInitGL() on startup
-//      D3D11:
-//          in .c file where MICROPROFILE_IMPL is defined:
-//          #define MICROPROFILE_GPU_TIMERS_D3D11
-//          call MICROPROFILE_GPU_TIMERS_D3D11(). Pass Device & ImmediateContext
-//
-// Limitations:
-//  GPU timestamps can only be inserted from one thread.
 
 
 
@@ -171,9 +95,6 @@ MICROPROFILE_API int64_t MicroProfileTicksPerSecondCpu();
 #include <unistd.h>
 #include <libkern/OSAtomic.h>
 #include <TargetConditionals.h>
-#if TARGET_OS_IPHONE
-#define MICROPROFILE_IOS
-#endif
 
 #define MP_TICK() mach_absolute_time()
 inline int64_t MicroProfileTicksPerSecondCpu()
@@ -949,9 +870,6 @@ DWORD _stdcall ThreadTrampoline(void* pFunc)
 {
     MicroProfileThreadFunc F = (MicroProfileThreadFunc)pFunc;
 
-    // The return value of F will always return a void*, however, this is for
-    // compatibility with pthreads. The underlying "address" of the pointer
-    // is always a 32-bit value, so this cast is safe to perform.
     return static_cast<DWORD>(reinterpret_cast<uint64_t>(F(0)));
 }
 
@@ -1032,17 +950,7 @@ void MicroProfileGpuShutdown();
 
 MicroProfile g_MicroProfile;
 MicroProfileThreadLog*          g_MicroProfileGpuLog = 0;
-#ifdef MICROPROFILE_IOS
-// iOS doesn't support __thread
-static pthread_key_t g_MicroProfileThreadLogKey;
-static pthread_once_t g_MicroProfileThreadLogKeyOnce = PTHREAD_ONCE_INIT;
-static void MicroProfileCreateThreadLogKey()
-{
-    pthread_key_create(&g_MicroProfileThreadLogKey, NULL);
-}
-#else
 MP_THREAD_LOCAL MicroProfileThreadLog* g_MicroProfileThreadLog = 0;
-#endif
 static std::atomic<bool> g_bUseLock{false}; /// This is used because windows does not support using mutexes under dll init(which is where global initialization is handled)
 
 
@@ -1143,19 +1051,6 @@ void MicroProfileShutdown()
     MicroProfileGpuShutdown();
 }
 
-#ifdef MICROPROFILE_IOS
-inline MicroProfileThreadLog* MicroProfileGetThreadLog()
-{
-    pthread_once(&g_MicroProfileThreadLogKeyOnce, MicroProfileCreateThreadLogKey);
-    return (MicroProfileThreadLog*)pthread_getspecific(g_MicroProfileThreadLogKey);
-}
-
-inline void MicroProfileSetThreadLog(MicroProfileThreadLog* pLog)
-{
-    pthread_once(&g_MicroProfileThreadLogKeyOnce, MicroProfileCreateThreadLogKey);
-    pthread_setspecific(g_MicroProfileThreadLogKey, pLog);
-}
-#else
 inline MicroProfileThreadLog* MicroProfileGetThreadLog()
 {
     return g_MicroProfileThreadLog;
@@ -1164,7 +1059,6 @@ inline void MicroProfileSetThreadLog(MicroProfileThreadLog* pLog)
 {
     g_MicroProfileThreadLog = pLog;
 }
-#endif
 
 
 MicroProfileThreadLog* MicroProfileCreateThreadLog(const char* pName)
@@ -1698,9 +1592,6 @@ void MicroProfileFlip()
                                 int nTimer = MicroProfileLogTimerIndex(LE);
                                 uint8_t nGroup = pTimerToGroup[nTimer];
 
-                                // To avoid crashing due to OOB memory accesses/asserts
-                                // simply skip this iteration
-                                // MP_ASSERT(nStackPos < MICROPROFILE_STACK_MAX);
                                 if (nStackPos >= MICROPROFILE_STACK_MAX) {
                                     break;
                                 }

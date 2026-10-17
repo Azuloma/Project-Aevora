@@ -1,10 +1,6 @@
 # SPDX-FileCopyrightText: 2017 yuzu Emulator Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# This function downloads a binary library package from our external repo.
-# Params:
-#   remote_path: path to the file to download, relative to the remote repository root
-#   prefix_var: name of a variable which will be set with the path to the extracted contents
 function(download_bundled_external remote_path lib_name prefix_var)
 
 set(package_base_url "https://git.suyu.dev/suyu/")
@@ -16,12 +12,6 @@ if (WIN32)
     set(package_extension ".7z")
 elseif (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     set(package_repo "ext-linux-bin/raw/branch/main/")
-    set(package_extension ".tar.xz")
-# elseif (APPLE)
-#     set(package_repo "ext-osx-bin/-/raw/main/")
-#     set(package_extension ".dmg")
-elseif (ANDROID)    
-    set(package_repo "ext-android-bin/raw/branch/main/")
     set(package_extension ".tar.xz")
 else()
     message(FATAL_ERROR "No package available for this platform")

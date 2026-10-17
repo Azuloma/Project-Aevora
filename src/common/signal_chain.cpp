@@ -12,16 +12,8 @@ namespace Common {
 
 template <typename T>
 T* LookupLibcSymbol(const char* name) {
-#if defined(__BIONIC__)
-    Common::DynamicLibrary provider("libc.so");
-    if (!provider.IsOpen()) {
-        UNREACHABLE_MSG("Failed to open libc!");
-    }
-#else
-    // For other operating environments, we assume the symbol is not overridden.
     const char* base = nullptr;
     Common::DynamicLibrary provider(base);
-#endif
 
     void* sym = provider.GetSymbolAddress(name);
     if (sym == nullptr) {

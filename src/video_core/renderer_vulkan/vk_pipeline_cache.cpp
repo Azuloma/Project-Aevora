@@ -49,9 +49,6 @@
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include "video_core/gpu_logging/gpu_logging.h"
 
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-#include "../../android/app/src/main/jni/android_settings.h"
-#endif
 
 namespace Vulkan {
 
@@ -255,10 +252,6 @@ Shader::RuntimeInfo MakeRuntimeInfo(std::span<const Shader::IR::Program> program
         if (device.IsMoltenVK()) {
             for (size_t i = 0; i < 8; ++i) {
                 const auto format = static_cast<Tegra::RenderTargetFormat>(key.state.color_formats[i]);
-                // Most draws bind fewer than eight attachments, leaving the rest NONE.
-                // Converting NONE is not a format question with a wrong answer, it is a
-                // slot that is not there, and asking anyway trips an assert on every
-                // pipeline built. Float is what the unused slots already default to.
                 if (format == Tegra::RenderTargetFormat::NONE) {
                     info.color_output_types[i] = Shader::AttributeType::Float;
                     continue;
@@ -315,17 +308,7 @@ Shader::RuntimeInfo MakeRuntimeInfo(std::span<const Shader::IR::Program> program
 size_t GetTotalPipelineWorkers() {
     const size_t max_core_threads =
         std::max<size_t>(static_cast<size_t>(std::thread::hardware_concurrency()), 2ULL) - 1ULL;
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-    const int configured = AndroidSettings::values.pipeline_worker_count.GetValue();
-    const int clamped = std::clamp(configured, 4, 8);
-    const size_t desired = static_cast<size_t>(clamped);
-    if (desired == 0) {
-        return 1ULL;
-    }
-    return std::min(max_core_threads, desired);
-#else
     return max_core_threads;
-#endif
 }
 
 } // Anonymous namespace
@@ -490,12 +473,6 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
     dynamic_features.driver_id = device.GetDriverID();
     dynamic_features.driver_version = device.GetDriverVersion();
 
-    // User granularity enforced in vulkan_device.cpp switch statement:
-    //   Level 0: Core Dynamic States only
-    //   Level 1: Core + EDS1
-    //   Level 2: Core + EDS1 + EDS2 (accumulative)
-    //   Level 3: Core + EDS1 + EDS2 + EDS3 (accumulative)
-    // Here we only verify if extensions were successfully loaded by the device
 
     dynamic_features.has_extended_dynamic_state =
         device.IsExtExtendedDynamicStateSupported();
@@ -754,9 +731,6 @@ GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) const
     if (!use_asynchronous_shaders) {
         return pipeline;
     }
-    // If games are using a small index count, we can assume these are full screen quads.
-    // Usually these shaders are only used once for building textures so we can assume they
-    // can't be built async
     const auto& draw_state = maxwell3d->draw_manager.draw_state;
     if (draw_state.index_buffer.count <= 6 || draw_state.vertex_buffer.count <= 6) {
         return pipeline;

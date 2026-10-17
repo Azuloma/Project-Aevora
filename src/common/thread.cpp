@@ -82,10 +82,6 @@ void SetCurrentThreadPriority(ThreadPriority new_priority) {
     }();
     set_thread_priority(find_thread(NULL), priority);
 #elif defined(__APPLE__)
-    // pthread_setschedparam with SCHED_OTHER is close to a no-op on macOS: the
-    // scheduler goes by Quality of Service class instead. Mapping onto QoS is
-    // what actually makes a background worker yield to the threads doing the
-    // latency-sensitive work.
     qos_class_t qos = [&]() {
         switch (new_priority) {
         case ThreadPriority::Low: return QOS_CLASS_UTILITY;
@@ -157,12 +153,7 @@ void PinCurrentThreadToPerformanceCore(size_t core_id) {
     // run in ANY processor!
     auto const total_cores = std::thread::hardware_concurrency();
     if (core_id < total_cores) {
-#if defined(__ANDROID__)
-        cpu_set_t set;
-        CPU_ZERO(&set);
-        CPU_SET(core_id, &set);
-        sched_setaffinity(pthread_self(), sizeof(set), &set);
-#elif defined(__linux__) || defined(__FreeBSD__)
+#if defined(__linux__) || defined(__FreeBSD__)
         cpu_set_t set;
         CPU_ZERO(&set);
         CPU_SET(core_id, &set);
@@ -177,14 +168,6 @@ void PinCurrentThreadToPerformanceCore(size_t core_id) {
 }
 
 #ifdef ARCHITECTURE_x86_64
-// On Linux and UNIX systems, a futex would nominally be used to cover the costs
-// the idea is that it's intuitivelly cheaper to use a direct instruction as opposed to a full futex call
-// the underlying libc++ implementation uses pthread_cond_timedwait which MAY invoke a futex
-// Let's pretend the OS is too expensive to jump into, and avoid ANY context switches
-// this should *IN THEORY* lower CPU usage while just waiting for stuff effectively
-// For windows the minimal quanta resolution is about 500us, and normal CRT cond var is 1.5ms(?)
-// so may as well avoid that too
-// Let's just give ALL platforms the same mechanisms (almost) for when they have umonitor OR waitpkg
 #ifdef __clang__
 __attribute__((target("waitpkg,mwaitx")))
 #elif defined(__GNUC__)

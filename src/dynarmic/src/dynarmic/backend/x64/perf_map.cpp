@@ -12,7 +12,7 @@
 
 #include "dynarmic/backend/x64/perf_map.h"
 #include "common/common_types.h"
-#if defined(__linux__) && !defined(__ANDROID__)
+#if defined(__linux__)
 #    include <cstdio>
 #    include <cstdlib>
 #    include <mutex>

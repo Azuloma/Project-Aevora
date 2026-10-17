@@ -30,11 +30,7 @@ VK_DEFINE_HANDLE(VmaAllocation)
 
 namespace Vulkan::vk {
 
-/**
- * Span for Vulkan arrays.
- * Based on std::span but optimized for array access instead of iterators.
- * Size returns uint32_t instead of size_t to ease interaction with Vulkan functions.
- */
+
 template <typename T>
 class Span {
 public:
@@ -459,16 +455,10 @@ public:
         return handle != Type{};
     }
 
-#ifndef __ANDROID__
-    /**
-     * Releases ownership of the managed handle.
-     * The caller is responsible for managing the lifetime of the returned handle.
-     * The Handle object becomes invalid after this call.
-     */
+
     Type release() noexcept {
         return std::exchange(handle, nullptr);
     }
-#endif
 
 protected:
     Type handle{};
@@ -541,16 +531,10 @@ public:
         return handle != Type{};
     }
 
-#ifndef __ANDROID__
-    /**
-     * Releases ownership of the managed handle.
-     * The caller is responsible for managing the lifetime of the returned handle.
-     * The Handle object becomes invalid after this call.
-     */
+
     Type release() noexcept {
         return std::exchange(handle, nullptr);
     }
-#endif
 
 protected:
     Type handle{};
@@ -651,9 +635,6 @@ public:
     [[nodiscard]] static Instance Create(u32 version, Span<const char*> layers, Span<const char*> extensions,
                            InstanceDispatch& dispatch);
 
-    /// Enumerates physical devices.
-    /// @return Physical devices and an empty handle on failure.
-    /// @throw Exception on Vulkan error.
     std::vector<VkPhysicalDevice> EnumeratePhysicalDevices() const;
 
     /// Creates a debug callback messenger.
@@ -986,13 +967,7 @@ public:
         return value;
     }
 
-    /**
-     * Waits for a timeline semaphore on the host.
-     *
-     * @param value   Value to wait
-     * @param timeout Time in nanoseconds to timeout
-     * @return        True on successful wait, false on timeout
-     */
+
     bool Wait(u64 value, u64 timeout = (std::numeric_limits<u64>::max)()) const {
         const VkSemaphoreWaitInfo wait_info{
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,

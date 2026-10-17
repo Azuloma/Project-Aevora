@@ -1,37 +1,6 @@
 // SPDX-FileCopyrightText: Copyright 2026 suyu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-// Real libretro core entry points for suyu (RetroArch loads this .dll as a
-// core, in contrast to core/libretro_wrapper.cpp which is suyu acting as a
-// libretro *frontend* loading other cores - the two are separate features).
-//
-// STATUS: boots and runs a game headlessly via Core::System, exactly like
-// suyu_cmd (src/suyu_cmd/suyu.cpp) does without Qt. System info, environment
-// negotiation, load/unload/reset, and serialize size are real and correct.
-//
-// WIRED AND VERIFIED:
-//   - Video: Vulkan renderer runs headless, rendering to a CPU buffer via
-//     RenderToBuffer which retro_run reads back (with a B8G8R8A8 -> XRGB8888
-//     channel swap). Falls back to a black frame before the first one lands.
-//   - Audio: by default suyu opens a host audio device and plays directly,
-//     which is what sounds correct. An "Audio Output" core option can instead
-//     route samples through retro_audio_sample_batch via the
-//     AudioEngine::Libretro sink - tidier in principle, but nothing paces the
-//     emulated renderer here so it delivers in bursts.
-//   - Input: retro_input_state_cb is bridged into InputCommon's
-//     VirtualGamepad (16 buttons + both analog sticks).
-//   - Keys: prod/title/console.keys are picked up from the frontend's
-//     system directory (<system>/suyu/keys) if not already installed.
-//   - Online: suyu's own room-based multiplayer is initialised here, so
-//     online play works in the core the same way it does under Qt.
-//
-// NOT WIRED (deliberately, not silently faked):
-//   - Save states: retro_serialize/unserialize return false and
-//     retro_serialize_size() returns 0 - see the comment there. This also
-//     rules out RetroArch netplay and rerecording, which are defined in
-//     libretro.h as depending on serialization; the core declares
-//     RETRO_SERIALIZATION_QUIRK_INCOMPLETE so the frontend reports them as
-//     unavailable rather than offering them and failing later.
 
 #include <algorithm>
 #include <array>
@@ -45,9 +14,6 @@
 #include <string>
 #include <filesystem>
 #include <vector>
-#ifdef SUYU_ANDROID_LIBRETRO
-#include <sys/system_properties.h>
-#endif
 #include "audio_core/sink/libretro_sink.h"
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
@@ -79,18 +45,10 @@
 
 namespace {
 
-std::string GetRuntimeOption(const char* environment_key,
-                             [[maybe_unused]] const char* android_property) {
+std::string GetRuntimeOption(const char* environment_key) {
     if (const char* value = std::getenv(environment_key)) {
         return value;
     }
-#ifdef SUYU_ANDROID_LIBRETRO
-    char value[PROP_VALUE_MAX]{};
-    const int length = __system_property_get(android_property, value);
-    if (length > 0 && length < PROP_VALUE_MAX) {
-        return std::string(value, static_cast<size_t>(length));
-    }
-#endif
     return {};
 }
 
@@ -141,9 +99,6 @@ retro_input_state_t g_input_state_cb;
 constexpr unsigned kFrameWidth = 1280;
 constexpr unsigned kFrameHeight = 720;
 
-// System::Initialize() may decrypt firmware metadata. Make the frontend's
-// existing keys visible before that call, not after it has already tried to
-// create crypto contexts with a missing key.
 void PrepareLibretroKeys() {
     const auto keys_dir = Common::FS::GetSuyuPath(Common::FS::SuyuPath::KeysDir);
     const auto roaming = keys_dir.parent_path().parent_path();
@@ -204,10 +159,6 @@ bool ReadShowPerfOption() {
 
 void ShowPerfMessage(std::string text) {
 #ifdef __APPLE__
-    // RetroArch on macOS sizes the right-anchored status box about a quarter
-    // narrower than the text it draws, clipping the end of the readout at the
-    // window edge. Trailing spaces draw as nothing but widen the box; half the
-    // character count was enough in every form on RetroArch 1.22.2.
     std::size_t code_points = 0;
     for (const unsigned char c : text) {
         code_points += (c & 0xC0) != 0x80;
@@ -255,11 +206,6 @@ RETRO_API void retro_set_environment(retro_environment_t cb) {
         {"suyu_use_docked", "Docked Mode (reload content); Yes|No"},
         {"suyu_fastmem", "Fastmem (reload content); Enabled|Disabled"},
         {"suyu_audio_output", "Audio Output (reload content); Host (direct)|Frontend (libretro)"},
-        // suyu's own online play. RetroArch's netplay can't drive this core
-        // (see retro_serialize_size), but suyu's room system tunnels the
-        // game's own LAN multiplayer between peers and doesn't need frame
-        // sync, so it works here - it just needs somewhere to be configured,
-        // which is what these are.
         {"suyu_online_enable", "suyu Online Play (reload content); Disabled|Enabled"},
         // The frontend's FPS counter counts every presented frame, including
         // repeats while the game has not drawn a new one; this shows the game's own rate.
@@ -270,10 +216,6 @@ RETRO_API void retro_set_environment(retro_environment_t cb) {
     };
     cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void*)vars);
 
-    // Tell the frontend up front that state serialization is not usable for
-    // frame-sensitive features. RetroArch keys netplay and rerecording off
-    // this, so declaring it means those are cleanly reported as unavailable
-    // instead of being offered and then failing mid-session.
     uint64_t quirks = RETRO_SERIALIZATION_QUIRK_INCOMPLETE;
     cb(RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS, &quirks);
 }
@@ -299,24 +241,6 @@ RETRO_API void retro_set_input_state(retro_input_state_t cb) {
 }
 
 RETRO_API void retro_init() {
-#ifdef SUYU_ANDROID_LIBRETRO
-    // RetroArch owns Android storage; establish a writable core directory before
-    // logging and firmware/key initialization. Content must use ordinary paths.
-    const char* system_directory = nullptr;
-    if (!g_environ_cb ||
-        !g_environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &system_directory) ||
-        !system_directory || !*system_directory) {
-        return;
-    }
-    const auto user_directory = std::filesystem::path{system_directory} / "suyu";
-    std::error_code directory_error;
-    std::filesystem::create_directories(user_directory, directory_error);
-    if (directory_error) {
-        return;
-    }
-    Common::FS::SetAppDirectory(user_directory.string());
-    Common::FS::CreateSuyuPaths();
-#endif
     Common::Log::Initialize();
     Common::Log::Start();
 
@@ -330,16 +254,6 @@ RETRO_API void retro_init() {
 
     g_system->Initialize();
     Settings::values.renderer_backend.SetValue(Settings::RendererBackend::Vulkan);
-    // Audio output path. Default is "host": suyu opens its own audio device
-    // and plays directly, which is how this core behaved before the libretro
-    // route existed and is what actually sounds correct today.
-    //
-    // The libretro route hands samples to the frontend instead, which is
-    // tidier in principle (frontend volume, recording, per-core mixing) but
-    // sounds worse in practice: nothing throttles the emulated renderer here
-    // the way a real device's buffer does, so it produces audio in bursts
-    // rather than at a steady rate. It's offered as an option rather than
-    // imposed, and the choice is re-read in retro_load_game.
     g_use_frontend_audio = false;
     Settings::values.sink_id.SetValue(Settings::AudioEngine::Auto);
     Settings::values.cpuopt_fastmem.SetValue(true);
@@ -352,11 +266,6 @@ RETRO_API void retro_init() {
     g_system->GetFileSystemController().CreateFactories(*g_system->GetFilesystem());
     g_system->GetUserChannel().clear();
 
-    // Bring up suyu's own room-based multiplayer. RetroArch's netplay can't
-    // drive this core (see retro_serialize_size() for why), but suyu's online
-    // play is peer-to-peer at the emulated-console level and doesn't depend on
-    // frontend savestates, so it works here exactly as it does in the Qt
-    // frontend once the user joins a room.
     if (!Network::Init()) {
         LOG_WARNING(Frontend, "libretro: could not initialise the network layer; "
                               "suyu online play will be unavailable in this session");
@@ -384,10 +293,6 @@ RETRO_API unsigned retro_api_version() {
 
 RETRO_API void retro_get_system_info(struct retro_system_info* info) {
     std::memset(info, 0, sizeof(*info));
-    // RetroArch shows "<name> <version>" in its core information. Take the
-    // version from the build ("suyu v0.0.11 (mk8-recomp)" -> "v0.0.11
-    // (mk8-recomp)") and add the commit when the build knows it, so the core
-    // can be matched to the release it came from.
     static const std::string version = [] {
         std::string text = Common::g_build_fullname;
         const std::string prefix = std::string(Common::g_build_name) + " ";
@@ -411,9 +316,6 @@ RETRO_API void retro_get_system_info(struct retro_system_info* info) {
 RETRO_API void retro_get_system_av_info(struct retro_system_av_info* info) {
     info->geometry.base_width = kFrameWidth;
     info->geometry.base_height = kFrameHeight;
-    // Allow up to 4x so raising the internal resolution option doesn't get
-    // clamped back down to 720p by the frontend. RetroArch sizes its texture
-    // from max_*, and a core may deliver anything up to it.
     info->geometry.max_width = kFrameWidth * 4;
     info->geometry.max_height = kFrameHeight * 4;
     info->geometry.aspect_ratio = static_cast<float>(kFrameWidth) / static_cast<float>(kFrameHeight);
@@ -505,12 +407,6 @@ RETRO_API void retro_run() {
                     const auto finite = [](double value) {
                         return std::isfinite(value) && value >= 0.0 ? value : 0.0;
                     };
-                    // RetroArch's status box is narrow, so the readout carries one detail after
-                    // the frame rate: the shaders being built while there are any, since that is
-                    // what a stutter needs explained; else, with multicore on (the default), the
-                    // frame time.
-                    // Speed is shown only in single-core mode: with multicore, guest time is
-                    // the host wall clock, so emulation_speed reads ~100% however slow it runs.
                     std::string text = fmt::format("Game {:.1f} FPS", finite(stats.average_game_fps));
                     if (const int building = g_system->GPU().ShaderNotify().ShadersBuilding();
                         building > 0) {
@@ -564,14 +460,6 @@ RETRO_API void retro_run() {
         fflush(stderr);
     }
 
-    // Hand over whatever the emulated audio renderer produced since the last
-    // frame. upload_batch takes frames (L+R pairs), not individual samples.
-    // Feed the frontend a steady ~1 frame of audio per call rather than
-    // whatever has piled up. RetroArch resamples against its own clock and
-    // expects roughly sample_rate/fps frames each retro_run; handing it a
-    // quarter second in one lump and nothing for the next 15 calls is what
-    // made the output screech. Anything beyond a small backlog is dropped so
-    // latency can't creep up instead.
     if (g_use_frontend_audio && g_audio_batch_cb && g_game_loaded) {
         constexpr size_t kFramesPerCall = 48000 / 60;   // stereo frames
         constexpr size_t kMaxBacklogFrames = kFramesPerCall * 6;
@@ -615,12 +503,6 @@ RETRO_API void retro_run() {
                 }
                 g_presented_frame = displayed;
                 g_have_presented = true;
-                // No channel swap: the renderer produces VK_FORMAT_B8G8R8A8,
-                // i.e. B,G,R,A in ascending byte order, and libretro's
-                // XRGB8888 is the 32-bit word 0xXXRRGGBB, which on a
-                // little-endian host is that same B,G,R,X byte order. Passing
-                // the buffer straight through is correct; an earlier R<->B
-                // swap here was the cause of red rendering as blue.
                 g_video_cb(frame.data(), renderer.GetHeadlessWidth(),
                            renderer.GetHeadlessHeight(),
                            renderer.GetHeadlessWidth() * 4);
@@ -638,18 +520,6 @@ RETRO_API void retro_run() {
 }
 
 RETRO_API size_t retro_serialize_size() {
-    // Returning 0 disables savestates (and, through them, RetroArch netplay
-    // and rerecording) in the frontend UI.
-    //
-    // This isn't a shortcut in the libretro layer: suyu has no state
-    // serialization at all, and neither does any other yuzu-derived emulator.
-    // A Switch savestate has to capture several GB of guest RAM plus dynarmic
-    // CPU state for every guest thread, the whole GPU pipeline (Maxwell
-    // registers, in-flight command buffers, texture/shader caches), the audio
-    // renderer, and the entire HLE kernel object graph - threads, mutexes,
-    // events, shared memory, open filesystem handles and live IPC sessions.
-    // Until that exists in core/, there is nothing here to hand back, and
-    // faking a partial state would corrupt saves rather than fail cleanly.
     return 0;
 }
 
@@ -682,10 +552,6 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game) {
         g_game_path.clear();
         return false;
     }
-    // Loader::IdentifyFile probes encrypted NCAs even for a malformed NRO.
-    // With no keys, that probe reaches AES-XTS with an uninitialized cipher.
-    // Check only the unencrypted executable signatures here; normal loader
-    // validation still decides whether a recognized file can actually boot.
     const auto filename_type =
         Loader::GuessFromFilename(std::filesystem::u8path(g_game_path).filename().string());
     if (filename_type == Loader::FileType::NSO) {
@@ -718,12 +584,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game) {
     }
     LOG_INFO(Frontend, "libretro core: loading game: {}", g_game_path);
 
-    // RetroArch passes one content path. When an update is requested, require
-    // that path to be the base XCI/NSP and verify the supplied update with the
-    // same read-only provider and module/RomFS checks as suyu-cmd. The provider
-    // is registered only for this content session; no NAND install occurs.
-    if (const auto update_path = GetRuntimeOption("SUYU_LIBRETRO_UPDATE_PATH",
-                                                 "debug.suyu.libretro.update");
+    if (const auto update_path = GetRuntimeOption("SUYU_LIBRETRO_UPDATE_PATH");
         !update_path.empty()) {
         g_explicit_provider = std::make_unique<SuyuCli::ExplicitUpdateProvider>();
         if (!SuyuCli::ConfigureExplicitUpdate(*g_system, *g_explicit_provider,
@@ -734,9 +595,6 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game) {
         LOG_INFO(Frontend, "libretro: explicit base/update provider verified for this session");
     }
 
-    // A verified deconstructed ExeFS/RomFS pair has no CNMT to report the
-    // update version. Allow an explicit version only for that layout; packed
-    // base+update sessions get their version from the verified provider.
     g_system->SetApplicationVersionOverride(0, {});
     if (const char* raw_version = std::getenv("SUYU_LIBRETRO_APP_VERSION");
         raw_version && *raw_version) {
@@ -837,16 +695,6 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game) {
         }
         g_system->ApplySettings();
 
-        // Join a suyu room if the user configured one. Done here rather than
-        // in retro_init so the options the frontend collected are already
-        // available, and so a failed join can't stop the game from booting
-        // single-player.
-        // If the frontend has a netplay session running, treat that as a
-        // request for online play even when the core option is off. RetroArch's
-        // own netplay can't synchronise this core (see retro_serialize_size),
-        // but a user who started one has clearly asked to play with someone,
-        // and suyu's room system can carry that - so the session is used as
-        // the trigger and the client index decides who hosts.
         unsigned netplay_index = 0;
         const bool frontend_netplay =
             g_environ_cb(RETRO_ENVIRONMENT_GET_NETPLAY_CLIENT_INDEX, &netplay_index);
@@ -902,7 +750,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game) {
     }
 
     g_tas_playback = false;
-    if (const auto tas_dir = GetRuntimeOption("SUYU_LIBRETRO_TAS_DIR", "debug.suyu.libretro.tas");
+    if (const auto tas_dir = GetRuntimeOption("SUYU_LIBRETRO_TAS_DIR");
         !tas_dir.empty()) {
         const auto directory = std::filesystem::u8path(tas_dir);
         std::error_code error;
@@ -934,9 +782,6 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game) {
         return false;
     }
 
-    // The GUI's EmuThread does these steps between Load and Run; otherwise the GPU thread
-    // never starts and the CPU manager doesn't know the GPU is ready, causing the game to stall
-    // before it ever reaches display setup.
     if (g_tas_playback) {
         auto* tas = g_input_subsystem->GetTas();
         tas->BeginBootSession(InputCommon::TasInput::TasBootMode::Playback);
@@ -950,7 +795,7 @@ RETRO_API bool retro_load_game(const struct retro_game_info* game) {
     gpu.Start();
     g_system->GetCpuManager().OnGpuReady();
 
-    const auto perf_setting = GetRuntimeOption("SUYU_LIBRETRO_PERF", "debug.suyu.libretro.perf");
+    const auto perf_setting = GetRuntimeOption("SUYU_LIBRETRO_PERF");
     g_sample_perf = perf_setting == "1";
     g_show_perf = ReadShowPerfOption();
     unsigned message_version = 0;

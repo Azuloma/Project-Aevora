@@ -994,14 +994,12 @@ std::string Config::AdjustOutputString(const std::string& string) {
 
     // Windows requires that two forward slashes are used at the start of a path for unmapped
     // network drives so we have to watch for that here
-#ifndef __ANDROID__
     if (string.substr(0, 2) == "//") {
         boost::replace_all(adjusted_string, "//", "/");
         adjusted_string.insert(0, "/");
     } else {
         boost::replace_all(adjusted_string, "//", "/");
     }
-#endif
 
     // Needed for backwards compatibility with QSettings deserialization
     for (const auto& special_character : special_characters) {
@@ -1071,9 +1069,6 @@ void Config::SetArrayIndex(const int index) {
     // You can't exceed the known max size of the array by more than 1
     ASSERT(array_stack.front().size + 1 >= array_index);
 
-    // Change the config array size to the current index since you may want
-    // to reduce the number of elements that you read back from the config
-    // in the future.
     array_stack.back().size = array_index;
     array_stack.back().index = array_index;
 }

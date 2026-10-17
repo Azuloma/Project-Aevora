@@ -262,9 +262,6 @@ void PresentManager::WaitPresent() {
         frame_cv.wait(queue_lock, [this] { return present_queue.empty(); });
     }
 
-    // The above condition will be satisfied when the last frame is taken from the queue.
-    // To ensure that frame has been presented as well take hold of the swapchain
-    // mutex.
     std::scoped_lock swapchain_lock{swapchain_mutex};
 }
 
@@ -280,9 +277,6 @@ void PresentManager::PresentThread(std::stop_token token) {
             present_queue.pop_front();
             frame_cv.notify_one();
 
-            // By exchanging the lock ownership we take the swapchain lock
-            // before the queue lock goes out of scope. This way the swapchain
-            // lock in WaitPresent is guaranteed to occur after here.
             std::exchange(lock, std::unique_lock{swapchain_mutex});
             CopyToSwapchain(frame);
 
@@ -300,9 +294,6 @@ void PresentManager::RecreateSwapchain(Frame* frame) {
 }
 
 void PresentManager::SetImageCount() {
-    // We cannot have more than 7 images in flight at any given time.
-    // FRAMES_IN_FLIGHT is 8, and the cache TICKS_TO_DESTROY is 8.
-    // Mali drivers will give us 6.
     image_count = std::min<size_t>(swapchain.GetImageCount(), 7);
 }
 
@@ -313,9 +304,6 @@ void PresentManager::CopyToSwapchain(Frame* frame) {
         try {
             // Recreate surface and swapchain if needed.
             if (requires_recreation) {
-#ifdef __ANDROID__
-                surface = CreateSurface(instance, render_window.GetWindowInfo());
-#endif
                 RecreateSwapchain(frame);
             }
 

@@ -14,13 +14,11 @@
 #include <string_view>
 #include <thread>
 #include <vector>
-#ifdef _WIN32
+#if defined(_WIN32)
 #include <windows.h>
 #elif defined(__DragonFly__) || defined(__FreeBSD__)
 #include <sys/types.h>
 #include <machine/cpufunc.h>
-#elif defined(__ANDROID__)
-#include <sys/system_properties.h>
 #endif
 
 #include "common/steady_clock.h"
@@ -151,10 +149,6 @@ const CPUCaps g_cpu_caps = [] {
         caps.aes = Common::Bit<25>(cpu_id[2]);
         caps.f16c = Common::Bit<29>(cpu_id[2]);
 
-        // AVX support requires 3 separate checks:
-        //  - Is the AVX bit set in CPUID?
-        //  - Is the XSAVE bit set in CPUID?
-        //  - XGETBV result has the XCR bit set.
         if (Common::Bit<28>(cpu_id[2]) && Common::Bit<27>(cpu_id[2])) {
             if ((xgetbv(_XCR_XFEATURE_ENABLED_MASK) & 0x6) == 0x6) {
                 caps.avx = true;
@@ -310,27 +304,8 @@ namespace {
 }
 [[nodiscard]] s64 GetHostCNTFRQ() noexcept {
     u64 cntfrq_el0 = 0;
-#ifdef __ANDROID__
-    std::string_view board{""};
-    char buffer[PROP_VALUE_MAX];
-    int len{__system_property_get("ro.product.board", buffer)};
-    board = std::string_view(buffer, static_cast<size_t>(len));
-    if (board == "s5e9925") { // Exynos 2200
-        cntfrq_el0 = 25600000;
-    } else if (board == "exynos2100") { // Exynos 2100
-        cntfrq_el0 = 26000000;
-    } else if (board == "exynos9810") { // Exynos 9810
-        cntfrq_el0 = 26000000;
-    } else if (board == "s5e8825") { // Exynos 1280
-        cntfrq_el0 = 26000000;
-    } else {
-        asm volatile("mrs %[cntfrq_el0], cntfrq_el0" : [cntfrq_el0] "=r"(cntfrq_el0));
-    }
-    return cntfrq_el0;
-#else
     asm volatile("mrs %[cntfrq_el0], cntfrq_el0" : [cntfrq_el0] "=r"(cntfrq_el0));
     return cntfrq_el0;
-#endif
 }
 } // namespace
 

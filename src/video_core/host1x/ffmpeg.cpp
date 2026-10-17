@@ -43,8 +43,6 @@ constexpr std::array PreferredGpuDecoders = {
     AV_HWDEVICE_TYPE_DRM,
 #elif defined(__APPLE__)
     AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
-#elif defined(__ANDROID__)
-    AV_HWDEVICE_TYPE_MEDIACODEC,
 #elif defined(__unix__)
     AV_HWDEVICE_TYPE_CUDA,
     AV_HWDEVICE_TYPE_VAAPI,
@@ -88,51 +86,6 @@ std::string AVError(int errnum) {
     return errbuf;
 }
 
-#if defined(__ANDROID__)
-size_t FindNalStartCode(std::span<const u8> data, size_t i) {
-    const size_t n = data.size();
-    if (i + 3 < n && data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0 && data[i + 3] == 1) {
-        return 4;
-    }
-    if (i + 2 < n && data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
-        return 3;
-    }
-    return 0;
-}
-
-std::vector<u8> ExtractH264ParameterSetExtradata(std::span<const u8> packet) {
-    std::vector<u8> extradata;
-    const size_t size = packet.size();
-    size_t i = 0;
-    while (i < size) {
-        const size_t sc = FindNalStartCode(packet, i);
-        if (sc == 0) {
-            ++i;
-            continue;
-        }
-        const size_t nal_start = i + sc;
-        if (nal_start >= size) {
-            break;
-        }
-        const u8 nal_type = packet[nal_start] & 0x1F;
-
-        size_t j = nal_start + 1;
-        while (j < size && FindNalStartCode(packet, j) == 0) {
-            ++j;
-        }
-
-        if (nal_type == 7 || nal_type == 8) {
-            constexpr u8 start[4] = {0, 0, 0, 1};
-            extradata.insert(extradata.end(), start, start + sizeof(start));
-            extradata.insert(extradata.end(), packet.begin() + nal_start, packet.begin() + j);
-        } else if (nal_type == 1 || nal_type == 5) {
-            break;
-        }
-        i = j;
-    }
-    return extradata;
-}
-#endif
 
 }
 
@@ -169,20 +122,6 @@ Decoder::Decoder(Tegra::Host1x::NvdecCommon::VideoCodec codec) {
         }
     }();
 
-#if defined(__ANDROID__)
-    if (Settings::values.nvdec_emulation.GetValue() == Settings::NvdecEmulation::Gpu) {
-        const char* mc_name = nullptr;
-        switch (av_codec) {
-        case AV_CODEC_ID_H264: mc_name = "h264_mediacodec"; break;
-        case AV_CODEC_ID_VP8:  mc_name = "vp8_mediacodec";  break;
-        case AV_CODEC_ID_VP9:  mc_name = "vp9_mediacodec";  break;
-        default: break;
-        }
-        if (mc_name) {
-            m_codec = avcodec_find_decoder_by_name(mc_name);
-        }
-    }
-#endif
     if (!m_codec) {
         m_codec = avcodec_find_decoder(av_codec);
     }
@@ -281,10 +220,6 @@ DecoderContext::DecoderContext(const Decoder& decoder) : m_decoder{decoder} {
     av_opt_set(m_codec_context->priv_data, "tune", "zerolatency", 0);
     m_codec_context->thread_count = 0;
     m_codec_context->thread_type &= ~FF_THREAD_FRAME;
-#if defined(__ANDROID__)
-    m_codec_context->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    m_codec_context->flags2 |= AV_CODEC_FLAG2_FAST;
-#endif
 }
 
 DecoderContext::~DecoderContext() {
@@ -363,8 +298,6 @@ void DecodeApi::Reset() {
     m_decoder_context.reset();
     m_decoder.reset();
     m_opened = false;
-    m_defer_android_mediacodec_open = false;
-    m_needs_h264_extradata = false;
     m_next_pts = 0;
     while (!m_pending_offsets.empty()) {
         m_pending_offsets.pop();
@@ -376,28 +309,13 @@ bool DecodeApi::Initialize(Tegra::Host1x::NvdecCommon::VideoCodec codec) {
     m_decoder.emplace(codec);
     m_decoder_context.emplace(*m_decoder);
 
-    bool is_mediacodec = false;
-#if defined(__ANDROID__)
-    const std::string_view decoder_name = m_decoder->GetCodec() ? m_decoder->GetCodec()->name : "";
-    is_mediacodec = decoder_name == "h264_mediacodec" ||
-                    decoder_name == "vp8_mediacodec" ||
-                    decoder_name == "vp9_mediacodec";
-#endif
 
     // Enable GPU decoding if requested.
-    if (!is_mediacodec &&
-        Settings::values.nvdec_emulation.GetValue() == Settings::NvdecEmulation::Gpu) {
+    if (Settings::values.nvdec_emulation.GetValue() == Settings::NvdecEmulation::Gpu) {
         m_hardware_context.emplace();
         m_hardware_context->InitializeForDecoder(*m_decoder_context, *m_decoder);
     }
 
-#if defined(__ANDROID__)
-    m_defer_android_mediacodec_open = is_mediacodec;
-    m_needs_h264_extradata = decoder_name == "h264_mediacodec";
-    if (m_defer_android_mediacodec_open) {
-        return true;
-    }
-#endif
 
     // Open the decoder context.
     if (!m_decoder_context->OpenContext(*m_decoder)) {
@@ -413,26 +331,6 @@ bool DecodeApi::SendPacket(std::span<const u8> packet_data, const FrameOffsets& 
                            std::optional<FrameDimensions> dimensions) {
     if (!m_opened) {
         std::vector<u8> extradata;
-#if defined(__ANDROID__)
-        if (m_defer_android_mediacodec_open) {
-            if (!dimensions) {
-                return true;
-            }
-
-            auto* ctx = m_decoder_context->GetCodecContext();
-            ctx->width = dimensions->width;
-            ctx->height = dimensions->height;
-            ctx->coded_width = dimensions->width;
-            ctx->coded_height = dimensions->height;
-        }
-
-        if (m_needs_h264_extradata) {
-            extradata = ExtractH264ParameterSetExtradata(packet_data);
-            if (extradata.empty()) {
-                return true;
-            }
-        }
-#endif
         if (!m_decoder_context->OpenContext(*m_decoder, extradata)) {
             this->Reset();
             return false;

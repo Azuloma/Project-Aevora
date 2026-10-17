@@ -34,7 +34,7 @@ bool CreateShortcutLink(const std::filesystem::path& shortcut_path, const std::s
                         const std::filesystem::path& command, const std::string& arguments,
                         const std::string& categories, const std::string& keywords,
                         const std::string& name) try {
-#ifdef _WIN32 // Windows
+#if defined(_WIN32)
     HRESULT hr = CoInitialize(nullptr);
     if (FAILED(hr)) {
         LOG_ERROR(Frontend, "CoInitialize failed");
@@ -98,7 +98,7 @@ bool CreateShortcutLink(const std::filesystem::path& shortcut_path, const std::s
         return false;
     }
     return true;
-#elif defined(__unix__) && !defined(__APPLE__) && !defined(__ANDROID__) // Any desktop NIX
+#elif defined(__unix__) && !defined(__APPLE__)
     std::filesystem::path shortcut_path_full = shortcut_path / (name + ".desktop");
     std::ofstream shortcut_stream(shortcut_path_full, std::ios::binary | std::ios::trunc);
     if (!shortcut_stream.is_open()) {
@@ -125,7 +125,7 @@ bool CreateShortcutLink(const std::filesystem::path& shortcut_path, const std::s
         fmt::print(shortcut_stream, "Keywords={}\n", keywords);
     }
     return true;
-#else                                                                   // Unsupported platform
+#else
     return false;
 #endif
 } catch (const std::exception& e) {
@@ -140,7 +140,7 @@ bool MakeShortcutIcoPath(const u64 program_id, const std::string_view game_file_
 #if defined(_WIN32)
     out_icon_path = Common::FS::GetSuyuPath(Common::FS::SuyuPath::IconsDir);
     ico_extension = "ico";
-#elif !defined(__ANDROID__) // Any *nix but android
+#else
     out_icon_path = Common::FS::GetDataDirectory("XDG_DATA_HOME") / "icons/hicolor/256x256";
 #endif
     // Create icons directory if it doesn't exist
@@ -466,7 +466,7 @@ void CreateShortcut(const std::string& game_path, const u64 program_id,
                 .arg(QString::fromStdString(out_icon_path.string())));
     }
 
-#if defined(__unix__) && !defined(__APPLE__) && !defined(__ANDROID__)
+#if defined(__unix__) && !defined(__APPLE__)
     // Special case for AppImages
     // Warn once if we are making a shortcut to a volatile AppImage
     if (command.string().ends_with(".AppImage") && !UISettings::values.shortcut_already_warned) {
@@ -627,7 +627,7 @@ bool SaveIconToFile(const std::filesystem::path& icon_path, const QImage& image)
     icon_file.Close();
 
     return true;
-#elif defined(__unix__) && !defined(__APPLE__) && !defined(__ANDROID__)
+#elif defined(__unix__) && !defined(__APPLE__)
     // Convert and write the icon as a PNG
     if (!image.save(QString::fromStdString(icon_path.string()))) {
         LOG_ERROR(Frontend, "Could not write icon as PNG to file");

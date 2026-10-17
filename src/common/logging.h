@@ -92,9 +92,6 @@ void FmtLogMessage(Class log_class, Level log_level, const char* filename, unsig
     FmtLogMessageImpl(log_class, log_level, filename, line_num, function, format.get(), fmt::make_format_args(args...));
 }
 
-/// Implements a log message filter which allows different log classes to have different minimum
-/// severity levels. The filter can be changed at runtime and can be parsed from a string to allow
-/// editing via the interface or loading from a configuration file.
 struct Filter {
     /// Initializes the filter with all classes having `default_level` as the minimum level.
     explicit Filter(Level level = Level::Info) {
@@ -104,16 +101,6 @@ struct Filter {
     void SetClassLevel(Class log_class, Level level) {
         class_levels[std::size_t(log_class)] = level;
     }
-    /// Parses a filter string and applies it to this filter.
-    /// A filter string consists of a space-separated list of filter rules, each of the format
-    /// `<class>:<level>`. `<class>` is a log class name, with subclasses separated using periods.
-    /// `*` is allowed as a class name and will reset all filters to the specified level. `<level>`
-    /// a severity level name which will be set as the minimum logging level of the matched classes.
-    /// Rules are applied left to right, with each rule overriding previous ones in the sequence.
-    /// A few examples of filter rules:
-    ///  - `*:Info` -- Resets the level of all classes to Info.
-    ///  - `Service:Info` -- Sets the level of Service to Info.
-    ///  - `Service.FS:Trace` -- Sets the level of the Service.FS class to Trace.
     void ParseFilterString(std::string_view filter_view);
     /// Matches class/level combination against the filter, returning true if it passed.
     [[nodiscard]] bool CheckMessage(Class log_class, Level level) const {
@@ -158,7 +145,5 @@ std::string FormatLogMessage(const Entry& entry) noexcept;
 /// Prints the same message as `PrintMessage`, but colored according to the severity level.
 void PrintColoredMessage(const Entry& entry) noexcept;
 
-/// Formats and prints a log entry to the android logcat.
-void PrintMessageToLogcat(const Entry& entry) noexcept;
 
 } // namespace Common::Log

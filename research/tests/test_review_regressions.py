@@ -227,13 +227,14 @@ int main(){using namespace Vulkan::StallProbe;
             else: env['SUYU_STALL_PROBE']=value
             run([exe],env=env)
 
+
+
     def test_05_shader_ranges_and_dedup(self):
         if PKG:
             stub=(PKG/'reference/shader_stub.h').read_text()
             body=(PKG/'payload/DefineConstBuffers.txt').read_text()
         else:
-            source=(ROOT/'research/ios/tests/test_shader_constant_buffers.py').read_text()
-            stub=source.split("STUB = r'''",1)[1].split("'''",1)[0]
+            stub=(ROOT/'research/tests/fixtures/shader_constant_buffers.h').read_text()
             source=(ROOT/'src/shader_recompiler/backend/spirv/spirv_emit_context.cpp').read_text()
             body=section(source,'void DefineConstBuffers(','\nvoid DefineSsbos(')
         checks=r'''int main(){
@@ -252,61 +253,6 @@ int main(){using namespace Vulkan::StallProbe;
  }
 }'''
         run([self.build(stub+body+checks,'shader')])
-
-    def test_06_static_three_module_abi_transition(self):
-        if PKG:
-            cmake_text=fixes.ios_cmake((PKG/'reference/StaticModules.cmake').read_text())
-            fixture_text=fixes.fixture((PKG/'reference/make_fixture.py').read_text())
-        else:
-            cmake_text=(ROOT/'research/ios/cmake/StaticModules.cmake').read_text()
-            fixture_text=(ROOT/'research/ios/tests/make_fixture.py').read_text()
-        (self.d/'StaticModules.cmake').write_text(cmake_text)
-        (self.d/'make_fixture.py').write_text(fixture_text)
-        exefs=self.d/'exefs [fixture]'
-        run([sys.executable,self.d/'make_fixture.py',exefs])
-        (self.d/'CMakeLists.txt').write_text("""cmake_minimum_required(VERSION 3.24)
-project(ReviewStatic C)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-include("${CMAKE_CURRENT_SOURCE_DIR}/StaticModules.cmake")
-switch_aot_add_images(review_images "${CMAKE_CURRENT_SOURCE_DIR}/exefs [fixture]")
-add_executable(smoke main.c)
-target_include_directories(smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/exefs [fixture]/main")
-target_link_libraries(smoke PRIVATE review_images)
-""")
-        (self.d/'main.c').write_text("""#include "recomp_runtime.h"
-#include <assert.h>
-struct Module { const char* name; BlockFn (*lookup)(uint64_t); void (*set_base)(uint64_t); };
-const struct Module* suyu_recomp_static_modules(unsigned* count);
-int switch_aot_enable_guards(void);
-int main(int argc,char**argv) {
- (void)argv;
- if(argc>1){assert(!switch_aot_enable_guards());return 0;}
- assert(switch_aot_enable_guards());
- unsigned n=0;const struct Module*m=suyu_recomp_static_modules(&n);assert(n==3);
- for(unsigned i=0;i<n;++i){uint64_t base=0x10000ULL*(i+1);m[i].set_base(base);
-  GuestContext c={0};c.pc=base+0x100;BlockFn f=m[i].lookup(c.pc);assert(f);f(&c);
-  assert(c.x[0]==1 && c.pending_svc==1 && c.pc==base+0x108);}
- return 0;
-}
-""")
-        build=self.d/'build'
-        run(['cmake','-S',self.d,'-B',build,'-DCMAKE_BUILD_TYPE=Debug',
-             '-DCMAKE_C_FLAGS='+' '.join(SAN)])
-        run(['cmake','--build',build,'--parallel','2'])
-        exe=build/('smoke.exe' if os.name=='nt' else 'smoke')
-        run([exe])
-        # Header advertises ABI 5 but the image returns 4: runtime must refuse.
-        export=exefs/'main/recomp_export.c'
-        export.write_text(export.read_text().replace('return RECOMP_IMAGE_ABI;', 'return 4;'))
-        run(['cmake','--build',build,'--clean-first','--parallel','2'])
-        run([exe,'old-abi'])
-        # Actual pre-v5 headers must fail configuration, not merely fail to link.
-        header=exefs/'main/recomp_runtime.h'
-        header.write_text(header.read_text().replace('#define RECOMP_IMAGE_ABI 5','#define RECOMP_IMAGE_ABI 4'))
-        p=subprocess.run(['cmake','-S',str(self.d),'-B',str(self.d/'reject')],
-                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=45)
-        self.assertNotEqual(p.returncode,0)
-        self.assertIn('correctness ABI 5',p.stdout+p.stderr)
 
     @unittest.skipIf(PKG is not None, 'full-checkout integration assertions require the full source tree')
     def test_07_integrated_source_contracts(self):

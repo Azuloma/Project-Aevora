@@ -26,10 +26,6 @@
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include "video_core/gpu_logging/gpu_logging.h"
 
-#if defined(__ANDROID__) && defined(ARCHITECTURE_arm64)
-#include <adrenotools/bcenabler.h>
-#include <android/api-level.h>
-#endif
 
 namespace Vulkan {
 using namespace Common::Literals;
@@ -312,32 +308,6 @@ ankerl::unordered_dense::map<VkFormat, VkFormatProperties> GetFormatProperties(v
     return format_properties;
 }
 
-#if defined(__ANDROID__) && defined(ARCHITECTURE_arm64)
-void OverrideBcnFormats(ankerl::unordered_dense::map<VkFormat, VkFormatProperties>& format_properties) {
-    // These properties are extracted from Adreno driver 512.687.0
-    constexpr VkFormatFeatureFlags tiling_features{VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
-                                                   VK_FORMAT_FEATURE_BLIT_SRC_BIT |
-                                                   VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
-                                                   VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
-                                                   VK_FORMAT_FEATURE_TRANSFER_DST_BIT};
-
-    constexpr VkFormatFeatureFlags buffer_features{VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT};
-
-    static constexpr std::array bcn_formats{
-        VK_FORMAT_BC1_RGBA_SRGB_BLOCK, VK_FORMAT_BC1_RGBA_UNORM_BLOCK, VK_FORMAT_BC2_SRGB_BLOCK,
-        VK_FORMAT_BC2_UNORM_BLOCK,     VK_FORMAT_BC3_SRGB_BLOCK,       VK_FORMAT_BC3_UNORM_BLOCK,
-        VK_FORMAT_BC4_SNORM_BLOCK,     VK_FORMAT_BC4_UNORM_BLOCK,      VK_FORMAT_BC5_SNORM_BLOCK,
-        VK_FORMAT_BC5_UNORM_BLOCK,     VK_FORMAT_BC6H_SFLOAT_BLOCK,    VK_FORMAT_BC6H_UFLOAT_BLOCK,
-        VK_FORMAT_BC7_SRGB_BLOCK,      VK_FORMAT_BC7_UNORM_BLOCK,
-    };
-
-    for (const auto format : bcn_formats) {
-        format_properties[format].linearTilingFeatures = tiling_features;
-        format_properties[format].optimalTilingFeatures = tiling_features;
-        format_properties[format].bufferFeatures = buffer_features;
-    }
-}
-#endif
 
 NvidiaArchitecture GetNvidiaArchitecture(vk::PhysicalDevice physical,
                                         const std::set<std::string, std::less<>>& exts) {
@@ -529,48 +499,6 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
         features.bit16_storage.storageBuffer16BitAccess = false;
         features.bit16_storage.uniformAndStorageBuffer16BitAccess = false;
 
-#if defined(__ANDROID__) && defined(ARCHITECTURE_arm64)
-        // BCn patching only safe on Android 9+ (API 28+). Older versions crash on driver load.
-        const auto major = (properties.properties.driverVersion >> 24) << 2;
-        const auto minor = (properties.properties.driverVersion >> 12) & 0xFFFU;
-        const auto vendor = properties.properties.vendorID;
-        const auto patch_status = adrenotools_get_bcn_type(major, minor, vendor);
-        const int api_level = android_get_device_api_level();
-
-        bool should_patch_bcn = api_level >= 28;
-        const bool bcn_debug_override = Settings::values.patch_old_qcom_drivers.GetValue();
-        if (bcn_debug_override != should_patch_bcn) {
-            LOG_WARNING(Render_Vulkan,
-                "BCn patch debug override active: {} (auto-detected: {})",
-                bcn_debug_override, should_patch_bcn);
-            should_patch_bcn = bcn_debug_override;
-        }
-
-        if (patch_status == ADRENOTOOLS_BCN_PATCH) {
-            if (should_patch_bcn) {
-                LOG_INFO(Render_Vulkan,
-                    "Patching Adreno driver to support BCn texture formats "
-                    "(Android API {}, Driver {}.{})", api_level, major, minor);
-                if (adrenotools_patch_bcn(
-                        reinterpret_cast<void*>(dld.vkGetPhysicalDeviceFormatProperties))) {
-                    OverrideBcnFormats(format_properties);
-                } else {
-                    LOG_ERROR(Render_Vulkan, "BCn patch failed! Driver code may now crash");
-                }
-            } else {
-                LOG_WARNING(Render_Vulkan,
-                    "BCn texture patching skipped for stability (Android API {} < 28). "
-                    "Driver version {}.{} would support patching, but may crash on older Android.",
-                    api_level, major, minor);
-            }
-        } else if (patch_status == ADRENOTOOLS_BCN_BLOB) {
-            LOG_INFO(Render_Vulkan, "Adreno driver supports BCn textures natively (no patch needed)");
-        } else {
-            LOG_INFO(Render_Vulkan,
-                "Adreno driver does not support BCn texture patching (Android API {}, Driver {}.{})",
-                api_level, major, minor);
-        }
-#endif
     }
 
     if (is_nvidia) {
@@ -925,9 +853,6 @@ bool Device::GetSuitability(bool requires_swapchain) {
     // Minimum of API version 1.1 is required. (This is well-supported.)
     ASSERT(instance_version >= VK_API_VERSION_1_1);
 
-    // The decisions below branch on the driver identity, and the rest of the property chain is
-    // not fetched until the end of this function. Fetch the driver properties first, so the
-    // MoltenVK carve-outs can never read a default-initialised driver ID.
     {
         VkPhysicalDeviceProperties2 driver_properties{};
         driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
@@ -1022,9 +947,6 @@ bool Device::GetSuitability(bool requires_swapchain) {
         *next = &features_1_2;
     }
 
-// Test all features we know about. If the feature is not available in core at our
-// current API version, and was not enabled by an extension, skip testing the feature.
-// We set the structure sType explicitly here as it is zeroed by the constructor.
 #define FEATURE(prefix, struct_name, macro_name, var_name)                                         \
     features.var_name.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_##macro_name##_FEATURES;           \
         SetNext(next, features.var_name);
@@ -1184,9 +1106,6 @@ bool Device::GetSuitability(bool requires_swapchain) {
         features.extended_dynamic_state3.extendedDynamicState3ColorBlendEquation = false;
     }
 
-    // Intel Windows < 27.20.100.0: Broken VertexInputDynamicState
-    // Same for NVIDIA Proprietary < 580.119.02, unknown when VIDS was first NOT broken
-    // Disable VertexInputDynamicState on old Intel Windows drivers
     if (extensions.vertex_input_dynamic_state) {
         const u32 version = (properties.properties.driverVersion << 3) >> 3;
         if ((driver_id == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS && version < VK_MAKE_API_VERSION(27, 20, 100, 0))

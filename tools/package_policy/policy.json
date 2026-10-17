@@ -138,21 +138,6 @@
       "THIRD-PARTY-NOTICES\\.txt",
       "__MACOSX/.+"
     ],
-    "android-apk": [
-      "AndroidManifest\\.xml",
-      "classes[0-9]*\\.dex",
-      "resources\\.arsc",
-      "res/.+",
-      "lib/arm64-v8a/[^/]+\\.so",
-      "META-INF/.+",
-      "assets/.+",
-      "kotlin/.+",
-      "[^/]+\\.properties",
-      "DebugProbesKt\\.bin",
-      "kotlin-tooling-metadata\\.json",
-      "okhttp3/internal/publicsuffix/(NOTICE|publicsuffixes\\.gz)",
-      "org/commonmark/internal/util/entities\\.properties"
-    ],
     "libretro-linux": [
       "suyu_libretro\\.so",
       "LICENSE\\.txt",
@@ -168,12 +153,6 @@
     "libretro-macos": [
       "suyu_libretro\\.dylib",
       "suyu_libretro_libs/[^/]+\\.dylib",
-      "LICENSE\\.txt",
-      "LICENSES/[^/]+\\.txt",
-      "THIRD-PARTY-NOTICES\\.txt"
-    ],
-    "libretro-android": [
-      "suyu_libretro_android\\.so",
       "LICENSE\\.txt",
       "LICENSES/[^/]+\\.txt",
       "THIRD-PARTY-NOTICES\\.txt"
@@ -306,17 +285,6 @@
       ],
       "reason": "OpenSSL's documentation page on generating keys; it matches the keys.txt name rule only. The key-text and signature rules still apply to it and found nothing.",
       "provenance": "openssl/openssl at openssl-3.6.2 and at 11b7b6ea3b (upstream of crueter-ci/OpenSSL), doc/HOWTO/keys.txt"
-    },
-    {
-      "kinds": [
-        "android-apk"
-      ],
-      "path_regex": "okhttp3/internal/publicsuffix/publicsuffixes\\.gz",
-      "rules": [
-        "nested-archive"
-      ],
-      "reason": "OkHttp's gzip-compressed Public Suffix List, read by OkHttp at runtime to validate cookie and host domains; plain text data, not a package.",
-      "provenance": "OkHttp (com.squareup.okhttp3:okhttp), bundled by the Android app's Gradle dependencies"
     }
   ],
   "exefs": {

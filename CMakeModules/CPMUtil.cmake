@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.31)
 
-if(MSVC OR ANDROID OR IOS)
+if (MSVC)
     set(BUNDLED_DEFAULT ON)
 else()
     set(BUNDLED_DEFAULT OFF)
@@ -86,9 +86,6 @@ else()
         "does not exist, AddJsonPackage will be a no-op")
 endif()
 
-#############
-# UTILITIES #
-#############
 
 # Analogous to POSIX echo
 macro(echo)
@@ -322,9 +319,6 @@ function(fetch_package)
 
     # Extract
     echo("Extracting ${file}...")
-    # Use `cmake -E tar` instead of file(ARCHIVE_EXTRACT): the latter fails on
-    # non-ASCII entry names (e.g. Boost's wave test directories) when the Windows
-    # ANSI code page is not UTF-8 ("Invalid empty pathname").
     file(MAKE_DIRECTORY "${abs_path}")
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -E tar xf "${file}"
@@ -343,9 +337,6 @@ function(fetch_package)
     list(REMOVE_ITEM contents "${abs_path}/.DS_Store")
     list(LENGTH contents n)
 
-    # If n == 1 and contents points to a directory, this is a GitHub-style pack
-    # In this case contents points to the subdir which will get renamed
-    # If not, contents will point to the parent dir which will get renamed
     if (n EQUAL 1 AND IS_DIRECTORY "${contents}")
         set(temp_path "${abs_path}_tmp")
         file(RENAME "${contents}" "${temp_path}")
@@ -384,10 +375,6 @@ function(compute_patch_key patches out)
   set("${out}" "${key}" PARENT_SCOPE)
 endfunction()
 
-# Check if a package needs to be redownloaded. This can occur if:
-# - Patch key is missing or mismatched
-# - Package fetch dir is missing
-# path is the package cache path
 function(needs_refetch path patch_key out)
     set(patch_key_file "${path}/.cpm_patch_key")
 
@@ -861,9 +848,6 @@ function(AddPackage)
         find_package(${find_args} QUIET)
 
         if(${PKG_ARGS_NAME}_FOUND)
-            # Find modules use different version spellings (OpenSSL, for
-            # example). Never report the requested bundled pin as an observed
-            # system version when the find module supplied no version.
             string(TOUPPER "${PKG_ARGS_NAME}" system_package_upper)
             set(sys_ver "unknown")
             foreach(version_var "${PKG_ARGS_NAME}_VERSION" "${PKG_ARGS_NAME}_VERSION_STRING"
@@ -1046,15 +1030,11 @@ function(AddCIPackage)
 
     if (MSVC)
         set(platname windows)
-    elseif(MINGW)
+    elseif (MINGW)
         set(platname mingw)
-    elseif(ANDROID)
-        set(platname android)
-    elseif(LINUX)
+    elseif (LINUX)
         set(platname linux)
-    elseif(IOS)
-        set(platname ios)
-    elseif(APPLE)
+    elseif (APPLE)
         set(platname macos)
     else()
         cpm_utils_message(WARNING
@@ -1063,14 +1043,12 @@ function(AddCIPackage)
 
     if (APPLE AND NOT IOS)
         set(archname universal)
-    elseif((WIN32 OR LINUX) AND CPMUTIL_AMD64)
+    elseif ((WIN32 OR LINUX) AND CPMUTIL_AMD64)
         set(archname amd64)
-    elseif(WIN32 AND CPMUTIL_ARM64)
+    elseif (WIN32 AND CPMUTIL_ARM64)
         set(archname arm64)
-    elseif((IOS OR LINUX OR ANDROID) AND CPMUTIL_ARM64)
+    elseif (LINUX AND CPMUTIL_ARM64)
         set(archname aarch64)
-    elseif(ANDROID AND CPMUTIL_AMD64)
-        set(archname x86_64)
     else()
         cpm_utils_message(WARNING
             "Unsupported platform/arch combo for CI packages")
@@ -1096,9 +1074,6 @@ function(AddCIPackage)
         set(sha512sum_file
             "${CMAKE_CURRENT_BINARY_DIR}/.cpmutil_${ARTIFACT}_sha512sum")
 
-        # Flaky TLS handshakes against the release CDN are common on some
-        # networks; retry a few times before giving up rather than failing
-        # the whole configure on the first hiccup.
         set(sha512sum_error 1)
         foreach(sha512sum_attempt RANGE 1 5)
             file(DOWNLOAD "${sha512sum_url}" "${sha512sum_file}"
@@ -1154,7 +1129,6 @@ function(AddQt repo version)
         VERSION ${version}
         REPO ${repo}
         DISABLED_PLATFORMS
-            android-x86_64 android-aarch64
         MODULE_PATH)
 
     find_package(Qt6 REQUIRED PATHS ${Qt6_SOURCE_DIR} NO_DEFAULT_PATH)

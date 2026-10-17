@@ -89,17 +89,14 @@ struct EnumMetadata {
         return (std::vector<std::pair<std::string_view, NAME>>{PAIR(NAME, __VA_ARGS__)}).back().second; \
     }
 
-// AudioEngine must be specified discretely due to having existing but slightly different
-// canonicalizations
-// TODO (lat9nq): Remove explicit definition of AudioEngine/sink_id
-enum class AudioEngine : u32 { Auto, Cubeb, Sdl3, Null, Oboe, Libretro, };
+enum class AudioEngine : u32 { Auto, Cubeb, Sdl3, Null, Libretro = 5, };
 template<>
 inline std::vector<std::pair<std::string_view, AudioEngine>> EnumMetadata<AudioEngine>::Canonicalizations() {
     return {
         {"auto", AudioEngine::Auto},
         {"cubeb", AudioEngine::Cubeb},
         {"sdl3", AudioEngine::Sdl3},
-        {"null", AudioEngine::Null}, {"oboe", AudioEngine::Oboe},
+        {"null", AudioEngine::Null},
         {"libretro", AudioEngine::Libretro},
     };
 }
@@ -114,10 +111,6 @@ inline AudioEngine EnumMetadata<AudioEngine>::GetFirst() {
 }
 template<>
 inline AudioEngine EnumMetadata<AudioEngine>::GetLast() {
-    // Must name the last enumerator: SwitchableSetting::SetValue clamps enum
-    // values to this, so leaving it at Oboe silently turned every
-    // SetValue(Libretro) into Oboe - which isn't built on desktop, so audio
-    // fell back to the null sink and the libretro core was silent.
     return AudioEngine::Libretro;
 }
 

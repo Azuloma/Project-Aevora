@@ -12,9 +12,6 @@
 #include <regex>
 #include <thread>
 
-#if defined(__ANDROID__)
-#include <android/log.h>
-#endif
 #ifdef _WIN32
 #include <windows.h> // For OutputDebugStringW
 #else
@@ -42,9 +39,6 @@ namespace Common::Log {
 
 namespace {
 
-/// @brief Returns the name of the passed log class as a C-string. Subclasses are separated by periods
-/// instead of underscores as in the enumeration.
-/// @note GetClassName is a macro defined by Windows.h, grrr...
 const char* GetLogClassName(Class log_class) {
     switch (log_class) {
 #define CLS(x) case Class::x: return #x;
@@ -263,15 +257,10 @@ struct FileBackend final : public Backend {
             return;
 
         auto message = FormatLogMessage(entry).append(1, '\n');
-#ifndef __ANDROID__
         if (Settings::values.censor_username.GetValue()) {
             // This must be a static otherwise it would get checked on EVERY
             // instance of logging an entry...
             static std::string username = []() -> std::string {
-                // in order of precedence
-                // LOGNAME usually works on UNIX, USERNAME on Windows
-                // Some UNIX systems suck and don't use LOGNAME so we also
-                // need USER :(
                 for (auto const var : { "LOGNAME", "USERNAME", "USER", })
                     if (auto const s = ::getenv(var); s != nullptr)
                         return std::string{s};
@@ -280,7 +269,6 @@ struct FileBackend final : public Backend {
             if (!username.empty())
                 boost::replace_all(message, username, "user");
         }
-#endif
         bytes_written += file->WriteString(message);
 
         // Option to log each line rather than 4k buffers
@@ -321,29 +309,6 @@ struct DebuggerBackend final : public Backend {
     void Flush() noexcept override {}
 };
 #endif
-#ifdef __ANDROID__
-/// @brief Backend that writes to the Android logcat
-struct LogcatBackend : public Backend {
-    explicit LogcatBackend() noexcept = default;
-    ~LogcatBackend() noexcept override = default;
-    void Write(const Entry& entry) noexcept override {
-        android_LogPriority android_log_priority = [&]() {
-            switch (entry.log_level) {
-            case Level::Debug: return ANDROID_LOG_DEBUG;
-            case Level::Info: return ANDROID_LOG_INFO;
-            case Level::Warning: return ANDROID_LOG_WARN;
-            case Level::Error: return ANDROID_LOG_ERROR;
-            case Level::Critical: return ANDROID_LOG_FATAL;
-            case Level::Count:
-            case Level::Trace: return ANDROID_LOG_VERBOSE;
-            }
-        }();
-        auto const df = GetDirectFormatArgs(entry);
-        __android_log_print(android_log_priority, "YuzuNative", CCB_PRINTF_FMT, df.time_seconds, df.time_fractional, df.class_name, df.level_name, entry.filename, entry.line_num, entry.function, entry.message.c_str());
-    }
-    void Flush() noexcept override {}
-};
-#endif
 
 /// @brief Static state as a singleton.
 struct Impl {
@@ -360,9 +325,6 @@ struct Impl {
 #ifdef _WIN32
         lambda(static_cast<Backend&>(debugger_backend));
 #endif
-#ifdef __ANDROID__
-        lambda(static_cast<Backend&>(lc_backend));
-#endif
     }
 
     Filter filter;
@@ -372,9 +334,6 @@ struct Impl {
 #endif
 #ifdef _WIN32
     DebuggerBackend debugger_backend{};
-#endif
-#ifdef __ANDROID__
-    LogcatBackend lc_backend{};
 #endif
     std::chrono::steady_clock::time_point time_origin{std::chrono::steady_clock::now()};
 };
@@ -419,9 +378,6 @@ void SetColorConsoleBackendEnabled(bool enabled) {
 
 namespace {
 
-/// One call site that has been logging. Identified by the filename pointer and the line
-/// number, both compile-time constants, so matching a site is a pointer compare rather
-/// than hashing a string on every message.
 struct ThrottleSite {
     std::atomic<const char*> file{nullptr};
     std::atomic<unsigned int> line{0};
@@ -430,17 +386,6 @@ struct ThrottleSite {
     std::atomic<u64> suppressed{0};
 };
 
-/// Decide whether a message should be formatted and written.
-///
-/// A guest that gets into a bad state logs the same line as fast as it can run: an
-/// unmapped read inside a tight loop will produce millions a minute. Writing happens on
-/// the calling thread, so each one costs a vformat and a write there, and they bury
-/// whatever message would have explained the problem. Allow a burst from each site per
-/// window, drop the rest, and report how many were dropped on the next one that gets
-/// through, so the log still says what happened without carrying every instance.
-///
-/// Counters are relaxed atomics. Threads logging the same site can race and miscount by
-/// a few either way, which is not worth a lock on this path.
 bool AdmitLogMessage(const char* filename, unsigned int line_num, u64& out_suppressed) {
     constexpr size_t BucketCount = 256;
     constexpr u64 BurstPerWindow = 32;

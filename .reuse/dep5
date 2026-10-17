@@ -127,18 +127,6 @@ Files: .github/ISSUE_TEMPLATE/*
 Copyright: 2022 yuzu Emulator Project
 License: GPL-2.0-or-later
 
-Files: src/android/app/src/ea/res/*
-Copyright: 2023 yuzu Emulator Project
-License: GPL-3.0-or-later
-
-Files: src/android/app/src/main/res/*
-Copyright: 2023 yuzu Emulator Project
-License: GPL-3.0-or-later
-
-Files: src/android/gradle/wrapper/*
-Copyright: 2023 yuzu Emulator Project
-License: GPL-3.0-or-later
-
 Files: externals/stb/*
 Copyright: Sean Barrett
 License: MIT
@@ -146,10 +134,6 @@ License: MIT
 Files: externals/gamemode/*
 Copyright: Copyright 2017-2019 Feral Interactive
 License: BSD-3-Clause
-
-Files: src/android/app/debug.keystore
-Copyright: 2023 yuzu Emulator Project
-License: GPL-3.0-or-later
 
 Files: dist/qt_themes/colorful/icons/48x48/user-trash.png
        dist/qt_themes/colorful/icons/48x48/upload.png

@@ -28,7 +28,7 @@
 
 namespace Core::HID {
 const std::size_t max_emulated_controllers = 2;
-const std::size_t output_devices_size = 5;
+const std::size_t output_devices_size = 4;
 struct ControllerMotionInfo {
     Common::Input::MotionStatus raw_status{};
     MotionInput emulated{};
@@ -178,10 +178,6 @@ struct ControllerUpdateCallback {
 
 class EmulatedController {
 public:
-    /**
-     * Contains all input data (buttons, joysticks, vibration, and motion) within this controller.
-     * @param npad_id_type npad id type for this specific controller
-     */
     explicit EmulatedController(NpadIdType npad_id_type_);
     ~EmulatedController();
 
@@ -200,43 +196,20 @@ public:
     /// Sets the NpadStyleIndex for this controller
     void SetNpadStyleIndex(NpadStyleIndex npad_type_);
 
-    /**
-     * Gets the NpadStyleIndex for this controller
-     * @param get_temporary_value If true tmp_npad_type will be returned
-     * @return NpadStyleIndex set on the controller
-     */
     NpadStyleIndex GetNpadStyleIndex(bool get_temporary_value = false) const;
 
-    /**
-     * Sets the supported controller types. Disconnects the controller if current type is not
-     * supported
-     * @param supported_styles bitflag with supported types
-     */
     void SetSupportedNpadStyleTag(NpadStyleTag supported_styles);
 
-    /**
-     * Sets the connected status to true
-     * @param use_temporary_value If true tmp_npad_type will be used
-     */
     void Connect(bool use_temporary_value = false);
 
     /// Sets the connected status to false
     void Disconnect();
 
-    /**
-     * Is the emulated connected
-     * @param get_temporary_value If true tmp_is_connected will be returned
-     * @return true if the controller has the connected status
-     */
     bool IsConnected(bool get_temporary_value = false) const;
 
     /// Removes all callbacks created from input devices
     void UnloadInput();
 
-    /**
-     * Sets the emulated controller into configuring mode
-     * This prevents the modification of the HID state of the emulated controller by input commands
-     */
     void EnableConfiguration();
 
     /// Returns the emulated controller into normal mode, allowing the modification of the HID state
@@ -281,22 +254,10 @@ public:
     // Returns the current mapped motion device
     Common::ParamPackage GetMotionParam(std::size_t index) const;
 
-    /**
-     * Updates the current mapped button device
-     * @param param ParamPackage with controller data to be mapped
-     */
     void SetButtonParam(std::size_t index, Common::ParamPackage param);
 
-    /**
-     * Updates the current mapped stick device
-     * @param param ParamPackage with controller data to be mapped
-     */
     void SetStickParam(std::size_t index, Common::ParamPackage param);
 
-    /**
-     * Updates the current mapped motion device
-     * @param param ParamPackage with controller data to be mapped
-     */
     void SetMotionParam(std::size_t index, Common::ParamPackage param);
 
     /// Auto calibrates the current motion devices
@@ -362,64 +323,25 @@ public:
     /// Returns the latest ntag status from the controller
     const NfcState& GetNfc() const;
 
-    /**
-     * Sends an on/off vibration to the left device
-     * @return true if vibration had no errors
-     */
     bool SetVibration(bool should_vibrate);
 
-    /**
-     * Sends an GC vibration to the left device
-     * @return true if vibration had no errors
-     */
     bool SetVibration(u32 slot, Core::HID::VibrationGcErmCommand erm_command);
 
-    /**
-     * Sends a specific vibration to the output device
-     * @return true if vibration had no errors
-     */
     bool SetVibration(DeviceIndex device_index, const VibrationValue& vibration);
 
-    /**
-     * @return The last sent vibration
-     */
     VibrationValue GetActualVibrationValue(DeviceIndex device_index) const;
 
-    /**
-     * Sends a small vibration to the output device
-     * @return true if SetVibration was successful
-     */
     bool IsVibrationEnabled(std::size_t device_index);
 
-    /**
-     * Sets the desired data to be polled from a controller
-     * @param device_index index of the controller to set the polling mode
-     * @param polling_mode type of input desired buttons, gyro, nfc, ir, etc.
-     * @return driver result from this command
-     */
     Common::Input::DriverResult SetPollingMode(EmulatedDeviceIndex device_index,
                                                Common::Input::PollingMode polling_mode);
-    /**
-     * Get the current polling mode from a controller
-     * @param device_index index of the controller to set the polling mode
-     * @return current polling mode
-     */
     Common::Input::PollingMode GetPollingMode(EmulatedDeviceIndex device_index) const;
 
-    /**
-     * Sets the desired camera format to be polled from a controller
-     * @param camera_format size of each frame
-     * @return true if SetCameraFormat was successful
-     */
     bool SetCameraFormat(Core::IrSensor::ImageTransferProcessorFormat camera_format);
 
     // Returns the current mapped ring device
     Common::ParamPackage GetRingParam() const;
 
-    /**
-     * Updates the current mapped ring device
-     * @param param ParamPackage with ring sensor data to be mapped
-     */
     void SetRingParam(Common::ParamPackage param);
 
     /// Returns true if the device has nfc support
@@ -459,17 +381,8 @@ public:
     /// Changes sensitivity of the motion sensor
     void SetGyroscopeZeroDriftMode(GyroscopeZeroDriftMode mode);
 
-    /**
-     * Adds a callback to the list of events
-     * @param update_callback A ConsoleUpdateCallback that will be triggered
-     * @return an unique key corresponding to the callback index in the list
-     */
     int SetCallback(ControllerUpdateCallback update_callback);
 
-    /**
-     * Removes a callback from the list stopping any future events to this object
-     * @param key Key corresponding to the callback index in the list
-     */
     void DeleteCallback(int key);
 
     /// Swaps the state of the turbo buttons and updates motion input
@@ -485,94 +398,33 @@ private:
     /// Set the params for virtual pad devices
     void LoadVirtualGamepadParams();
 
-    /**
-     * @param use_temporary_value If true tmp_npad_type will be used
-     * @return true if the controller style is fullkey
-     */
     bool IsControllerFullkey(bool use_temporary_value = false) const;
 
-    /**
-     * Checks the current controller type against the supported_style_tag
-     * @param use_temporary_value If true tmp_npad_type will be used
-     * @return true if the controller is supported
-     */
     bool IsControllerSupported(bool use_temporary_value = false) const;
 
-    /**
-     * Updates the button status of the controller
-     * @param callback A CallbackStatus containing the button status
-     * @param index Button ID of the to be updated
-     */
     void SetButton(const Common::Input::CallbackStatus& callback, std::size_t index,
                    Common::UUID uuid);
 
-    /**
-     * Updates the analog stick status of the controller
-     * @param callback A CallbackStatus containing the analog stick status
-     * @param index stick ID of the to be updated
-     */
     void SetStick(const Common::Input::CallbackStatus& callback, std::size_t index,
                   Common::UUID uuid);
 
-    /**
-     * Updates the trigger status of the controller
-     * @param callback A CallbackStatus containing the trigger status
-     * @param index trigger ID of the to be updated
-     */
     void SetTrigger(const Common::Input::CallbackStatus& callback, std::size_t index,
                     Common::UUID uuid);
 
-    /**
-     * Updates the motion status of the controller
-     * @param callback A CallbackStatus containing gyro and accelerometer data
-     * @param index motion ID of the to be updated
-     */
     void SetMotion(const Common::Input::CallbackStatus& callback, std::size_t index);
 
-    /**
-     * Updates the color status of the controller
-     * @param callback A CallbackStatus containing the color status
-     * @param index color ID of the to be updated
-     */
     void SetColors(const Common::Input::CallbackStatus& callback, std::size_t index);
 
-    /**
-     * Updates the battery status of the controller
-     * @param callback A CallbackStatus containing the battery status
-     * @param index battery ID of the to be updated
-     */
     void SetBattery(const Common::Input::CallbackStatus& callback, std::size_t index);
 
-    /**
-     * Updates the camera status of the controller
-     * @param callback A CallbackStatus containing the camera status
-     */
     void SetCamera(const Common::Input::CallbackStatus& callback);
 
-    /**
-     * Updates the ring analog sensor status of the ring controller
-     * @param callback A CallbackStatus containing the force status
-     */
     void SetRingAnalog(const Common::Input::CallbackStatus& callback);
 
-    /**
-     * Updates the nfc status of the controller
-     * @param callback A CallbackStatus containing the nfc status
-     */
     void SetNfc(const Common::Input::CallbackStatus& callback);
 
-    /**
-     * Converts a color format from bgra to rgba
-     * @param color in bgra format
-     * @return NpadColor in rgba format
-     */
     NpadColor GetNpadColor(u32 color);
 
-    /**
-     * Triggers a callback that something has changed on the controller status
-     * @param type Input type of the event to trigger
-     * @param is_service_update indicates if this event should only be sent to HID services
-     */
     void TriggerOnChange(ControllerTriggerType type, bool is_service_update);
 
     NpadButton GetTurboButtonMask() const;
@@ -607,7 +459,6 @@ private:
     CameraParams camera_params;
     RingAnalogParams ring_params;
     NfcParams nfc_params;
-    Common::ParamPackage android_params;
     OutputParams output_params;
 
     ButtonDevices button_devices;

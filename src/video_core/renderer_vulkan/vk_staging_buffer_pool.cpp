@@ -28,12 +28,7 @@ using namespace Common::Literals;
 // Maximum potential alignment of a Vulkan buffer
 constexpr VkDeviceSize MAX_ALIGNMENT = 256;
 
-// Stream buffer size in bytes
-// *NIX drivers are more sensitive to increased buffers for streaming.
-// Windows ones however, can intake bigger buffers and generally do not OOM.
-// - GTX 960 on Windows will not OOM with 256mib
-// - GT 1030 on ^NIX will OOM with 256mib
-#if defined(_WIN32) || defined(__ANDROID__)
+#if defined(_WIN32)
 constexpr VkDeviceSize MAX_STREAM_BUFFER_SIZE = 256_MiB;
 #else
 constexpr VkDeviceSize MAX_STREAM_BUFFER_SIZE = 128_MiB;
@@ -52,9 +47,6 @@ size_t GetStreamBufferSize(const Device& device) {
         size = (std::max)(size, heap.size);
     });
     if (has_device_local_host_visible_heap) {
-        // If rebar is not supported, cut the max heap size to 40%. This will allow 2 captures to be
-        // loaded at the same time in RenderDoc. If rebar is supported, this shouldn't be an issue
-        // as the heap will be much larger.
         if (size <= MAX_STREAM_BUFFER_SIZE) {
             size = size * 40 / 100;
         }

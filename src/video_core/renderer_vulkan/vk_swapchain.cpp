@@ -9,9 +9,6 @@
 #include <limits>
 #include <vector>
 
-#ifdef __ANDROID__
-#include <android/api-level.h>
-#endif
 
 #include "common/logging.h"
 #include "common/settings.h"
@@ -212,15 +209,7 @@ bool Swapchain::AcquireNextImage() {
     }
     };
 
-#ifdef __ANDROID__
-    if (android_get_device_api_level() >= 30) {
-        scheduler.Wait(resource_ticks[image_index]);
-    } else {
-        wait_with_frame_pacing();
-    }
-#else
     wait_with_frame_pacing();
-#endif
 
     resource_ticks[image_index] = scheduler.CurrentTick();
 
@@ -309,12 +298,7 @@ void Swapchain::CreateSwapchain(const VkSurfaceCapabilitiesKHR& capabilities) {
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .queueFamilyIndexCount = 0,
         .pQueueFamilyIndices = nullptr,
-#ifdef __ANDROID__
-        // On Android, do not allow surface rotation to deviate from the frontend.
-        .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
-#else
         .preTransform = capabilities.currentTransform,
-#endif
         .compositeAlpha = alpha_flags,
         .presentMode = present_mode,
         .clipped = VK_FALSE,
@@ -334,10 +318,6 @@ void Swapchain::CreateSwapchain(const VkSurfaceCapabilitiesKHR& capabilities) {
         swapchain_ci.imageFormat,  // Base format MUST be first
         VK_FORMAT_B8G8R8A8_UNORM,
         VK_FORMAT_B8G8R8A8_SRGB,
-#ifdef __ANDROID__
-        VK_FORMAT_R8G8B8A8_UNORM,  // Android may use RGBA
-        VK_FORMAT_R8G8B8A8_SRGB,
-#endif
     };
     VkImageFormatListCreateInfo format_list{
         .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR,
@@ -359,12 +339,7 @@ void Swapchain::CreateSwapchain(const VkSurfaceCapabilitiesKHR& capabilities) {
 
     images = swapchain.GetImages();
     image_count = static_cast<u32>(images.size());
-#ifdef __ANDROID__
-    // Android is already ordered the same as Switch.
-    image_view_format = VK_FORMAT_R8G8B8A8_UNORM;
-#else
     image_view_format = VK_FORMAT_B8G8R8A8_UNORM;
-#endif
 }
 
 void Swapchain::CreateSemaphores() {

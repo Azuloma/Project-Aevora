@@ -10,16 +10,5 @@ add_library(gpu_logging STATIC
     qualcomm_debug.h
 )
 
-if(ANDROID)
-    target_sources(gpu_logging PRIVATE
-        freedreno_debug.cpp
-        freedreno_debug.h
-    )
-endif()
 
 target_link_libraries(gpu_logging PUBLIC common)
-
-if(ANDROID)
-    # Link with adrenotools when available for future Qualcomm integration
-    # target_link_libraries(gpu_logging PUBLIC adrenotools)
-endif()

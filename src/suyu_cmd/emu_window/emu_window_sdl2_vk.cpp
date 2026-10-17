@@ -144,10 +144,6 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
         LOG_CRITICAL(Frontend, "Failed to get the CAMetalLayer for the window: {}", SDL_GetError());
         std::exit(EXIT_FAILURE);
     }
-#elif defined(SDL_PLATFORM_ANDROID)
-    window_info.type = Core::Frontend::WindowSystemType::Android;
-    window_info.render_surface = SDL_GetPointerProperty(
-        props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
 #else
     LOG_CRITICAL(Frontend, "Window manager subsystem not implemented for this platform");
     std::exit(EXIT_FAILURE);

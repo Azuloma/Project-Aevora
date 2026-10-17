@@ -33,11 +33,6 @@ if (YUZU_LEGACY)
     add_compile_definitions(YUZU_LEGACY)
 endif()
 
-# Genshin Spoof (android only)
-if (GENSHIN_SPOOF)
-    message(WARNING "Making Genshin spoof build")
-    add_compile_definitions(GENSHIN_SPOOF)
-endif()
 
 # Build ID (mingw only right now)
 # Pretty much just refers to the CI "target" for this build
@@ -73,19 +68,6 @@ if (MSVC AND NOT CXX_CLANG)
     # Ensure that projects are built with Unicode support.
     add_compile_definitions(UNICODE _UNICODE)
 
-    # /W4                 - Level 4 warnings
-    # /MP                 - Multi-threaded compilation
-    # /Zm                 - Specifies the precompiled header memory allocation limit
-    # /Zo                 - Enhanced debug info for optimized builds
-    # /permissive-        - Enables stricter C++ standards conformance checks
-    # /EHsc               - C++-only exception handling semantics
-    # /utf-8              - Set source and execution character sets to UTF-8
-    # /volatile:iso       - Use strict standards-compliant volatile semantics.
-    # /Zc:externConstexpr - Allow extern constexpr variables to have external linkage, like the standard mandates
-    # /Zc:inline          - Let codegen omit inline functions in object files
-    # /Zc:preprocessor    - Enable standards-conforming preprocessor
-    # /Zc:throwingNew     - Let codegen assume `operator new` (without std::nothrow) will never return null
-    # /GT                 - Supports fiber safety for data allocated using static thread-local storage
     add_compile_options(
         /MP
         /Zm200
@@ -204,11 +186,6 @@ else()
             $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-stringop-overflow>)
     endif()
 
-    # Set file offset size to 64 bits.
-    #
-    # On modern Unixes, this is typically already the case. The lone exception is
-    # glibc, which may default to 32 bits. glibc allows this to be configured
-    # by setting _FILE_OFFSET_BITS.
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR MINGW)
         add_compile_definitions(_FILE_OFFSET_BITS=64)
     endif()
@@ -286,9 +263,5 @@ if (ENABLE_WEB_SERVICE)
     add_subdirectory(web_service)
 endif()
 
-if (ANDROID AND NOT SUYU_ANDROID_LIBRETRO)
-    add_subdirectory(android/app/src/main/jni)
-    target_include_directories(yuzu-android PRIVATE android/app/src/main)
-endif()
 
 include(GenerateDepHashes)

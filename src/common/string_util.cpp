@@ -18,9 +18,6 @@
 #include <windows.h>
 #endif
 
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-#include <common/fs/fs_android.h>
-#endif
 
 namespace Common {
 
@@ -45,13 +42,6 @@ bool SplitPath(const std::string& full_path, std::string* _pPath, std::string* _
     if (full_path.empty())
         return false;
 
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-    if (full_path[0] != '/') {
-        *_pPath = Common::FS::Android::GetParentDirectory(full_path);
-        *_pFilename = Common::FS::Android::GetFilename(full_path);
-        return true;
-    }
-#endif
 
     std::size_t dir_end = full_path.find_last_of("/"
 // windows needs the : included for something like just "C:" to be considered a directory

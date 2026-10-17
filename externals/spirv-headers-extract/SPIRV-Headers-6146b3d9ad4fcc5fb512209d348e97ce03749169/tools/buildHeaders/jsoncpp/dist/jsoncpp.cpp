@@ -1,6 +1,7 @@
 /// Json-cpp amalgated source (http://jsoncpp.sourceforge.net/).
 /// It is intended to be used with #include "json/json.h"
 
+
 // //////////////////////////////////////////////////////////////////////
 // Beginning of content of file: LICENSE
 // //////////////////////////////////////////////////////////////////////
@@ -73,6 +74,8 @@ license you like.
 
 
 
+
+
 #include "json/json.h"
 
 #ifndef JSON_IS_AMALGAMATION
@@ -80,9 +83,6 @@ license you like.
 #endif
 
 
-// //////////////////////////////////////////////////////////////////////
-// Beginning of content of file: src/lib_json/json_tool.h
-// //////////////////////////////////////////////////////////////////////
 
 // Copyright 2007-2010 Baptiste Lepilleur
 // Distributed under MIT license, or public domain if desired and
@@ -92,11 +92,7 @@ license you like.
 #ifndef LIB_JSONCPP_JSON_TOOL_H_INCLUDED
 #define LIB_JSONCPP_JSON_TOOL_H_INCLUDED
 
-/* This header provides common string manipulation support, such as UTF-8,
- * portable conversion from/to string...
- *
- * It is an internal header that must not be exposed.
- */
+
 
 namespace Json {
 
@@ -141,11 +137,7 @@ enum {
 // Defines a char buffer for use with uintToString().
 typedef char UIntToStringBuffer[uintToStringBufferSize];
 
-/** Converts an unsigned integer to string.
- * @param value Unsigned interger to convert to string
- * @param current Input/Output string buffer.
- *        Must have at least uintToStringBufferSize chars free.
- */
+
 static inline void uintToString(LargestUInt value, char*& current) {
   *--current = 0;
   do {
@@ -154,11 +146,7 @@ static inline void uintToString(LargestUInt value, char*& current) {
   } while (value != 0);
 }
 
-/** Change ',' to '.' everywhere in buffer.
- *
- * We had a sophisticated way, but it did not work in WinCE.
- * @see https://github.com/open-source-parsers/jsoncpp/pull/9
- */
+
 static inline void fixNumericLocale(char* begin, char* end) {
   while (begin < end) {
     if (*begin == ',') {
@@ -172,18 +160,12 @@ static inline void fixNumericLocale(char* begin, char* end) {
 
 #endif // LIB_JSONCPP_JSON_TOOL_H_INCLUDED
 
-// //////////////////////////////////////////////////////////////////////
-// End of content of file: src/lib_json/json_tool.h
-// //////////////////////////////////////////////////////////////////////
 
 
 
 
 
 
-// //////////////////////////////////////////////////////////////////////
-// Beginning of content of file: src/lib_json/json_reader.cpp
-// //////////////////////////////////////////////////////////////////////
 
 // Copyright 2007-2011 Baptiste Lepilleur
 // Distributed under MIT license, or public domain if desired and
@@ -275,10 +257,6 @@ Reader::parse(const std::string& document, Value& root, bool collectComments) {
 }
 
 bool Reader::parse(std::istream& sin, Value& root, bool collectComments) {
-  // std::istream_iterator<char> begin(sin);
-  // std::istream_iterator<char> end;
-  // Those would allow streamed input from a file, if parse() were a
-  // template function.
 
   // Since std::string is reference-counted, this at least does not
   // create an extra copy.
@@ -330,10 +308,6 @@ bool Reader::parse(const char* beginDoc,
 }
 
 bool Reader::readValue() {
-  // This is a non-reentrant way to support a stackLimit. Terrible!
-  // But this deprecated class has a security problem: Bad input can
-  // cause a seg-fault. This seems like a fair, binary-compatible way
-  // to prevent the problem.
   if (stackDepth_g >= stackLimit_g) throwRuntimeError("Exceeded stackLimit in readValue().");
   ++stackDepth_g;
 
@@ -733,9 +707,6 @@ bool Reader::decodeNumber(Token& token) {
 }
 
 bool Reader::decodeNumber(Token& token, Value& decoded) {
-  // Attempts to parse the number as an integer. If the number is
-  // larger than the maximum supported value of an integer then
-  // we decode the number as a double.
   Location current = token.start_;
   bool isNegative = *current == '-';
   if (isNegative)
@@ -752,10 +723,6 @@ bool Reader::decodeNumber(Token& token, Value& decoded) {
       return decodeDouble(token, decoded);
     Value::UInt digit(c - '0');
     if (value >= threshold) {
-      // We've hit or exceeded the max value divided by 10 (rounded down). If
-      // a) we've only just touched the limit, b) this is the last digit, and
-      // c) it's small enough to fit in that rounding delta, we're okay.
-      // Otherwise treat this number as a double to avoid overflow.
       if (value > threshold || current != token.end_ ||
           digit > maxIntegerValue % 10) {
         return decodeDouble(token, decoded);
@@ -793,11 +760,6 @@ bool Reader::decodeDouble(Token& token, Value& decoded) {
     return addError("Unable to parse token length", token);
   }
 
-  // Avoid using a string constant for the format control string given to
-  // sscanf, as this can cause hard to debug crashes on OS X. See here for more
-  // info:
-  //
-  //     http://developer.apple.com/library/mac/#DOCUMENTATION/DeveloperTools/gcc-4.0.1/gcc/Incompatibilities.html
   char format[] = "%lf";
 
   if (length <= bufferSize) {
@@ -1696,9 +1658,6 @@ bool OurReader::decodeNumber(Token& token) {
 }
 
 bool OurReader::decodeNumber(Token& token, Value& decoded) {
-  // Attempts to parse the number as an integer. If the number is
-  // larger than the maximum supported value of an integer then
-  // we decode the number as a double.
   Location current = token.start_;
   bool isNegative = *current == '-';
   if (isNegative)
@@ -1715,10 +1674,6 @@ bool OurReader::decodeNumber(Token& token, Value& decoded) {
       return decodeDouble(token, decoded);
     Value::UInt digit(c - '0');
     if (value >= threshold) {
-      // We've hit or exceeded the max value divided by 10 (rounded down). If
-      // a) we've only just touched the limit, b) this is the last digit, and
-      // c) it's small enough to fit in that rounding delta, we're okay.
-      // Otherwise treat this number as a double to avoid overflow.
       if (value > threshold || current != token.end_ ||
           digit > maxIntegerValue % 10) {
         return decodeDouble(token, decoded);
@@ -1756,11 +1711,6 @@ bool OurReader::decodeDouble(Token& token, Value& decoded) {
     return addError("Unable to parse token length", token);
   }
 
-  // Avoid using a string constant for the format control string given to
-  // sscanf, as this can cause hard to debug crashes on OS X. See here for more
-  // info:
-  //
-  //     http://developer.apple.com/library/mac/#DOCUMENTATION/DeveloperTools/gcc-4.0.1/gcc/Incompatibilities.html
   char format[] = "%lf";
 
   if (length <= bufferSize) {
@@ -2187,18 +2137,12 @@ std::istream& operator>>(std::istream& sin, Value& root) {
 
 } // namespace Json
 
-// //////////////////////////////////////////////////////////////////////
-// End of content of file: src/lib_json/json_reader.cpp
-// //////////////////////////////////////////////////////////////////////
 
 
 
 
 
 
-// //////////////////////////////////////////////////////////////////////
-// Beginning of content of file: src/lib_json/json_valueiterator.inl
-// //////////////////////////////////////////////////////////////////////
 
 // Copyright 2007-2010 Baptiste Lepilleur
 // Distributed under MIT license, or public domain if desired and
@@ -2209,13 +2153,6 @@ std::istream& operator>>(std::istream& sin, Value& root) {
 
 namespace Json {
 
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// class ValueIteratorBase
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
 
 ValueIteratorBase::ValueIteratorBase()
     : current_(), isNull_(true) {
@@ -2242,20 +2179,10 @@ ValueIteratorBase::computeDistance(const SelfType& other) const {
 #ifdef JSON_USE_CPPTL_SMALLMAP
   return other.current_ - current_;
 #else
-  // Iterator for null value are initialized using the default
-  // constructor, which initialize current_ to the default
-  // std::map::iterator. As begin() and end() are two instance
-  // of the default std::map::iterator, they can not be compared.
-  // To allow this, we handle this comparison specifically.
   if (isNull_ && other.isNull_) {
     return 0;
   }
 
-  // Usage of std::distance is not portable (does not compile with Sun Studio 12
-  // RogueWave STL,
-  // which is the one used by default).
-  // Using a portable hand-made version for non random iterator instead:
-  //   return difference_type( std::distance( current_, other.current_ ) );
   difference_type myDistance = 0;
   for (Value::ObjectValues::iterator it = current_; it != other.current_;
        ++it) {
@@ -2317,13 +2244,6 @@ char const* ValueIteratorBase::memberName(char const** end) const {
   return name;
 }
 
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// class ValueConstIterator
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
 
 ValueConstIterator::ValueConstIterator() {}
 
@@ -2337,13 +2257,6 @@ operator=(const ValueIteratorBase& other) {
   return *this;
 }
 
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// class ValueIterator
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
 
 ValueIterator::ValueIterator() {}
 
@@ -2363,18 +2276,12 @@ ValueIterator& ValueIterator::operator=(const SelfType& other) {
 
 } // namespace Json
 
-// //////////////////////////////////////////////////////////////////////
-// End of content of file: src/lib_json/json_valueiterator.inl
-// //////////////////////////////////////////////////////////////////////
 
 
 
 
 
 
-// //////////////////////////////////////////////////////////////////////
-// Beginning of content of file: src/lib_json/json_value.cpp
-// //////////////////////////////////////////////////////////////////////
 
 // Copyright 2011 Baptiste Lepilleur
 // Distributed under MIT license, or public domain if desired and
@@ -2401,9 +2308,6 @@ ValueIterator& ValueIterator::operator=(const SelfType& other) {
 
 namespace Json {
 
-// This is a walkaround to avoid the static initialization of Value::null.
-// kNull must be word-aligned to avoid crashing on ARM.  We use an alignment of
-// 8 (instead of 4) as a bit of future-proofing.
 #if defined(__ARMEL__)
 #define ALIGNAS(byte_alignment) __attribute__((aligned(byte_alignment)))
 #else
@@ -2421,9 +2325,6 @@ const UInt Value::maxUInt = UInt(-1);
 const Int64 Value::minInt64 = Int64(~(UInt64(-1) / 2));
 const Int64 Value::maxInt64 = Int64(UInt64(-1) / 2);
 const UInt64 Value::maxUInt64 = UInt64(-1);
-// The constant is hard-coded because some compiler have trouble
-// converting Value::maxUInt64 to a double correctly (AIX/xlC).
-// Assumes that UInt64 is a 64 bits integer.
 static const double maxUInt64AsDouble = 18446744073709551615.0;
 #endif // defined(JSON_HAS_INT64)
 const LargestInt Value::minLargestInt = LargestInt(~(LargestUInt(-1) / 2));
@@ -2450,13 +2351,7 @@ static inline bool InRange(double d, T min, U max) {
 }
 #endif // if !defined(JSON_USE_INT64_DOUBLE_CONVERSION)
 
-/** Duplicates the specified string value.
- * @param value Pointer to the string to duplicate. Must be zero-terminated if
- *              length is "unknown".
- * @param length Length of the value. if equals to unknown, then it will be
- *               computed using strlen(value).
- * @return Pointer on the duplicate instance of string.
- */
+
 static inline char* duplicateStringValue(const char* value,
                                          size_t length) {
   // Avoid an integer overflow in the call to malloc below by limiting length
@@ -2516,13 +2411,6 @@ static inline void releaseStringValue(char* value) { free(value); }
 
 } // namespace Json
 
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// ValueInternals...
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
 #if !defined(JSON_IS_AMALGAMATION)
 
 #include "json_valueiterator.inl"
@@ -2571,13 +2459,6 @@ void throwLogicError(std::string const& msg)
   throw LogicError(msg);
 }
 
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// class Value::CommentInfo
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
 
 Value::CommentInfo::CommentInfo() : comment_(0) {}
 
@@ -2599,13 +2480,6 @@ void Value::CommentInfo::setComment(const char* text, size_t len) {
   comment_ = duplicateStringValue(text, len);
 }
 
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// class Value::CZString
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
 
 // Notes: policy_ indicates if the string was allocated when
 // a string is stored.
@@ -2678,18 +2552,8 @@ const char* Value::CZString::data() const { return cstr_; }
 unsigned Value::CZString::length() const { return storage_.length_; }
 bool Value::CZString::isStaticString() const { return storage_.policy_ == noDuplication; }
 
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// class Value::Value
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
-// //////////////////////////////////////////////////////////////////
 
-/*! \internal Default constructor initialization must be equivalent to:
- * memset( this, 0, sizeof(Value) )
- * This optimization is used in ValueInternalMap fast allocator.
- */
+
 Value::Value(ValueType type) {
   initBasic(type);
   switch (type) {
@@ -2929,10 +2793,6 @@ bool Value::operator>=(const Value& other) const { return !(*this < other); }
 bool Value::operator>(const Value& other) const { return other < *this; }
 
 bool Value::operator==(const Value& other) const {
-  // if ( type_ != other.type_ )
-  // GCC 2.95.3 says:
-  // attempt to take address of bit-field structure member `Json::Value::type_'
-  // Beats me, but a temp solves the problem.
   int temp = other.type_;
   if (type_ != temp)
     return false;
@@ -3346,9 +3206,6 @@ void Value::initBasic(ValueType type, bool allocated) {
   limit_ = 0;
 }
 
-// Access an object value by name, create a null member if it does not exist.
-// @pre Type of '*this' is object or null.
-// @param key is null-terminated.
 Value& Value::resolveReference(const char* key) {
   JSON_ASSERT_MESSAGE(
       type_ == nullValue || type_ == objectValue,
@@ -3562,31 +3419,6 @@ Value::Members Value::getMemberNames() const {
   }
   return members;
 }
-//
-//# ifdef JSON_USE_CPPTL
-// EnumMemberNames
-// Value::enumMemberNames() const
-//{
-//   if ( type_ == objectValue )
-//   {
-//      return CppTL::Enum::any(  CppTL::Enum::transform(
-//         CppTL::Enum::keys( *(value_.map_), CppTL::Type<const CZString &>() ),
-//         MemberNamesTransform() ) );
-//   }
-//   return EnumMemberNames();
-//}
-//
-//
-// EnumValues
-// Value::enumValues() const
-//{
-//   if ( type_ == objectValue  ||  type_ == arrayValue )
-//      return CppTL::Enum::anyValues( *(value_.map_),
-//                                     CppTL::Type<const Value &>() );
-//   return EnumValues();
-//}
-//
-//# endif
 
 static bool IsIntegral(double d) {
   double integral_part;
@@ -3635,9 +3467,6 @@ bool Value::isInt64() const {
   case uintValue:
     return value_.uint_ <= UInt64(maxInt64);
   case realValue:
-    // Note that maxInt64 (= 2^63 - 1) is not exactly representable as a
-    // double, so double(maxInt64) will be rounded up to 2^63. Therefore we
-    // require the value to be strictly less than the limit.
     return value_.real_ >= double(minInt64) &&
            value_.real_ < double(maxInt64) && IsIntegral(value_.real_);
   default:
@@ -3655,9 +3484,6 @@ bool Value::isUInt64() const {
   case uintValue:
     return true;
   case realValue:
-    // Note that maxUInt64 (= 2^64 - 1) is not exactly representable as a
-    // double, so double(maxUInt64) will be rounded up to 2^64. Therefore we
-    // require the value to be strictly less than the limit.
     return value_.real_ >= 0 && value_.real_ < maxUInt64AsDouble &&
            IsIntegral(value_.real_);
   default:
@@ -3921,18 +3747,12 @@ Value& Path::make(Value& root) const {
 
 } // namespace Json
 
-// //////////////////////////////////////////////////////////////////////
-// End of content of file: src/lib_json/json_value.cpp
-// //////////////////////////////////////////////////////////////////////
 
 
 
 
 
 
-// //////////////////////////////////////////////////////////////////////
-// Beginning of content of file: src/lib_json/json_writer.cpp
-// //////////////////////////////////////////////////////////////////////
 
 // Copyright 2011 Baptiste Lepilleur
 // Distributed under MIT license, or public domain if desired and
@@ -3963,10 +3783,8 @@ Value& Path::make(Value& root) const {
 #define isfinite std::isfinite
 #endif
 
-#if defined(_MSC_VER) && _MSC_VER < 1500 // VC++ 8.0 and below
+#if defined(_MSC_VER) && _MSC_VER < 1500
 #define snprintf _snprintf
-#elif defined(__ANDROID__)
-#define snprintf snprintf
 #elif __cplusplus >= 201103L
 #define snprintf std::snprintf
 #endif
@@ -4047,9 +3865,6 @@ std::string valueToString(double value) {
   char buffer[32];
   int len = -1;
 
-// Print into the buffer. We need not request the alternative representation
-// that always has a decimal point because JSON doesn't distingish the
-// concepts of reals and integers.
 #if defined(_MSC_VER) && defined(__STDC_SECURE_LIB__) // Use secure version with
                                                       // visual studio 2005 to
                                                       // avoid warning.
@@ -4087,9 +3902,6 @@ std::string valueToQuotedString(const char* value) {
   if (strpbrk(value, "\"\\\b\f\n\r\t") == NULL &&
       !containsControlCharacter(value))
     return std::string("\"") + value + "\"";
-  // We have to walk value and escape any special characters.
-  // Appending to std::string is not efficient, but this should be rare.
-  // (Note: forward slashes are *not* rare, but I am not escaping them.)
   std::string::size_type maxsize =
       strlen(value) * 2 + 3; // allescaped+quotes+NULL
   std::string result;
@@ -4118,14 +3930,6 @@ std::string valueToQuotedString(const char* value) {
     case '\t':
       result += "\\t";
       break;
-    // case '/':
-    // Even though \/ is considered a legal escape in JSON, a bare
-    // slash is also legal, so I see no reason to escape it.
-    // (I hope I am not misunderstanding something.
-    // blep notes: actually escaping \/ may be useful in javascript to avoid </
-    // sequence.
-    // Should add a flag to allow this compatibility mode and prevent this
-    // sequence from occurring.
     default:
       if (isControlCharacter(*c)) {
         std::ostringstream oss;
@@ -4164,9 +3968,6 @@ static std::string valueToQuotedStringN(const char* value, unsigned length) {
   if (strnpbrk(value, "\"\\\b\f\n\r\t", length) == NULL &&
       !containsControlCharacter0(value, length))
     return std::string("\"") + value + "\"";
-  // We have to walk value and escape any special characters.
-  // Appending to std::string is not efficient, but this should be rare.
-  // (Note: forward slashes are *not* rare, but I am not escaping them.)
   std::string::size_type maxsize =
       length * 2 + 3; // allescaped+quotes+NULL
   std::string result;
@@ -4196,14 +3997,6 @@ static std::string valueToQuotedStringN(const char* value, unsigned length) {
     case '\t':
       result += "\\t";
       break;
-    // case '/':
-    // Even though \/ is considered a legal escape in JSON, a bare
-    // slash is also legal, so I see no reason to escape it.
-    // (I hope I am not misunderstanding something.)
-    // blep notes: actually escaping \/ may be useful in javascript to avoid </
-    // sequence.
-    // Should add a flag to allow this compatibility mode and prevent this
-    // sequence from occurring.
     default:
       if ((isControlCharacter(*c)) || (*c == 0)) {
         std::ostringstream oss;
@@ -4674,10 +4467,6 @@ void StyledStreamWriter::pushValue(const std::string& value) {
 }
 
 void StyledStreamWriter::writeIndent() {
-  // blep intended this to look at the so-far-written string
-  // to determine whether we are already indented, but
-  // with a stream we cannot do that. So we rely on some saved state.
-  // The caller checks indented_.
   *document_ << '\n' << indentString_;
 }
 
@@ -4950,10 +4739,6 @@ void BuiltStyledStreamWriter::pushValue(std::string const& value) {
 }
 
 void BuiltStyledStreamWriter::writeIndent() {
-  // blep intended this to look at the so-far-written string
-  // to determine whether we are already indented, but
-  // with a stream we cannot do that. So we rely on some saved state.
-  // The caller checks indented_.
 
   if (!indentation_.empty()) {
     // In this case, drop newlines too.
@@ -5113,12 +4898,3 @@ std::ostream& operator<<(std::ostream& sout, Value const& root) {
 }
 
 } // namespace Json
-
-// //////////////////////////////////////////////////////////////////////
-// End of content of file: src/lib_json/json_writer.cpp
-// //////////////////////////////////////////////////////////////////////
-
-
-
-
-

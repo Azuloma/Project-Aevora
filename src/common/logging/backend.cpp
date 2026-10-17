@@ -34,9 +34,7 @@ namespace Common::Log {
 
 namespace {
 
-/**
- * Interface for logging backends.
- */
+
 class Backend {
 public:
     virtual ~Backend() = default;
@@ -48,9 +46,7 @@ public:
     virtual void Flush() = 0;
 };
 
-/**
- * Backend that writes to stderr and with color
- */
+
 class ColorConsoleBackend final : public Backend {
 public:
     explicit ColorConsoleBackend() = default;
@@ -79,9 +75,7 @@ private:
     std::atomic_bool enabled{false};
 };
 
-/**
- * Backend that writes to a file passed into the constructor
- */
+
 class FileBackend final : public Backend {
 public:
     explicit FileBackend(const std::filesystem::path& filename) {
@@ -106,17 +100,6 @@ public:
 
         bytes_written += file->WriteString(FormatLogMessage(entry).append(1, '\n'));
 
-        // A single failed Flush() (a transient disk/AV/cloud-sync hiccup -
-        // %APPDATA%\Roaming is commonly OneDrive-synced on Windows, a real
-        // source of momentary file-lock contention) used to permanently
-        // disable file logging for the rest of the process with zero
-        // indication why, silently. That exactly matched a live-observed
-        // bug: the log file froze at the same ~15 startup lines across
-        // dozens of runs, even ones that did substantial, confirmed-real
-        // work (a full AOT export writing 90,000+ files) with dedicated
-        // LOG_INFO diagnostics that never once appeared. Tolerate a few
-        // consecutive failures (the write itself isn't lost, just its
-        // flush-to-disk timing) before actually giving up.
         if (!file->Flush()) {
             if (++consecutive_flush_failures >= 5) {
                 enabled = false;
@@ -155,9 +138,7 @@ private:
     int consecutive_flush_failures = 0;
 };
 
-/**
- * Backend that writes to Visual Studio's output window
- */
+
 class DebuggerBackend final : public Backend {
 public:
     explicit DebuggerBackend() = default;
@@ -175,31 +156,10 @@ public:
     void EnableForStacktrace() override {}
 };
 
-#ifdef ANDROID
-/**
- * Backend that writes to the Android logcat
- */
-class LogcatBackend : public Backend {
-public:
-    explicit LogcatBackend() = default;
-
-    ~LogcatBackend() override = default;
-
-    void Write(const Entry& entry) override {
-        PrintMessageToLogcat(entry);
-    }
-
-    void Flush() override {}
-
-    void EnableForStacktrace() override {}
-};
-#endif
 
 bool initialization_in_progress_suppress_logging = true;
 
-/**
- * Static state as a singleton.
- */
+
 class Impl {
 public:
     static Impl& Instance() {
@@ -313,9 +273,6 @@ private:
         lambda(static_cast<Backend&>(debugger_backend));
         lambda(static_cast<Backend&>(color_console_backend));
         lambda(static_cast<Backend&>(file_backend));
-#ifdef ANDROID
-        lambda(static_cast<Backend&>(lc_backend));
-#endif
     }
 
     static void Deleter(Impl* ptr) {
@@ -328,9 +285,6 @@ private:
     DebuggerBackend debugger_backend{};
     ColorConsoleBackend color_console_backend{};
     FileBackend file_backend;
-#ifdef ANDROID
-    LogcatBackend lc_backend{};
-#endif
 
     MPSCQueue<Entry> message_queue{};
     std::chrono::steady_clock::time_point time_origin{std::chrono::steady_clock::now()};

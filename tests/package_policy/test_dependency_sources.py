@@ -45,12 +45,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(boost['url'], 'https://github.com/boostorg/boost/releases/download/'
                                        'boost-1.90.0/boost-1.90.0-cmake.tar.xz')
         self.assertTrue(boost['sha512'])
-        vvl = find('vulkan-validation-layers')
-        self.assertEqual(vvl['kind'], 'artifact-source')
-        self.assertEqual(vvl['version'], 'vulkan-sdk-1.4.341.0')  # %NUMERIC_VERSION% substituted
-        self.assertTrue(vvl['url'].endswith('/Vulkan-ValidationLayers/archive/vulkan-sdk-1.4.341.0.tar.gz'))
-        self.assertIsNone(vvl['sha512'])  # the JSON hash is for the prebuilt zip, not this file
-        self.assertTrue(vvl['artifact_sha512'])
+
 
     def test_other_git_host(self):
         tzdb = find('tzdb')

@@ -6,14 +6,14 @@
 #include <thread>
 #include <vector>
 
-#ifdef _WIN32
+#if defined(_WIN32)
 #define NOMINMAX
 #include <windows.h>
 #include <wlanapi.h>
 #ifdef _MSC_VER
 #pragma comment(lib, "wlanapi.lib")
 #endif
-#elif defined(__linux__) && !defined(__ANDROID__)
+#elif defined(__linux__)
 #include <iwlib.h>
 #elif defined(__FreeBSD__)
 #include <sys/types.h>
@@ -31,7 +31,7 @@
 using namespace std::chrono_literals;
 
 namespace Network {
-#ifdef _WIN32
+#if defined(_WIN32)
 static u8 QualityToPercent(DWORD q) {
     return u8(q);
 }
@@ -94,7 +94,7 @@ std::vector<Network::ScanData> ScanWifiNetworks(std::chrono::milliseconds deadli
     WlanCloseHandle(hClient, nullptr);
     return out;
 }
-#elif defined(__linux__) && !defined(__ANDROID__)
+#elif defined(__linux__)
 static u8 QualityToPercent(const iwrange& r, const wireless_scan* ws) {
     const iw_quality qual = ws->stats.qual;
     const int lvl = qual.level;

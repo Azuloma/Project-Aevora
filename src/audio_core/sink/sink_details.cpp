@@ -10,12 +10,6 @@
 #include <vector>
 
 #include "audio_core/sink/sink_details.h"
-#ifdef HAVE_APPLE_AUDIO
-#include "audio_core/sink/apple_sink.h"
-#endif
-#ifdef HAVE_OBOE
-#include "audio_core/sink/oboe_sink.h"
-#endif
 #ifdef HAVE_CUBEB
 #include "audio_core/sink/cubeb_sink.h"
 #endif
@@ -47,24 +41,9 @@ struct SinkDetails {
     /// SuitableFn is_suitable; // REVERTED FOR LatencyFn latency ABOVE - DIABLO 3 FIX
 };
 
-// NOTE TO PROBABLY FIX LATER FOR ANDROID - the return value "0u" for the first HAVE_OBOE
-// section below was just copied from the null section so there's a somewhat valid value
-// being returned, since the previous "true" value probably isn't compatible with the
-// previous EA-3833 code. (HAVE_OBOE was introduced in a later release.) Eventually need
-// to change "0u" for something else directly from the oboe_sink.cpp functions.
 
 // sink_details is ordered in terms of desirability, with the best choice at the top.
 constexpr SinkDetails sink_details[] = {
-#ifdef HAVE_OBOE
-    SinkDetails{
-        Settings::AudioEngine::Oboe,
-        [](std::string_view device_id) -> std::unique_ptr<Sink> {
-            return std::make_unique<OboeSink>();
-        },
-        [](bool capture) { return std::vector<std::string>{"Default"}; },
-        []() { return 0u; },
-    },
-#endif
 #ifdef HAVE_CUBEB
     SinkDetails{
         Settings::AudioEngine::Cubeb,
@@ -93,9 +72,6 @@ constexpr SinkDetails sink_details[] = {
         [](bool capture) { return std::vector<std::string>{"null"}; },
         []() { return 0u; },
     },
-    // Routes the console's mixed output to the libretro frontend rather than a
-    // host device. Only selected explicitly by the libretro core - never by
-    // Auto, since it's useless without a frontend draining it.
     SinkDetails{
         Settings::AudioEngine::Libretro,
         [](std::string_view device_id) -> std::unique_ptr<Sink> {
@@ -116,20 +92,8 @@ const SinkDetails& GetOutputSinkDetails(Settings::AudioEngine sink_id) {
 
     if (sink_id == Settings::AudioEngine::Auto) {
         // REVERTED TO 3833 BELOW - DIABLO 3 FIX
-        /*
-        // Auto-select a backend. Use the sink details ordering, preferring cubeb first, checking
-        // that the backend is available and suitable to use.
-        for (auto& details : sink_details) {
-            if (details.is_suitable()) {
-                iter = &details;
-                break;
-            }
-        }
-        */ // END REVERTED CODE - DIABLO 3 FIX
+         // END REVERTED CODE - DIABLO 3 FIX
 
-        // BEGIN REINTRODUCED FROM 3833 - REPLACED CODE BLOCK ABOVE - DIABLO 3 FIX
-        // Auto-select a backend. Prefer CubeB, but it may report a large minimum latency which
-        // causes audio issues, in that case go with SDL.
 #if defined(HAVE_CUBEB) && defined(HAVE_SDL3)
         iter = find_backend(Settings::AudioEngine::Cubeb);
         if (iter->latency() > TargetSampleCount * 3) {
@@ -141,13 +105,7 @@ const SinkDetails& GetOutputSinkDetails(Settings::AudioEngine sink_id) {
         // END REINTRODUCED SECTION FROM 3833 - DIABLO 3 FIX
         LOG_INFO(Service_Audio, "Auto-selecting the {} backend",
                  Settings::CanonicalizeEnum(iter->id));
-    /* BEGIN REMOVED - REVERTING BACK TO 3833, this didn't exist at all. - DIABLO 3 FIX
-    } else {
-        if (iter != std::end(sink_details) && !iter->is_suitable()) {
-            LOG_ERROR(Service_Audio, "Selected backend {} is not suitable, falling back to null",
-                      Settings::CanonicalizeEnum(iter->id));
-            iter = find_backend(Settings::AudioEngine::Null);
-        } */ // END REMOVED REVERT - DIABLO 3 FIX
+     // END REMOVED REVERT - DIABLO 3 FIX
     }
 
     if (iter == std::end(sink_details)) {
@@ -173,12 +131,6 @@ std::vector<std::string> GetDeviceListForSink(Settings::AudioEngine sink_id, boo
 }
 
 std::unique_ptr<Sink> CreateSinkFromID(Settings::AudioEngine sink_id, std::string_view device_id) {
-#ifdef HAVE_APPLE_AUDIO
-    if (sink_id == Settings::AudioEngine::Auto) {
-        LOG_INFO(Audio_Sink, "Selecting iOS AudioQueue output backend");
-        return CreateAppleSink();
-    }
-#endif
     return GetOutputSinkDetails(sink_id).factory(device_id);
 }
 

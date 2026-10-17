@@ -43,7 +43,6 @@ Currently, it has become clear that the Suyu recompiler's code execution method 
 | Windows (x64) | Experimental; gameplay verified, performance improvements ongoing | Game CPU code (ARM64 → x64)     |
 | macOS         | Not yet validated                                                 | No verified AOT build            |
 | Linux         | Not yet validated                                                 | No verified AOT build            |
-| Android       | Not supported; outside the project's scope                        | N/A                              |
 
 ## Features
 

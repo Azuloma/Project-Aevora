@@ -174,9 +174,8 @@ else
 		"Valid platforms:
 windows-amd64 windows-arm64
 mingw-amd64 mingw-arm64
-android-aarch64 android-x86_64
 linux-amd64 linux-aarch64
-macos-universal ios-aarch64"
+macos-universal"
 
 	DISABLED_PLATFORMS="$reply"
 fi

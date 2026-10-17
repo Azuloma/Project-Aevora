@@ -59,15 +59,6 @@
 #include "common/host_memory.h"
 #include "common/logging.h"
 
-#if defined(__ANDROID__) && __ANDROID_API__ < 30
-#include <sys/syscall.h>
-#ifndef MFD_CLOEXEC
-#define MFD_CLOEXEC 0x0001U
-#endif
-static int memfd_create(const char* name, unsigned int flags) {
-    return syscall(__NR_memfd_create, name, flags);
-}
-#endif
 
 namespace Common {
 
@@ -291,9 +282,6 @@ private:
                                   MEM_PRESERVE_PLACEHOLDER)) {
             LOG_CRITICAL(HW_Memory, "Failed to unmap placeholder");
         }
-        // If we have to remap memory regions due to partial unmaps, we are in a data race as
-        // Windows doesn't support remapping memory without unmapping first. Avoid adding any extra
-        // logic within the panic region described below.
 
         // Panic region, we are in a data race right now
         if (split_left || split_right) {
@@ -412,13 +400,6 @@ static void* ChooseVirtualBase(size_t virtual_size) {
     const size_t lower = Map36BitSize / HugePageSize;
     const size_t upper = (Map39BitSize - virtual_size) / HugePageSize;
 
-    // A reservation that is itself 39 bits wide leaves nothing inside the 36..39 bit
-    // window, so `upper` lands at or below `lower` and the subtraction below wraps.
-    // Every hint derived from the wrapped range is garbage, all 64 attempts miss, and
-    // the caller reports a bogus "mmap failed" with errno untouched. Only arm64 without
-    // NCE reserves 39 bits -- Android and Linux arm64 set HAS_NCE and reserve 38 -- so
-    // macOS is the one configuration that reaches this. The low-address requirement is
-    // a Qualcomm driver quirk that does not apply there, so let the kernel place it.
     if (upper <= lower) {
         return mmap(nullptr, virtual_size, PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
@@ -468,9 +449,6 @@ static void* ChooseVirtualBase(size_t virtual_size) {
 #endif
 
 #if defined(__sun__) || defined(__HAIKU__) || defined(__NetBSD__) || defined(__DragonFly__)
-/// Most Unices don't have a portable shm_open (AIX, OpenBSD, NetBSD, Solaris 11, OpenIndiana)
-/// Portable implementation of shm_open(SHM_ANON, ...) - roughly equivalent but without
-/// OS support - may fail sporadically, beware!
 static int shm_open_anon(int flags, mode_t mode) {
     char name[16] = "/shm-";
     char *const limit = name + sizeof(name) - 1;

@@ -127,14 +127,6 @@
         "repo": "loongson-community/lagoon",
         "version": "1.0.0"
     },
-    "libadrenotools": {
-        "hash": "f6526620cb752876edc5ed4c0925d57b873a8218ee09ad10859ee476e9333259784f61c1dcc55a2bcba597352d18aff22cd2e4c1925ec2ae94074e09d7da2265",
-        "patches": [
-            "0001-use-cpmfile-def-for-linkernsbypass.patch"
-        ],
-        "repo": "eden-emulator/libadrenotools",
-        "version": "8ba23b42d7"
-    },
     "libusb": {
         "find_args": "MODULE",
         "hash": "98c5f7940ff06b25c9aa65aa98e23de4c79a4c1067595f4c73cc145af23a1c286639e1ba11185cd91bab702081f307b973f08a4c9746576dc8d01b3620a3aeb5",
@@ -183,12 +175,6 @@
         "min_version": "2.0.1",
         "repo": "eden-emulator/oaknut",
         "version": "v2.0.3"
-    },
-    "oboe": {
-        "bundled": true,
-        "hash": "ce4011afe7345370d4ead3b891cd69a5ef224b129535783586c0ca75051d303ed446e6c7f10bde8da31fff58d6e307f1732a3ffd03b249f9ef1fd48fd4132715",
-        "repo": "google/oboe",
-        "version": "1.10.0"
     },
     "openssl": {
         "hash": "29002ce50cb95a4f4f1d0e9d3f684401fbd4eac34203dc2eef3b6334af5d44aa46bf788b63a6f5c139c383eafb7269ae87a58a9a3ad5912903b9773e545ccc0a",
@@ -336,13 +322,6 @@
         "package": "VulkanUtilityLibraries",
         "repo": "KhronosGroup/Vulkan-Utility-Libraries",
         "version": "v1.4.345"
-    },
-    "vulkan-validation-layers": {
-        "artifact": "android-binaries-%NUMERIC_VERSION%.zip",
-        "hash": "8812ae84cbe49e6a3418ade9c458d3be6d74a3dffd319d4502007b564d580998056e8190414368ec11b27bc83993c7a0dad713c31bcc3d9553b51243efee3753",
-        "numeric_version": "1.4.341.0",
-        "repo": "KhronosGroup/Vulkan-ValidationLayers",
-        "version": "vulkan-sdk-%NUMERIC_VERSION%"
     },
     "xbyak": {
         "hash": "b6475276b2faaeb315734ea8f4f8bd87ededcee768961b39679bee547e7f3e98884d8b7851e176d861dab30a80a76e6ea302f8c111483607dde969b4797ea95a",

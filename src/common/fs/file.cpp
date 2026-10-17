@@ -9,9 +9,6 @@
 #include "common/assert.h"
 #include "common/fs/file.h"
 #include "common/fs/fs.h"
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-#include "common/fs/fs_android.h"
-#endif
 #include "common/logging.h"
 
 #ifdef _WIN32
@@ -35,14 +32,7 @@ namespace {
 
 #ifdef _WIN32
 
-/**
- * Converts the file access mode and file type enums to a file access mode wide string.
- *
- * @param mode File access mode
- * @param type File type
- *
- * @returns A pointer to a wide string representing the file access mode.
- */
+
 [[nodiscard]] constexpr const wchar_t* AccessModeToWStr(FileAccessMode mode, FileType type) {
     switch (type) {
     case FileType::BinaryFile:
@@ -78,13 +68,7 @@ namespace {
     return L"";
 }
 
-/**
- * Converts the file-share access flag enum to a Windows defined file-share access flag.
- *
- * @param flag File-share access flag
- *
- * @returns Windows defined file-share access flag.
- */
+
 [[nodiscard]] constexpr int ToWindowsFileShareFlag(FileShareFlag flag) {
     switch (flag) {
     case FileShareFlag::ShareNone:
@@ -101,14 +85,7 @@ namespace {
 
 #else
 
-/**
- * Converts the file access mode and file type enums to a file access mode string.
- *
- * @param mode File access mode
- * @param type File type
- *
- * @returns A pointer to a string representing the file access mode.
- */
+
 [[nodiscard]] constexpr const char* AccessModeToStr(FileAccessMode mode, FileType type) {
     switch (type) {
     case FileType::BinaryFile:
@@ -146,13 +123,7 @@ namespace {
 
 #endif
 
-/**
- * Converts the seek origin enum to a seek origin integer.
- *
- * @param origin Seek origin
- *
- * @returns Seek origin integer.
- */
+
 [[nodiscard]] constexpr int ToSeekOrigin(SeekOrigin origin) {
     switch (origin) {
     case SeekOrigin::SetOrigin:
@@ -253,28 +224,11 @@ void IOFile::Open(const fs::path& path, FileAccessMode mode, FileType type, File
 
     errno = 0;
 
-#ifdef _WIN32
+#if defined(_WIN32)
     if (flag != FileShareFlag::ShareNone) {
         file = _wfsopen(path.c_str(), AccessModeToWStr(mode, type), ToWindowsFileShareFlag(flag));
     } else {
         _wfopen_s(&file, path.c_str(), AccessModeToWStr(mode, type));
-    }
-#elif defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-    if (Android::IsContentUri(path)) {
-        ASSERT_MSG(mode == FileAccessMode::Read, "Content URI file access is for read-only!");
-        const auto fd = Android::OpenContentUri(path, Android::OpenMode::Read);
-        if (fd != -1) {
-            file = fdopen(fd, "r");
-            const auto error_num = errno;
-            if (error_num != 0 && file == nullptr) {
-                LOG_ERROR(Common_Filesystem, "Error opening file: {}, error: {}", path.c_str(),
-                          strerror(error_num));
-            }
-        } else {
-            LOG_ERROR(Common_Filesystem, "Error opening file: {}", path.c_str());
-        }
-    } else {
-        file = std::fopen(path.c_str(), AccessModeToStr(mode, type));
     }
 #else
     file = std::fopen(path.c_str(), AccessModeToStr(mode, type));
@@ -396,23 +350,6 @@ u64 IOFile::GetSize() const {
     // Flush any unwritten buffered data into the file prior to retrieving the file size.
     std::fflush(file);
 
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-    u64 file_size = 0;
-    if (Android::IsContentUri(file_path)) {
-        file_size = Android::GetSize(file_path);
-    } else {
-        std::error_code ec;
-
-        file_size = fs::file_size(file_path, ec);
-
-        if (ec) {
-            LOG_ERROR(Common_Filesystem,
-                      "Failed to retrieve the file size of path={}, ec_message={}",
-                      PathToUTF8String(file_path), ec.message());
-            return 0;
-        }
-    }
-#else
     std::error_code ec;
 
     const auto file_size = fs::file_size(file_path, ec);
@@ -422,7 +359,6 @@ u64 IOFile::GetSize() const {
                   PathToUTF8String(file_path), ec.message());
         return 0;
     }
-#endif
 
     return file_size;
 }

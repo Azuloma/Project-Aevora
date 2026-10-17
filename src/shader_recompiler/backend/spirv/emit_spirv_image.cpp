@@ -497,9 +497,6 @@ Id EmitImageSampleImplicitLod(EmitContext& ctx, IR::Inst* inst, const IR::Value&
                     &EmitContext::OpImageSampleImplicitLod, ctx, inst, result_type,
                     Texture(ctx, info, index), coords, operands.MaskOptional(), operands.Span());
     } else {
-        // We can't use implicit lods on non-fragment stages on SPIR-V. Maxwell hardware behaves as
-        // if the lod was explicitly zero.  This may change on Turing with implicit compute
-        // derivatives
         const Id lod{ctx.Const(0.0f)};
         const ImageOperands operands(ctx, false, true, info.has_lod_clamp != 0, lod, offset);
         color = Emit(&EmitContext::OpImageSparseSampleExplicitLod,
@@ -519,11 +516,6 @@ Id EmitImageSampleExplicitLod(EmitContext& ctx, IR::Inst* inst, const IR::Value&
     Id result = Emit(&EmitContext::OpImageSparseSampleExplicitLod,
                      &EmitContext::OpImageSampleExplicitLod, ctx, inst, result_type,
                      Texture(ctx, info, index), coords, operands.Mask(), operands.Span());
-#ifdef __ANDROID__
-    if (!is_integer && Settings::values.fix_bloom_effects.GetValue()) {
-        result = ctx.OpVectorTimesScalar(ctx.F32[4], result, ctx.Const(0.98f));
-    }
-#endif
     return is_integer ? ctx.OpBitcast(ctx.F32[4], result) : result;
 }
 

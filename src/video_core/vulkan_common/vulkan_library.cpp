@@ -19,14 +19,6 @@ namespace Vulkan {
 std::shared_ptr<Common::DynamicLibrary> OpenLibrary(
     [[maybe_unused]] Core::Frontend::GraphicsContext* context) {
     LOG_DEBUG(Render_Vulkan, "Looking for a Vulkan library");
-#if defined(__APPLE__) && TARGET_OS_IPHONE
-    // iOS links MoltenVK into the signed executable. CreateInstance binds its
-    // entry point directly; there is no runtime-loaded driver library.
-    return std::make_shared<Common::DynamicLibrary>();
-#elif defined(__ANDROID__) && defined(ARCHITECTURE_arm64)
-    // Android manages its Vulkan driver from the frontend.
-    return context->GetDriverLibrary();
-#else
     auto library = std::make_shared<Common::DynamicLibrary>();
 #ifdef __APPLE__
     const auto libvulkan_filename =
@@ -49,14 +41,12 @@ std::shared_ptr<Common::DynamicLibrary> OpenLibrary(
     std::string filename = Common::DynamicLibrary::GetVersionedFilename("vulkan", 1);
     LOG_DEBUG(Render_Vulkan, "Trying Vulkan library: {}", filename);
     if (!library->Open(filename.c_str())) {
-        // Android devices may not have libvulkan.so.1, only libvulkan.so.
         filename = Common::DynamicLibrary::GetVersionedFilename("vulkan");
         LOG_DEBUG(Render_Vulkan, "Trying Vulkan library (second attempt): {}", filename);
         void(library->Open(filename.c_str()));
     }
 #endif
     return library;
-#endif
 }
 
 } // namespace Vulkan

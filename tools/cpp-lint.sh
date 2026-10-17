@@ -34,8 +34,8 @@ while :; do
 		;;
 	osdef)
 		# not recommended macros
-		PATTERN="ANDROID\|_WIN64\|__linux\|__unix\|APPLE\|__APPLE"
-		strings=("ANDROID" "_WIN64" "__linux" "__unix" "APPLE" "__APPLE" "linux" "unix")
+		PATTERN="_WIN64\|__linux\|__unix\|APPLE\|__APPLE"
+		strings=("_WIN64" "__linux" "__unix" "APPLE" "__APPLE" "linux" "unix")
 		for item in "${strings[@]}"; do
 			PATTERN="$PATTERN\|ifdef $item\|($item)"
 		done

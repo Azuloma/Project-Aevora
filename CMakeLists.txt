@@ -79,7 +79,7 @@ endif()
 # qt stuff
 option(ENABLE_QT "Enable the Qt frontend" ON)
 option(ENABLE_QT_TRANSLATION "Enable translations for the Qt frontend" OFF)
-option(ENABLE_UPDATE_CHECKER "Enable update checker (for Qt and Android)" OFF)
+option(ENABLE_UPDATE_CHECKER "Enable update checker (for Qt)" OFF)
 cmake_dependent_option(YUZU_USE_QT_MULTIMEDIA "Use QtMultimedia for Camera"  OFF "NOT YUZU_USE_BUNDLED_QT" OFF)
 cmake_dependent_option(YUZU_USE_QT_WEB_ENGINE "Use QtWebEngine for web applet implementation" OFF "NOT YUZU_USE_BUNDLED_QT" OFF)
 set(YUZU_QT_MIRROR "" CACHE STRING "What mirror to use for downloading the bundled Qt libraries")
@@ -206,23 +206,23 @@ if(MSVC)
 endif()
 
 # TODO(crueter): Cleanup, each dep that has a bundled option should allow to choose between bundled, external, system
-cmake_dependent_option(ENABLE_SDL3 "Enable SDL3 audio and input backends" ON "NOT ANDROID AND NOT IOS" OFF)
+option(ENABLE_SDL3 "Enable SDL3 audio and input backends" ON)
 cmake_dependent_option(YUZU_USE_BUNDLED_SDL3 "Download bundled SDL3 build" "${MSVC}" "ENABLE_SDL3" OFF)
 
 option(ENABLE_CUBEB "Enables the cubeb audio backend" ON)
 
 set(EXT_DEFAULT OFF)
-if (MSVC OR ANDROID)
+if (MSVC)
     set(EXT_DEFAULT ON)
 endif()
 
 # ffmpeg
 option(YUZU_USE_BUNDLED_FFMPEG "Download bundled FFmpeg" ${EXT_DEFAULT})
-cmake_dependent_option(YUZU_USE_EXTERNAL_FFMPEG "Build FFmpeg from external source" "${PLATFORM_SUN}" "NOT WIN32 AND NOT ANDROID" OFF)
+cmake_dependent_option(YUZU_USE_EXTERNAL_FFMPEG "Build FFmpeg from external source" "${PLATFORM_SUN}" "NOT WIN32" OFF)
 
 # sirit
 set(BUNDLED_SIRIT_DEFAULT OFF)
-if (MSVC AND NOT (CMAKE_BUILD_TYPE MATCHES "Deb") OR ANDROID)
+if (MSVC AND NOT (CMAKE_BUILD_TYPE MATCHES "Deb"))
     set(BUNDLED_SIRIT_DEFAULT ON)
 endif()
 
@@ -235,29 +235,14 @@ cmake_dependent_option(ENABLE_OPENGL "Enable OpenGL" ON "NOT (WIN32 AND ARCHITEC
 mark_as_advanced(FORCE ENABLE_OPENGL)
 
 option(ENABLE_WEB_SERVICE "Enable web services (telemetry, etc.)" ON)
-# A build with no dynamic recompiler in it at all. The CPU then comes
-# entirely from statically recompiled images, and an address none of them
-# covers is a hard failure rather than a fallback - which is the point.
-# Titles without a complete static image, and AArch32 titles, cannot run in
-# such a build. The guest-facing jit:u service goes with it.
-option(SUYU_NO_JIT "Build without dynarmic: statically recompiled code only" "${IOS}")
-if(IOS AND NOT SUYU_NO_JIT)
-    message(FATAL_ERROR "iOS requires SUYU_NO_JIT=ON")
-endif()
+option(SUYU_NO_JIT "Build without dynarmic: statically recompiled code only" OFF)
 option(SUYU_BUILD_LIBRETRO_CORE "Build suyu as a libretro core (suyu_libretro.dll)" OFF)
 if (SUYU_BUILD_LIBRETRO_CORE)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
-option(SUYU_ANDROID_LIBRETRO "Build Android libretro without standalone app JNI" OFF)
-if (SUYU_ANDROID_LIBRETRO)
-    if (NOT ANDROID OR NOT SUYU_BUILD_LIBRETRO_CORE)
-        message(FATAL_ERROR "SUYU_ANDROID_LIBRETRO requires Android and SUYU_BUILD_LIBRETRO_CORE")
-    endif()
-    add_compile_definitions(SUYU_ANDROID_LIBRETRO)
-endif()
 option(ENABLE_WIFI_SCAN "Enable WiFi scanning" OFF)
 
-cmake_dependent_option(USE_DISCORD_PRESENCE "Enables Discord Rich Presence" ON "NOT ANDROID" OFF)
+option(USE_DISCORD_PRESENCE "Enables Discord Rich Presence" ON)
 
 option(YUZU_TESTS "Compile tests" "${BUILD_TESTING}")
 
@@ -265,16 +250,15 @@ option(YUZU_TESTS "Compile tests" "${BUILD_TESTING}")
 # Only acts on joysticks and nothing else.
 cmake_dependent_option(YUZU_INSTALL_UDEV_RULES "Install udev rules for gyro access" OFF "PLATFORM_LINUX" OFF)
 
-option(YUZU_DOWNLOAD_ANDROID_VVL "Download validation layer binary for android" ON)
 
 option(YUZU_LEGACY "Apply patches that improve compatibility with older GPUs (e.g. Snapdragon 865) at the cost of performance" OFF)
 
 option(NIGHTLY_BUILD "Use Nightly qualifiers in the update checker and build metadata" OFF)
 
-cmake_dependent_option(YUZU_ROOM "Enable dedicated room functionality" ON "NOT ANDROID" OFF)
+option(YUZU_ROOM "Enable dedicated room functionality" ON)
 cmake_dependent_option(YUZU_ROOM_STANDALONE "Enable standalone room executable" ON "YUZU_ROOM" OFF)
 
-cmake_dependent_option(YUZU_CMD "Compile the suyu-cli executable" ON "NOT ANDROID" OFF)
+option(YUZU_CMD "Compile the suyu-cli executable" ON)
 if(NOT ENABLE_SDL3 AND (ENABLE_QT OR YUZU_CMD))
     message(FATAL_ERROR "SDL3-disabled core builds require ENABLE_QT=OFF and YUZU_CMD=OFF")
 endif()
@@ -295,15 +279,6 @@ endif()
 
 option(YUZU_USE_BUNDLED_OPENSSL "Download bundled OpenSSL build" ${DEFAULT_YUZU_USE_BUNDLED_OPENSSL})
 
-if (ANDROID AND YUZU_DOWNLOAD_ANDROID_VVL)
-    AddJsonPackage(vulkan-validation-layers)
-
-    set(abi ${CMAKE_ANDROID_ARCH_ABI})
-
-    set(vvl_lib_path "${CMAKE_CURRENT_SOURCE_DIR}/src/android/app/src/main/jniLibs/${abi}/")
-    file(COPY "${vulkan-validation-layers_SOURCE_DIR}/${abi}/libVkLayer_khronos_validation.so"
-        DESTINATION "${vvl_lib_path}")
-endif()
 
 if(EXISTS ${PROJECT_SOURCE_DIR}/hooks/pre-commit AND NOT EXISTS ${PROJECT_SOURCE_DIR}/.git/hooks/pre-commit)
     if (EXISTS ${PROJECT_SOURCE_DIR}/.git/)
@@ -312,7 +287,7 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/hooks/pre-commit AND NOT EXISTS ${PROJECT_SOURCE
     endif()
 endif()
 
-if (ARCHITECTURE_arm64 AND (ANDROID OR PLATFORM_LINUX))
+if (ARCHITECTURE_arm64 AND PLATFORM_LINUX)
     set(HAS_NCE 1)
     add_compile_definitions(HAS_NCE=1)
 endif()
@@ -336,9 +311,6 @@ endif()
 # Build/optimization presets
 if (CXX_GCC OR CXX_CLANG)
     if (ARCHITECTURE_x86_64)
-        # See https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html
-        # Generic supports Pentium Pro instruction set and above
-        # TODO: if a value is unknown, pass that as march and mtune
         set(YUZU_BUILD_PRESET "custom" CACHE STRING "Build preset to use. One of: custom, generic, v3, zen2, zen4, native")
 
         if (${YUZU_BUILD_PRESET} STREQUAL "generic")
@@ -382,11 +354,6 @@ endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-if(IOS)
-    enable_language(OBJCXX)
-    set(CMAKE_OBJCXX_STANDARD 20)
-    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
-endif()
 
 # Output binaries to bin/
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
@@ -410,11 +377,7 @@ else()
     set(OPENSSL_CONFIGURE_VERBOSE ON)
 
     if (OpenSSL_ADDED)
-        if (SUYU_ANDROID_LIBRETRO)
-            AddJsonPackage(NAME openssl-cmake OPTIONS "OPENSSL_CONFIGURE_OPTIONS no-asm")
-        else()
-            AddJsonPackage(openssl-cmake)
-        endif()
+        AddJsonPackage(openssl-cmake)
     endif()
 endif()
 
@@ -430,9 +393,6 @@ set(ENABLE_TESTING OFF)
 
 # boost
 set(BOOST_INCLUDE_LIBRARIES algorithm icl pool container heap asio headers process filesystem context crc variant)
-if(IOS)
-    list(REMOVE_ITEM BOOST_INCLUDE_LIBRARIES process)
-endif()
 
 AddJsonPackage(boost)
 
@@ -449,7 +409,7 @@ if (Boost_ADDED)
         add_library(Boost::boost ALIAS boost_headers)
     endif()
 
-    if (MSVC OR ANDROID)
+    if (MSVC)
         add_compile_definitions(YUZU_BOOST_v1)
     endif()
 
@@ -528,9 +488,6 @@ set(FFmpeg_COMPONENTS
     avutil
     swscale)
 
-# This function should be passed a list of all files in a target. It will automatically generate
-# file groups following the directory hierarchy, so that the layout of the files in IDEs matches the
-# one in the filesystem.
 function(create_target_directory_groups target_name)
     # Place any files that aren't in the source list in a separate group so that they don't get in
     # the way.
@@ -546,16 +503,9 @@ function(create_target_directory_groups target_name)
     endforeach()
 endfunction()
 
-# Platform-specific library requirements
-# Put these BEFORE EXTERNALS or Boost WILL die
-# =============================================
 
 if (APPLE)
-    if(IOS)
-        set(apple_frameworks Foundation CoreFoundation CFNetwork UIKit Metal QuartzCore IOSurface CoreGraphics CoreVideo CoreMedia Security UniformTypeIdentifiers GameController)
-    else()
-        set(apple_frameworks Carbon Metal Cocoa IOKit CoreVideo CoreMedia Security UniformTypeIdentifiers)
-    endif()
+    set(apple_frameworks Carbon Metal Cocoa IOKit CoreVideo CoreMedia Security UniformTypeIdentifiers)
     foreach(fw IN LISTS apple_frameworks)
         find_library(${fw}_LIBRARY ${fw} REQUIRED)
         list(APPEND PLATFORM_LIBRARIES ${${fw}_LIBRARY})
@@ -669,9 +619,6 @@ if (ENABLE_QT)
     # Best practice is to ask for all components at once, so they are from the same version
     set(YUZU_QT_COMPONENTS Core Widgets Charts Concurrent Gui Network)
 
-    # Svg is optional: nothing links Qt6::Svg or includes its headers, it is only wanted so the
-    # svg image format plugin is available for the icon themes. Some prebuilt Qt packages (the
-    # bundled Windows one included) ship without it, and requiring it fails configure outright.
     list(APPEND YUZU_QT_OPTIONAL Svg)
     if (PLATFORM_LINUX OR PLATFORM_FREEBSD)
         list(APPEND YUZU_QT_COMPONENTS DBus)
@@ -721,9 +668,6 @@ if (WIN32 AND YUZU_CRASH_DUMPS)
     # set(BREAKPAD_CLIENT_INCLUDE_DIR "${BREAKPAD_PREFIX}/include")
     # set(BREAKPAD_CLIENT_LIBRARY "${BREAKPAD_PREFIX}/lib/libbreakpad_client.lib")
 
-    # add_library(libbreakpad_client INTERFACE IMPORTED)
-    # target_link_libraries(libbreakpad_client INTERFACE "${BREAKPAD_CLIENT_LIBRARY}")
-    # target_include_directories(libbreakpad_client INTERFACE "${BREAKPAD_CLIENT_INCLUDE_DIR}")
 endif()
 
 # Include source code
@@ -763,49 +707,6 @@ if(SUYU_NO_JIT)
     target_compile_definitions(common PRIVATE SUYU_NO_JIT=1)
 endif()
 
-option(SUYU_BUILD_IOS_CORE_PROBE "Build iHorizon with the real iOS core initialization probe" OFF)
-if(SUYU_BUILD_IOS_CORE_PROBE)
-    if(NOT IOS OR NOT SUYU_NO_JIT)
-        message(FATAL_ERROR "The iHorizon core probe requires iOS and SUYU_NO_JIT")
-    endif()
-    set(IHORIZON_APP_SOURCE "" CACHE PATH "iHorizon launcher source directory")
-    if(NOT EXISTS "${IHORIZON_APP_SOURCE}/apple/main.mm")
-        message(FATAL_ERROR "Set IHORIZON_APP_SOURCE to the iHorizon checkout")
-    endif()
-    add_subdirectory(research/ios)
-    set_property(TARGET iHorizon PROPERTY SOURCES
-        "${IHORIZON_APP_SOURCE}/apple/main.mm"
-        "${CMAKE_CURRENT_SOURCE_DIR}/research/ios/src/core_probe.cpp")
-    target_include_directories(iHorizon PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_compile_definitions(iHorizon PRIVATE IHORIZON_WITH_CORE=1)
-    target_compile_options(iHorizon PRIVATE -fno-rtti)
-    target_link_libraries(iHorizon PRIVATE core input_common frontend_common objc ${PLATFORM_LIBRARIES})
-    target_link_libraries(iHorizon PRIVATE "${MOLTENVK_LIBRARY}")
-    # Xcode's simulator SDK does not ship libc++experimental. Keep the global
-    # compile feature flag, but select the ordinary libc++ archive at this final
-    # app link. The physical-device SDK continues to use its existing path.
-    if(CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator")
-        target_link_options(iHorizon PRIVATE -nostdlib++ -lc++)
-    endif()
-    option(IHORIZON_GAMEPLAY "Build the controlled iOS gameplay frontend" OFF)
-    if(IHORIZON_GAMEPLAY)
-        set(IHORIZON_GAME_IDENTITY_FILE "" CACHE FILEPATH "Private signed content identity manifest")
-        if(NOT EXISTS "${IHORIZON_GAME_IDENTITY_FILE}")
-            message(FATAL_ERROR "Gameplay requires the exact private content identity manifest")
-        endif()
-        target_sources(iHorizon PRIVATE "${IHORIZON_APP_SOURCE}/apple/game_session.mm"
-            "${IHORIZON_APP_SOURCE}/apple/vulkan_probe.mm"
-            "${IHORIZON_APP_SOURCE}/apple/platform_input.mm"
-            "${CMAKE_CURRENT_SOURCE_DIR}/research/ios/src/core_bridge.cpp"
-            "${IHORIZON_GAME_IDENTITY_FILE}")
-        set_source_files_properties("${IHORIZON_GAME_IDENTITY_FILE}" TARGET_DIRECTORY iHorizon
-            PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-        target_compile_definitions(iHorizon PRIVATE IHORIZON_GAMEPLAY=1)
-        target_link_libraries(iHorizon PRIVATE Vulkan::Headers)
-    endif()
-    set_target_properties(iHorizon PROPERTIES
-        MACOSX_BUNDLE_INFO_PLIST "${IHORIZON_APP_SOURCE}/apple/Info.plist.in")
-endif()
 
 if (ENABLE_DEBUG_TOOLS)
     add_subdirectory(tools/maxwell-disas)
@@ -823,11 +724,6 @@ endif()
 # Installation instructions
 # =========================
 
-# Install freedesktop.org metadata files, following those specifications:
-# https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html
-# https://specifications.freedesktop.org/icon-theme-spec/icon-theme-spec-latest.html
-# https://specifications.freedesktop.org/shared-mime-info-spec/shared-mime-info-spec-latest.html
-# https://www.freedesktop.org/software/appstream/docs/
 
 # TODO: Icon/install handling n such should be put into dist/CMakeLists.txt
 if(ENABLE_QT AND UNIX AND NOT APPLE)

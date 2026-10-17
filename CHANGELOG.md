@@ -2,6 +2,26 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev27 - Unreleased
+
+*Development entry 27 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Removed
+- Removed Android and iOS support: `src/android` (Gradle app, JNI, resources), `src/common/android`, `research/ios` (iHorizon prototype), Oboe and iOS AudioQueue sinks, Android filesystem/input drivers, freedreno debug, libadrenotools/Oboe/Android VVL acquisition (`cpmfile.json`, `externals`, `.gitmodules`, `.patch/libadrenotools`), Android/iOS CMake options (`SUYU_ANDROID_LIBRETRO`, `YUZU_DOWNLOAD_ANDROID_VVL`, `SUYU_BUILD_IOS_CORE_PROBE`, `IHORIZON_GAMEPLAY`), `__ANDROID__`/iOS branches in `src`, `src/dynarmic` and vendored externals, Android-only tools and metadata (`.reuse/dep5`, `.codespellrc`, translation config, `package_policy` kinds/notices), and the orphaned `Common::HeapTracker`. `SUYU_NO_JIT` stays, default OFF.
+
+### Kept
+- Kept macOS, Linux, FreeBSD, non-Android libretro, Nintendo `Service::android`, `YUZU_LEGACY`, Turnip/Qualcomm detection, the shared `SigAction` workaround, and `SetAppDirectory`; license/attribution notices are preserved verbatim.
+
+### Compatibility
+- Removed `AudioEngine::Oboe` with Libretro kept at explicit value 5 because enum settings are persisted numerically (value 4 still falls back to the Null sink); removed `WindowSystemType::Android`, `Settings::Category::Android`, `GameSettings::OS` mobile values, `GraphicsContext::GetDriverLibrary`, `PlayerInput::use_system_vibrator`, FFmpeg MediaCodec fields, `PrintMessageToLogcat`, and `EmulatedController` output slot 4 (array 5 -> 4). No Windows config key was removed.
+
+### Verified
+- Windows preprocessed comparison of 1219 (batch 1), 1192 (batch 2), and 56 (review fixes) translation units with a token-aware normalizer (literals intact, source-location integers accepted only at LOG/ASSERT positions with diff-derived line shifts) found 0 unexplained differences. Negative controls rejected changed strings, raw strings, non-location integers, and wrong line shifts. Reconfigure left `build.ninja` and `compile_commands.json` (1717 records) byte-identical. `rebuild-suyu.bat` exited 0 with no new warning signatures versus dev26.
+- Eight standalone smoke units passed; full recompiler smoke passed with the three golden hashes unchanged; package-policy 55 tests and 193 C++ checks passed; the restored shared shader test passed and failed under a scratch copy with the dedup branch removed. `research/tests`: 7 failures and 1 error reproduce identically on HEAD inputs (pre-existing: obsolete `correctness_revision` string, old generator fragment extraction, offline dependency expectations, MSVC D8016 `/RTC1` vs `/O2`).
+
+### Review
+- Code reviewer found no blockers; S1 (normalizer), S2 (microprofile and other attribution notices), S3 (shared shader test restored under `research/tests/fixtures`), and N1 (HeapTracker, unused includes) were fixed and re-reviewed.
+
 ## v0.0.1-dev26 - Unreleased
 
 *Development entry 26 toward v0.0.1. Not a release; no build artifacts are published.*

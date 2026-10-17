@@ -38,9 +38,6 @@ if (MINGW OR PLATFORM_LINUX OR APPLE)
         string(REPLACE ":/" "/" LIBUSB_SRC_DIR "${LIBUSB_SRC_DIR}")
         set(LIBUSB_SRC_DIR "/${LIBUSB_SRC_DIR}")
 
-        # And now that we are using /C/ for srcdir but everything else is using C:/, we need to
-        # compile everything in the source directory, else `configure` won't think the build
-        # environment is sane.
         set(LIBUSB_PREFIX "${LIBUSB_SRC_DIR}")
     endif()
 
@@ -165,7 +162,7 @@ else() # MINGW OR (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
         )
     endif()
 
-    if(WIN32 OR CYGWIN)
+    if (WIN32 OR CYGWIN)
         target_sources(usb PRIVATE
           ${libusb_SOURCE_DIR}/libusb/os/threads_windows.c
           ${libusb_SOURCE_DIR}/libusb/os/windows_winusb.c
@@ -173,7 +170,7 @@ else() # MINGW OR (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
           ${libusb_SOURCE_DIR}/libusb/os/windows_common.c
         )
         set(OS_WINDOWS TRUE)
-    elseif(APPLE)
+    elseif (APPLE)
         target_sources(usb PRIVATE
             ${libusb_SOURCE_DIR}/libusb/os/darwin_usb.c
         )
@@ -186,15 +183,7 @@ else() # MINGW OR (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
             ${OBJC_LIBRARY}
         )
         set(OS_DARWIN TRUE)
-    elseif(ANDROID)
-        target_sources(usb PRIVATE
-            ${libusb_SOURCE_DIR}/libusb/os/linux_usbfs.c
-            ${libusb_SOURCE_DIR}/libusb/os/linux_netlink.c
-        )
-        find_library(LOG_LIBRARY log)
-        target_link_libraries(usb PRIVATE ${LOG_LIBRARY})
-        set(OS_LINUX TRUE)
-    elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+    elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
         target_sources(usb PRIVATE
             ${libusb_SOURCE_DIR}/libusb/os/linux_usbfs.c
         )
@@ -213,12 +202,12 @@ else() # MINGW OR (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
             )
         endif()
         set(OS_LINUX TRUE)
-    elseif(${CMAKE_SYSTEM_NAME} MATCHES "NetBSD")
+    elseif (${CMAKE_SYSTEM_NAME} MATCHES "NetBSD")
         target_sources(usb PRIVATE
             ${libusb_SOURCE_DIR}/libusb/os/netbsd_usb.c
         )
         set(OS_NETBSD TRUE)
-    elseif(${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
+    elseif (${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
         target_sources(usb PRIVATE
             ${libusb_SOURCE_DIR}/libusb/os/openbsd_usb.c
         )

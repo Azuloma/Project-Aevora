@@ -17,7 +17,7 @@ vk::SurfaceKHR CreateSurface(
     [[maybe_unused]] const vk::InstanceDispatch& dld = instance.Dispatch();
     VkSurfaceKHR unsafe_surface = VkSurfaceKHR{};
 
-#ifdef _WIN32
+#if defined(_WIN32)
     if (window_info.type == Core::Frontend::WindowSystemType::Windows) {
         const HWND hWnd = static_cast<HWND>(window_info.render_surface);
         const VkWin32SurfaceCreateInfoKHR win32_ci{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
@@ -47,20 +47,6 @@ vk::SurfaceKHR CreateSurface(
         if (!vkCreateMetalSurfaceEXT ||
             vkCreateMetalSurfaceEXT(*instance, &metal_ci, nullptr, &unsafe_surface) != VK_SUCCESS) {
             LOG_ERROR(Render_Vulkan, "Failed to initialize Metal surface");
-            throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
-        }
-    }
-#elif defined(__ANDROID__)
-    if (window_info.type == Core::Frontend::WindowSystemType::Android) {
-        const VkAndroidSurfaceCreateInfoKHR android_ci{
-            VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, nullptr, 0,
-            reinterpret_cast<ANativeWindow*>(window_info.render_surface)};
-        const auto vkCreateAndroidSurfaceKHR = reinterpret_cast<PFN_vkCreateAndroidSurfaceKHR>(
-            dld.vkGetInstanceProcAddr(*instance, "vkCreateAndroidSurfaceKHR"));
-        if (!vkCreateAndroidSurfaceKHR ||
-            vkCreateAndroidSurfaceKHR(*instance, &android_ci, nullptr, &unsafe_surface) !=
-                VK_SUCCESS) {
-            LOG_ERROR(Render_Vulkan, "Failed to initialize Android surface");
             throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
         }
     }

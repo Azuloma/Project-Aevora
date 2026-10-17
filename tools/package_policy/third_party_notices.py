@@ -30,13 +30,13 @@ ROOT = collector.ROOT
 LICENSE_HINTS = {
     'biscuit': ['MIT'], 'boost': ['BSL-1.0'], 'boost_headers': ['BSL-1.0'], 'catch2': ['BSL-1.0'],
     'cpp-jwt': ['MIT'], 'discord-rpc': ['MIT'], 'enet': ['MIT'], 'fmt': ['MIT'],
-    'frozen': ['Apache-2.0'], 'httplib': ['MIT'], 'libadrenotools': ['BSD-2-Clause'],
+    'frozen': ['Apache-2.0'], 'httplib': ['MIT'],
     'lz4': ['BSD-2-Clause'], 'mcl': ['MIT'], 'moltenvk': ['Apache-2.0'], 'nlohmann': ['MIT'],
-    'oaknut': ['MIT'], 'oboe': ['Apache-2.0'], 'openssl': ['Apache-2.0'], 'openssl-cmake': ['MIT'],
+    'oaknut': ['MIT'], 'openssl': ['Apache-2.0'], 'openssl-cmake': ['MIT'],
     'opus': ['BSD-3-Clause'], 'sdl3': ['Zlib'], 'simpleini': ['MIT'], 'spirv-headers': ['MIT'],
     'unordered-dense': ['MIT'], 'vulkan-headers': ['Apache-2.0'],
     'vulkan-memory-allocator': ['MIT'], 'vulkan-utility-libraries': ['Apache-2.0'],
-    'vulkan-validation-layers': ['Apache-2.0'], 'xbyak': ['BSD-3-Clause'], 'zlib': ['Zlib'],
+    'xbyak': ['BSD-3-Clause'], 'zlib': ['Zlib'],
     'zstd': ['BSD-3-Clause'],
 }
 FALLBACK = 'see the dependency-sources asset'

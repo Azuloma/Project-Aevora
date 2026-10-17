@@ -7,27 +7,9 @@
 #include "common/settings.h"
 #include "input_common/drivers/tas_input.h"
 #include "libretro_core/retro_emu_window.h"
-#ifdef SUYU_ANDROID_LIBRETRO
-#include "common/dynamic_library.h"
-#endif
 
 namespace LibretroCore {
 
-#ifdef SUYU_ANDROID_LIBRETRO
-namespace {
-class AndroidLibretroContext final : public Core::Frontend::GraphicsContext {
-public:
-    std::shared_ptr<Common::DynamicLibrary> GetDriverLibrary() override {
-        return library;
-    }
-
-private:
-    // Android's Vulkan loader obtains the driver from the frontend context.
-    std::shared_ptr<Common::DynamicLibrary> library =
-        std::make_shared<Common::DynamicLibrary>("libvulkan.so");
-};
-} // namespace
-#endif
 
 
 RetroEmuWindow::RetroEmuWindow() {
@@ -73,14 +55,7 @@ void RetroEmuWindow::OnFrameDisplayed() {
 }
 
 std::unique_ptr<Core::Frontend::GraphicsContext> RetroEmuWindow::CreateSharedContext() const {
-#ifdef SUYU_ANDROID_LIBRETRO
-    return std::make_unique<AndroidLibretroContext>();
-#else
-    // The default GraphicsContext base is already a valid no-op shared
-    // context (SwapBuffers/MakeCurrent/DoneCurrent all default to doing
-    // nothing) - sufficient for headless operation.
     return std::make_unique<Core::Frontend::GraphicsContext>();
-#endif
 }
 
 bool RetroEmuWindow::IsShown() const {

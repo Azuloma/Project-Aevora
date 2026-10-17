@@ -239,8 +239,6 @@ private:
     std::optional<FFmpeg::DecoderContext> m_decoder_context;
     std::optional<FFmpeg::HardwareContext> m_hardware_context;
     bool m_opened{};
-    bool m_defer_android_mediacodec_open{};
-    bool m_needs_h264_extradata{};
     s64 m_next_pts{};
     std::queue<FrameOffsets> m_pending_offsets;
 };

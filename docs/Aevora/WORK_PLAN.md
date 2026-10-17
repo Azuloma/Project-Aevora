@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-17 (session 32 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), [session 32 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-32-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
+Handoff prepared: 2026-10-17 (session 33 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), [session 32 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-32-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
 
 ## Objective
 
@@ -8,20 +8,26 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `c456b32` (dev26). The host was reconfigured and rebuilt successfully; `GIT_REV` `c456b32fc117589543fe8f7c4a9ae6992ac92fef` matches HEAD. Logs: `D:\HisuiWakeBuild\logs\reconf_dev26.log` and `D:\HisuiWakeBuild\logs\build_dev26.log`. The last PLA export is `ac96270` in `D:\HisuiWakeExports\_NEW` and has no overlay work. Stage F0-F6 is complete and committed; see [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md). Optimization is paused. At the same position, the measured reference is AOT about 24.5-26 FPS (about 40.8-38.5 ms/frame) versus JIT 30 FPS (33.3 ms/frame); see [session 30 observations](OLD_HISTORY.md#session-30-record-2026-10-16) and [the archived measurements](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup).
+PLA export finished 2026-10-17 19:57 into `D:\HisuiWakeExports\Pokémon Legends_ Arceus`: producer `c456b32`, but the launcher was compiled from the working tree with the uncommitted Android/iOS removal. Manifest: `chain_start`, cross/direct/indirect chain, `fm_inline`, `fp_shared`, `fpx_vec`, `translate_all` true; `fallback_enabled` false; `requires_runtime_codegen` false; `image_abi` 6; `image_features` 15. Main DLL 1,805,439,488 bytes (`size_of_image` 1,818,562,560); launcher 506,726,912 bytes (`size_of_image` 514,203,648); both below 2 GiB. Launcher and PDB are saved in `D:\HisuiWakeBuild\backup\c456b32_androidrm_aot`; EXE RSDS and PDB info stream GUID `108b7bc317890347bd92cb150e8ac4f8`, Age 1040 (equal). The export dialog cache fields (`aot_cache_outcome`/`publish`/`reused`) and the user's FPS reading were not reported yet.
+
+Host was rebuilt after the export with export cache entries cleared; `GIT_REV` is `9113fa9` (README-only commit), not the future removal commit. Android/iOS removal is implemented and verified (summary in [CHANGELOG.md](../../CHANGELOG.md)), uncommitted. Optimization is paused.
 
 ## What was done so far
 
-- Dev19-dev26 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, and ImGui overlay; details are in [CHANGELOG.md](../../CHANGELOG.md).
+- Dev19-dev27 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, ImGui overlay, and Android/iOS removal; details are in [CHANGELOG.md](../../CHANGELOG.md).
 - The overlay replaced the F12 panel through Stage F0-F6, including keyboard/text routing, actions, Graphics, Player 1 Controller, Mods/folders, Game, and fullscreen support; see [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md).
 - The command-bar popup fix was confirmed by the user; F6 removed the Win32 F12 panel and branch.
 - The host was reconfigured and rebuilt after dev26 with no compile/link errors; only pre-existing C4005 `LOG_*` warnings remained.
 
 ## Immediate next action
 
-1. Ask the user to choose (a) a full dev26 PLA export with the overlay using the standing export procedure (this becomes the measurement baseline), or (b) resume the optimization backlog, recommended starting with B3, which itself needs the dev26 export first.
-2. After an export, record launcher/DLL sizes, manifest options, and the user's same-position FPS and ms/frame reading.
-3. For optimization, handle one item at a time through the Orca Code Implementer, then Code reviewer, and measure against the new baseline.
+1. User commits the removal as dev27; then reconfigure, verify `GIT_REV`, run a full PLA export (the new commit invalidates the AOT cache), and take the same-position FPS and ms/frame baseline.
+2. Resume the optimization backlog after that, starting with B3.
+
+## Open items
+
+- Pre-existing Qt combo-index bug in `src/suyu/configuration/configure_audio.cpp:72,89`: combo index is cast to `AudioEngine` although Libretro is index 4 and value 5; value 4 remains the Null-sink fallback.
+- `research/tests` has 7 failures and 1 error pre-existing on HEAD. Tracked repository artifacts that should not be in git are six `__pycache__` `.pyc` files (`tests/exclusive_access`, `tests/export_build_kit`, `tests/export_regression`, `tests/recompiler_smoke`, `tools/export_build_kit`) and `src/suyu/game_card.cpp.bak`; `tools/cpp-lint.sh:37-38` has tab indentation flagged by `git diff --check` (file style).
 
 ## Optimization backlog
 

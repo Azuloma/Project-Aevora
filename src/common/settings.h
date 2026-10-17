@@ -97,13 +97,7 @@ SWITCHABLE(ConfirmStop, true);
 #undef SWITCHABLE
 #endif
 
-/**
- * The InputSetting class allows for getting a reference to either the global or custom members.
- * This is required as we cannot easily modify the values of user-defined types within containers
- * using the SetValue() member function found in the Setting class. The primary purpose of this
- * class is to store an array of 10 PlayerInput structs for both the global and custom setting and
- * allows for easily accessing and modifying both settings.
- */
+
 template <typename Type>
 class InputSetting final {
 public:
@@ -308,7 +302,7 @@ struct Values {
                                               Category::CpuDebug};
 
     SwitchableSetting<bool> cpuopt_unsafe_host_mmu{linkage,
-#if !defined(__APPLE__) && !defined(__linux__) && !defined(__ANDROID__) && !defined(_WIN32)
+#if !defined(__APPLE__) && !defined(__linux__) && !defined(_WIN32)
                                         false,
 #else
                                         true,
@@ -359,11 +353,7 @@ struct Values {
                                                     true,
                                                     true};
     SwitchableSetting<int, true> fsr_sharpening_slider{linkage,
-#ifdef __ANDROID__
-                                                       0,
-#else
                                                        25,
-#endif
                                                        0,
                                                        200,
                                                        "fsr_sharpening_slider",
@@ -389,11 +379,7 @@ struct Values {
                                                   true};
 
     SwitchableSetting<bool> use_asynchronous_gpu_emulation{linkage,
-#ifdef __ANDROID__
-        false,
-#else
         true,
-#endif
         "use_asynchronous_gpu_emulation", Category::Renderer};
     // *nix platforms may have issues with the borderless windowed fullscreen mode.
     // Default to exclusive fullscreen on these platforms for now.
@@ -417,11 +403,7 @@ struct Values {
                                          linkage, 0, "bg_blue", Category::Renderer, Specialization::Default, true, true};
 
     SwitchableSetting<GpuAccuracy, true> gpu_accuracy{linkage,
-#ifdef __ANDROID__
-                                                      GpuAccuracy::Low,
-#else
                                                       GpuAccuracy::High,
-#endif
                                                       "gpu_accuracy",
                                                       Category::RendererAdvanced,
                                                       Specialization::Default,
@@ -457,11 +439,7 @@ struct Values {
                                                       "nvdec_emulation", Category::RendererAdvanced};
 
     SwitchableSetting<AnisotropyMode, true> max_anisotropy{linkage,
-#ifdef __ANDROID__
-                                                           AnisotropyMode::Default,
-#else
                                                            AnisotropyMode::Automatic,
-#endif
                                                            "max_anisotropy",
                                                            Category::RendererAdvanced};
     SwitchableSetting<AstcDecodeMode, true> accelerate_astc{linkage,
@@ -510,11 +488,7 @@ struct Values {
                                                 Category::RendererAdvanced};
 
     SwitchableSetting<bool> use_reactive_flushing{linkage,
-#ifdef __ANDROID__
-                                                  false,
-#else
                                                   true,
-#endif
                                                   "use_reactive_flushing",
                                                   Category::RendererAdvanced};
 
@@ -529,15 +503,6 @@ struct Values {
                                                   true,
                                                   true};
 
-#ifdef __ANDROID__
-    SwitchableSetting<bool> use_optimized_vertex_buffers{linkage,
-                                                 false,
-                                                 "use_optimized_vertex_buffers",
-                                                 Category::RendererAdvanced,
-                                                 Specialization::Default,
-                                                 true,
-                                                 true};
-#endif
 
     // Renderer Hacks //
     SwitchableSetting<bool> use_fast_gpu_time{linkage,
@@ -564,11 +529,7 @@ struct Values {
                                                         true,
                                                         true};
     SwitchableSetting<bool> async_presentation{linkage,
-#ifdef __ANDROID__
                                                false,
-#else
-                                               false,
-#endif
                                                "async_presentation", Category::RendererHacks};
 
     SwitchableSetting<bool> fix_bloom_effects{linkage, false, "fix_bloom_effects",
@@ -578,11 +539,7 @@ struct Values {
                                             Category::RendererHacks};
 
     SwitchableSetting<bool> rescale_hack{linkage,
-#ifdef __ANDROID__
-        true,
-#else
         false,
-#endif
         "rescale_hack", Category::RendererHacks};
     SwitchableSetting<bool> enable_gpu_buffer_readback{linkage,
                                                        false,
@@ -594,9 +551,6 @@ struct Values {
 
     SwitchableSetting<bool> use_asynchronous_shaders{linkage, false, "use_asynchronous_shaders",
                                                      Category::RendererHacks};
-    // Disabled by default because the current GPL part caching can bind wrong pipeline
-    // state/textures (observed in Pokemon Legends: Arceus). Re-enable after the part-cache keys
-    // are fixed.
     SwitchableSetting<bool> use_graphics_pipeline_library{
         linkage, false, "use_graphics_pipeline_library", Category::RendererExtensions};
 
@@ -622,9 +576,7 @@ struct Values {
                                                   Category::RendererHacks};
 
     SwitchableSetting<ExtendedDynamicState> dyna_state{linkage,
-#if defined(__ANDROID__)
-                                           ExtendedDynamicState::Disabled,
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
                                            ExtendedDynamicState::Disabled,
 #else
                                            ExtendedDynamicState::EDS2,
@@ -641,11 +593,7 @@ struct Values {
                                                 Specialization::Scalar};
 
     SwitchableSetting<bool> vertex_input_dynamic_state{linkage,
-#ifdef __ANDROID__
-                                                       false,
-#else
                                                        true,
-#endif
                                                        "vertex_input_dynamic_state", Category::RendererExtensions};
 
     Setting<bool> renderer_debug{linkage, false, "debug", Category::RendererDebug};
@@ -657,11 +605,6 @@ struct Values {
                                                     linkage, false, "disable_shader_loop_safety_checks", Category::RendererDebug};
     Setting<bool> enable_renderdoc_hotkey{linkage, false, "renderdoc_hotkey",
                                           Category::RendererDebug};
-#if defined(__ANDROID__) && defined(ARCHITECTURE_arm64)
-    // Debug override for automatic BCn patching detection
-    Setting<bool> patch_old_qcom_drivers{linkage, false, "patch_old_qcom_drivers",
-                                         Category::RendererDebug};
-#endif
     SwitchableSetting<bool> disable_buffer_reorder{linkage, false, "disable_buffer_reorder",
                                          Category::RendererDebug,
                                          Specialization::Default,
@@ -702,11 +645,7 @@ struct Values {
     Setting<s32> current_user{linkage, 0, "current_user", Category::System};
 
     SwitchableSetting<ConsoleMode> use_docked_mode{linkage,
-#ifdef __ANDROID__
-                                                   ConsoleMode::Handheld,
-#else
                                                    ConsoleMode::Docked,
-#endif
                                                    "use_docked_mode",
                                                    Category::System,
                                                    Specialization::Radio,
@@ -795,11 +734,6 @@ struct Values {
     Setting<std::string> gamecard_path{linkage, std::string(), "gamecard_path",
                                        Category::DataStorage};
 
-    // Reported application version. Content without control data -- a deconstructed ROM
-    // directory, for instance -- leaves the system with nothing to answer GetDisplayVersion
-    // with, and it falls back to 1.0.0 regardless of which build was actually exported.
-    // Setting these makes a title report what it really is. Zero and empty mean "no
-    // override", which keeps the stock behaviour.
     Setting<u32> application_version_override{linkage, 0, "application_version_override",
                                               Category::System};
     Setting<std::string> application_display_version_override{
@@ -884,12 +818,6 @@ struct Values {
                                            Category::Network};
     SwitchableSetting<bool> airplane_mode{linkage, false, "airplane_mode", Category::Network};
 
-    /// Hostname to answer with when a game asks for one of Nintendo's online
-    /// services. Those are unreachable and are otherwise refused; pointing this
-    /// at a replacement network - Nextendo and similar, which reimplement
-    /// identity and matchmaking and which a modded console reaches by
-    /// redirecting its DNS - turns the refusal into a redirect. Empty keeps the
-    /// refuse-everything behaviour.
     Setting<std::string> network_replacement_host{linkage, "", "network_replacement_host",
                                                   Category::Network};
 

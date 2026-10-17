@@ -151,13 +151,9 @@ Id EmitConvertU32U64(EmitContext& ctx, Id value) {
 }
 
 Id EmitConvertF16F32(EmitContext& ctx, Id value) {
-#ifdef __ANDROID__
-    return ctx.OpFConvert(ctx.F16[1], value);
-#else
     const auto result = ctx.OpFConvert(ctx.F16[1], value);
     const auto isOverflowing = ctx.OpIsNan(ctx.U1, result);
     return ctx.OpSelect(ctx.F16[1], isOverflowing, ctx.Constant(ctx.F16[1], 0), result);
-#endif
 }
 
 Id EmitConvertF32F16(EmitContext& ctx, Id value) {

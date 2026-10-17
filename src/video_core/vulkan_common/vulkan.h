@@ -7,12 +7,10 @@
 #pragma once
 
 #define VK_NO_PROTOTYPES
-#ifdef _WIN32
+#if defined(_WIN32)
 #define VK_USE_PLATFORM_WIN32_KHR
 #elif defined(__APPLE__)
 #define VK_USE_PLATFORM_METAL_EXT
-#elif defined(__ANDROID__)
-#define VK_USE_PLATFORM_ANDROID_KHR
 #elif defined(__HAIKU__)
 #define VK_USE_PLATFORM_XCB_KHR
 #else
@@ -38,5 +36,4 @@
 #undef None
 #undef True
 
-// "Catch-all" handle for both Android and.. the rest of platforms
 struct VkSurfaceKHR_T;

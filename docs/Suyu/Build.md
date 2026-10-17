@@ -22,7 +22,6 @@ Or use Qt Creator (Create Project -> Import Project -> Git Clone).
 
 ## Android
 
-Android has a completely different build process than other platforms. See its [dedicated page](build/Android.md).
 
 ## Initial Configuration
 

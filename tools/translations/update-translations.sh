@@ -8,6 +8,6 @@ command -v tx && COMMAND=tx
 
 $COMMAND pull -t -f
 
-git add dist/languages/*.ts src/android/app/src/main/res/values*/strings.xml
+git add dist/languages/*.ts
 
 git commit -m "[dist] update translations from Transifex" -sS

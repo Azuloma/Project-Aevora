@@ -68,8 +68,6 @@ add_library(
     fs/path_util.cpp
     fs/path_util.h
     hash.h
-    heap_tracker.cpp
-    heap_tracker.h
     hex_util.cpp
     hex_util.h
     host_memory.cpp
@@ -169,22 +167,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(common PRIVATE linux/gamemode.cpp linux/gamemode.h)
 endif()
 
-if(ANDROID AND NOT SUYU_ANDROID_LIBRETRO)
-    target_sources(
-        common
-        PUBLIC fs/fs_android.cpp
-        fs/fs_android.h
-        android/android_common.cpp
-        android/android_common.h
-        android/id_cache.cpp
-        android/id_cache.h
-        android/multiplayer/multiplayer.cpp
-        android/multiplayer/multiplayer.h
-        android/applets/software_keyboard.cpp
-        android/applets/software_keyboard.h
-        android/applets/web_browser.cpp
-        android/applets/web_browser.h)
-endif()
 
 if(ARCHITECTURE_x86_64)
     target_sources(
@@ -259,9 +241,5 @@ if (WIN32)
     target_link_libraries(common PRIVATE LLVM::Demangle)
 endif()
 
-if(ANDROID)
-    # For ASharedMemory_create
-    target_link_libraries(common PRIVATE android)
-endif()
 
 create_target_directory_groups(common)

@@ -1240,12 +1240,7 @@ target_link_libraries(core PUBLIC common PRIVATE audio_core hid_core network vid
 
 if (BOOST_NO_HEADERS)
     target_link_libraries(core PUBLIC Boost::container Boost::heap Boost::asio Boost::crc)
-    if(NOT IOS)
-        target_link_libraries(core PUBLIC Boost::process)
-    else()
-        # The debugger uses the header-only v1 async pipe, not process launching.
-        target_include_directories(core PRIVATE "${Boost_SOURCE_DIR}/libs/process/include")
-    endif()
+    target_link_libraries(core PUBLIC Boost::process)
 else()
     target_link_libraries(core PUBLIC Boost::headers)
 endif()
@@ -1311,18 +1306,6 @@ endif()
 
 target_sources(core PRIVATE hle/service/ssl/ssl_backend_openssl.cpp)
 
-# OpenSSL's static libcrypto calls zlib's compress()/uncompress() for its
-# optional compression support. GNU ld resolves static-archive symbols in a
-# single left-to-right pass, so whichever executable ends up with zlib
-# earlier in its link line than libcrypto (order that varies per consumer
-# of this static "core" lib, driven by whatever else that executable also
-# links) leaves compress()/uncompress() undefined. $<LINK_GROUP:RESCAN,...>
-# is CMake's supported fix for exactly this - it propagates through core's
-# own usage requirements to every executable that links core, unlike a
-# --start-group/--end-group pair added to one target at a time, which
-# covers only that target and has to be remembered on every other one that
-# also happens to pull in both libraries. MSVC's linker has no such
-# single-pass limitation and $<LINK_GROUP> is a no-op there.
 if (CMAKE_VERSION VERSION_LESS "4.0" AND NOT MSVC)
     target_link_libraries(core PRIVATE
         "$<LINK_GROUP:RESCAN,OpenSSL::SSL,OpenSSL::Crypto,ZLIB::ZLIB>")
@@ -1332,17 +1315,5 @@ endif()
 
 # TODO
 
-# elseif (APPLE)
-#     target_sources(core PRIVATE
-#         hle/service/ssl/ssl_backend_securetransport.cpp)
-#     target_link_libraries(core PRIVATE "-framework Security")
-# elseif (WIN32)
-#     target_sources(core PRIVATE
-#         hle/service/ssl/ssl_backend_schannel.cpp)
-#     target_link_libraries(core PRIVATE crypt32 secur32)
-# else()
-#     target_sources(core PRIVATE
-#         hle/service/ssl/ssl_backend_none.cpp)
-# endif()
 
 create_target_directory_groups(core)

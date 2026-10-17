@@ -34,9 +34,6 @@ struct detail {
 
     static constexpr size_t opcode_bitsize = mcl::bitsizeof<opcode_type>;
 
-    /// @brief Generates the mask and the expected value after masking from a given bitstring.
-    /// A '0' in a bitstring indicates that a zero must be present at that bit position.
-    /// A '1' in a bitstring indicates that a one must be present at that bit position.
 #ifdef __clang__
     static constexpr auto GetMaskAndExpect(std::array<char, opcode_bitsize> bitstring) {
 #else
@@ -62,9 +59,6 @@ struct detail {
         return std::make_tuple(mask, expect);
     }
 
-    /// @brief Generates the masks and shifts for each argument.
-    /// A '-' in a bitstring indicates that we don't care about that value.
-    /// An argument is specified by a continuous string of the same character.
     template<size_t N>
     static consteval auto GetArgInfo(std::array<char, opcode_bitsize> bitstring) {
         //static_assert(N > 0, "unexpected field");
@@ -91,16 +85,13 @@ struct detail {
                 shifts[arg_index] = bit_position;
             }
         }
-#if !defined(DYNARMIC_IGNORE_ASSERTS) && !defined(__ANDROID__)
-        // Avoids a MSVC ICE, and avoids Android NDK issue.
+#if !defined(DYNARMIC_IGNORE_ASSERTS)
+        // Avoids an MSVC ICE.
         DEBUG_ASSERT(std::all_of(masks.begin(), masks.end(), [](auto m) { return m != 0; }));
 #endif
         return std::make_tuple(masks, shifts);
     }
 
-    /// @brief This struct's Make member function generates a lambda which decodes an instruction
-    /// based on the provided arg_masks and arg_shifts. The Visitor member function to call is
-    /// provided as a template argument.
 #ifdef _MSC_VER
 #    pragma warning(push)
 #    pragma warning(disable : 4800)  // forcing value to bool 'true' or 'false' (performance warning)

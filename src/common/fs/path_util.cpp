@@ -12,9 +12,6 @@
 
 #include "common/assert.h"
 #include "common/fs/fs.h"
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-#include "common/fs/fs_android.h"
-#endif
 #include "common/fs/fs_paths.h"
 #include "common/fs/path_util.h"
 #include "common/logging.h"
@@ -31,10 +28,6 @@
 #ifdef __APPLE__
 #include <sys/param.h> // Used in GetBundleDirectory()
 
-// CFURL contains __attribute__ directives that gcc does not know how to parse, so we need to just
-// ignore them if we're not using clang. The macro is only used to prevent linking against
-// functions that don't exist on older versions of macOS, and the worst case scenario is a linker
-// error, so this is perfectly safe, just inconvenient.
 #ifndef __clang__
 #define availability(...)
 #endif
@@ -60,13 +53,7 @@ namespace Common::FS {
 
 namespace fs = std::filesystem;
 
-/**
- * The PathManagerImpl is a singleton allowing to manage the mapping of
- * SuyuPath enums to real filesystem paths.
- * This class provides 2 functions: GetSuyuPathImpl and SetSuyuPathImpl.
- * These are used by GetSuyuPath and SetSuyuPath respectively to get or modify
- * the path mapped by the SuyuPath enum.
- */
+
 class PathManagerImpl {
 public:
     static PathManagerImpl& GetInstance() {
@@ -103,15 +90,10 @@ public:
         legacy_paths.insert_or_assign(legacy_path, new_path);
     }
 
-    /// In non-android devices, the current directory will first search for "user"
-    /// if such directory (and it must be a directory) is found, that takes priority
-    /// over the global configuration directory (in other words, portable directories
-    /// take priority over the global ones, always)
-    /// On Android, the behaviour is to look for the current directory only.
     void Reinitialize(fs::path eden_path = {}) {
         fs::path eden_path_cache;
         fs::path eden_path_config;
-#ifdef _WIN32
+#if defined(_WIN32)
         // User directory takes priority over global %AppData% directory
         eden_path = GetExeDirectory() / PORTABLE_DIR;
         if (!Exists(eden_path) || !IsDir(eden_path)) {
@@ -127,10 +109,6 @@ public:
         LEGACY_PATH(Yuzu, YUZU)
         LEGACY_PATH(Suyu, SUYU)
 #undef LEGACY_PATH
-#elif __ANDROID__
-        ASSERT(!eden_path.empty());
-        eden_path_cache = eden_path / CACHE_DIR;
-        eden_path_config = eden_path / CONFIG_DIR;
 #else
         eden_path = GetCurrentDir() / PORTABLE_DIR;
         if (!Exists(eden_path) || !IsDir(eden_path)) {
@@ -183,9 +161,7 @@ public:
 
 private:
     PathManagerImpl() {
-#ifndef SUYU_ANDROID_LIBRETRO
         Reinitialize();
-#endif
     }
 
     ~PathManagerImpl() = default;
@@ -460,11 +436,6 @@ std::vector<std::string> SplitPathComponentsCopy(std::string_view filename) {
 
 std::string SanitizePath(std::string_view path_, DirectorySeparator directory_separator) {
     std::string path(path_);
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-    if (Android::IsContentUri(path)) {
-        return path;
-    }
-#endif // __ANDROID__
 
     char type1 = directory_separator == DirectorySeparator::BackwardSlash ? '/' : '\\';
     char type2 = directory_separator == DirectorySeparator::BackwardSlash ? '\\' : '/';
@@ -495,12 +466,6 @@ std::string GetParentPath(std::string_view path) {
         return std::string(path);
     }
 
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-    if (path[0] != '/') {
-        std::string path_string{path};
-        return FS::Android::GetParentDirectory(path_string);
-    }
-#endif
     const auto name_bck_index = path.rfind('\\');
     const auto name_fwd_index = path.rfind('/');
     std::size_t name_index;

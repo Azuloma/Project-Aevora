@@ -60,7 +60,7 @@ std::vector<Asset> Release::GetPlatformAssets() const {
         }
     };
 
-#ifdef _WIN32
+#if defined(_WIN32)
 #ifdef ARCHITECTURE_x86_64
 #ifdef _MSC_VER
     find_asset("Standard", {"amd64-msvc-standard.exe", "amd64-msvc-standard.zip"});
@@ -76,18 +76,6 @@ std::vector<Asset> Release::GetPlatformAssets() const {
 #ifdef ARCHITECTURE_arm64
     find_asset("Standard", {"standard.dmg", "standard.tar.gz", ".dmg", ".tar.gz"});
     find_asset("PGO", {"pgo.dmg", "pgo.tar.gz"});
-#endif // ARCHITECTURE_arm64
-#elif defined(__ANDROID__)
-#ifdef ARCHITECTURE_x86_64
-    find_asset("Standard", {"chromeos.apk"});
-#elif defined(ARCHITECTURE_arm64)
-#ifdef YUZU_LEGACY
-    find_asset("Standard", {"legacy.apk"});
-#elif defined(GENSHIN_SPOOF)
-    find_asset("Standard", {"optimized.apk"});
-#else
-    find_asset("Standard", {"standard.apk"});
-#endif // GENSHIN_SPOOF
 #endif // ARCHITECTURE_arm64
 #endif // __APPLE__
     (void)find_asset;

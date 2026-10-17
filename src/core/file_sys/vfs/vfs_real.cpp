@@ -23,9 +23,6 @@
 #define stat _stat64
 #endif
 
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-#include "common/fs/fs_android.h"
-#endif
 
 namespace FileSys {
 
@@ -288,11 +285,6 @@ RealVfsFile::~RealVfsFile() {
 }
 
 std::string RealVfsFile::GetName() const {
-#if defined(__ANDROID__) && !defined(SUYU_ANDROID_LIBRETRO)
-    if (path[0] != '/') {
-        return FS::Android::GetFilename(path);
-    }
-#endif
     return path_components.empty() ? "" : std::string(path_components.back());
 }
 

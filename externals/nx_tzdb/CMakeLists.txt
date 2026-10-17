@@ -14,10 +14,7 @@ find_program(DATE_PROG date)
 
 set(CAN_BUILD_NX_TZDB true)
 
-if (NOT (GIT AND GNU_MAKE AND DATE_PROG) OR CMAKE_SYSTEM_NAME STREQUAL "Windows" OR ANDROID)
-    # tzdb_to_nx currently requires a posix-compliant host
-    # MinGW and Android are handled here due to the executable format being different from the host system
-    # TODO (lat9nq): cross-compiling support
+if (NOT (GIT AND GNU_MAKE AND DATE_PROG) OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
 
     set(CAN_BUILD_NX_TZDB false)
 endif()

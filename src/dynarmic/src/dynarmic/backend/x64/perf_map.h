@@ -14,7 +14,7 @@
 
 namespace Dynarmic::Backend::X64 {
 
-#if defined(__linux__) && !defined(__ANDROID__)
+#if defined(__linux__)
 namespace detail {
 void PerfMapRegister(const void* start, const void* end, std::string_view friendly_name);
 }  // namespace detail

@@ -32,7 +32,6 @@ enum Values : int;
 }
 
 namespace InputCommon {
-class Android;
 class Camera;
 class Keyboard;
 class Mouse;
@@ -52,10 +51,6 @@ namespace Polling {
 enum class InputType { None, Button, Stick, Motion, Touch };
 } // namespace Polling
 
-/**
- * Given a ParamPackage for a Device returned from `GetInputDevices`, attempt to get the default
- * mapping for the device.
- */
 using AnalogMapping = ankerl::unordered_dense::map<Settings::NativeAnalog::Values, Common::ParamPackage>;
 using ButtonMapping = ankerl::unordered_dense::map<Settings::NativeButton::Values, Common::ParamPackage>;
 using MotionMapping = ankerl::unordered_dense::map<Settings::NativeMotion::Values, Common::ParamPackage>;
@@ -107,12 +102,6 @@ public:
     /// Retrieves the underlying camera input device.
     [[nodiscard]] const Camera* GetCamera() const;
 
-    /// Retrieves the underlying android input device.
-    [[nodiscard]] Android* GetAndroid();
-
-    /// Retrieves the underlying android input device.
-    [[nodiscard]] const Android* GetAndroid() const;
-
     /// Retrieves the underlying virtual amiibo input device.
     [[nodiscard]] VirtualAmiibo* GetVirtualAmiibo();
 
@@ -125,12 +114,6 @@ public:
     /// Retrieves the underlying virtual gamepad input device.
     [[nodiscard]] const VirtualGamepad* GetVirtualGamepad() const;
 
-    /**
-     * Returns all available input devices that this Factory can create a new device with.
-     * Each returned ParamPackage should have a `display` field used for display, a `engine` field
-     * for backends to determine if this backend is meant to service the request and any other
-     * information needed to identify this in the backend later.
-     */
     [[nodiscard]] std::vector<Common::ParamPackage> GetInputDevices() const;
 
     /// Retrieves the analog mappings for the given device.

@@ -72,8 +72,6 @@ Core::Frontend::WindowSystemType GetWindowSystemType() {
         return Core::Frontend::WindowSystemType::Wayland;
     else if (platform_name == QStringLiteral("cocoa"))
         return Core::Frontend::WindowSystemType::Cocoa;
-    else if (platform_name == QStringLiteral("android"))
-        return Core::Frontend::WindowSystemType::Android;
     else if (platform_name == QStringLiteral("haiku"))
         return Core::Frontend::WindowSystemType::Xcb;
 

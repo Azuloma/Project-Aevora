@@ -801,11 +801,7 @@ void BufferCache<P>::UpdateVertexBufferSlot(u32 index, const Binding& binding) {
 template <class P>
 void BufferCache<P>::BindHostVertexBuffers() {
 
-#ifdef __ANDROID__
-    const bool use_optimized_vertex_buffers = Settings::values.use_optimized_vertex_buffers.GetValue();
-#else
     constexpr bool use_optimized_vertex_buffers = true;
-#endif
 
     if (use_optimized_vertex_buffers) {
         auto& flags = maxwell3d->dirty.flags;

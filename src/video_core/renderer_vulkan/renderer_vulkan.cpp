@@ -39,9 +39,6 @@
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
 #include "video_core/vulkan_common/vulkan_surface.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
-#ifdef __ANDROID__
-#include <jni.h>
-#endif
 namespace Vulkan {
 namespace {
 

@@ -17,7 +17,6 @@
 #include "common/assert.h"
 #include "common/atomic_ops.h"
 #include "common/common_types.h"
-#include "common/heap_tracker.h"
 #include "common/logging.h"
 #include "common/page_table.h"
 #include "common/scope_exit.h"
@@ -43,9 +42,6 @@ static inline bool AddressSpaceContains(const Common::PageTable& table, const Co
     return addr + size >= addr && addr + size <= max_addr;
 }
 
-// Implementation class used to keep the specifics of the memory subsystem hidden
-// from outside classes. This also allows modification to the internals of the memory
-// subsystem without needing to rebuild all files that make use of the memory interface.
 struct Memory::Impl {
     explicit Impl(Core::System& system_) : system{system_} {}
 
@@ -58,12 +54,7 @@ struct Memory::Impl {
             current_page_table->fastmem_arena = nullptr;
         }
 
-#ifdef __ANDROID__
-        heap_tracker.emplace(system.DeviceMemory().buffer);
-        host_buffer = std::addressof(*heap_tracker);
-#else
         host_buffer = std::addressof(system.DeviceMemory().buffer);
-#endif
         // A new process and table: recompiled blocks re-verify, and GG1 starts
         // tracking this table's mappings (ABI 6 GG1).
         Core::RecompGuardGen::OnPageTableSwap(current_page_table->entries.data());
@@ -325,10 +316,6 @@ struct Memory::Impl {
         return (current_page_table->entries[addr >> YUZU_PAGEBITS].block == current_page_table->entries[(addr + size) >> YUZU_PAGEBITS].block) ? GetPointerSilent(addr) : nullptr;
     }
 
-    // ABI 6 generation code guard (core/arm/recomp/recomp_guard_gen.h). The
-    // recompiler marks the code pages of modules that skip their per-entry
-    // check; every write this class performs is reported after it lands, and
-    // every writable raw pointer it hands out is reported before.
     bool RecompWatched(u64 vaddr, u64 size) const {
         const auto& pt = *current_page_table;
         return Core::RecompGuardGen::AnyWatched(
@@ -340,9 +327,6 @@ struct Memory::Impl {
         if (!Core::RecompGuardGen::Watching()) [[likely]] {
             return;
         }
-        // Orders the write before the watch-word read, against the recompiler
-        // setting the word and then moving the generation: either this sees the
-        // word, or a block verified after that sees the written bytes.
         std::atomic_thread_fence(std::memory_order_seq_cst);
         if (RecompWatched(vaddr, size)) {
             Core::RecompGuardGen::OnWatchedWrite(current_page_table->entries.data(),
@@ -523,10 +507,6 @@ struct Memory::Impl {
             host_buffer->Protect(vaddr, size, perm);
         }
 
-        // Iterate over a contiguous CPU address space, which corresponds to the specified GPU
-        // address space, marking the region as un/cached. The region is marked un/cached at a
-        // granularity of CPU pages, hence why we iterate on a CPU page basis (note: GPU page size
-        // is different). This assumes the specified GPU address region is contiguous as well.
 
         const u64 num_pages = ((vaddr + size - 1) >> YUZU_PAGEBITS) - (vaddr >> YUZU_PAGEBITS) + 1;
         for (u64 i = 0; i < num_pages; ++i, vaddr += YUZU_PAGESIZE) {
@@ -563,9 +543,6 @@ struct Memory::Impl {
                     break;
                 case Common::PageType::RasterizerCachedMemory: {
                     if (u8* const pointer = GetPointerFromRasterizerCachedMemory(vaddr & ~YUZU_PAGEMASK); pointer == nullptr) {
-                        // It's possible that this function has been called while updating the
-                        // pagetable after unmapping a VMA. In that case the underlying VMA will no
-                        // longer exist, and we should just leave the pagetable entry blank.
                         current_page_table->entries[vaddr >> YUZU_PAGEBITS].ptr.Store(0, Common::PageType::Unmapped);
                     } else {
                         current_page_table->entries[vaddr >> YUZU_PAGEBITS].ptr.Store(uintptr_t(pointer) - (vaddr & ~YUZU_PAGEMASK), Common::PageType::Memory);
@@ -579,15 +556,7 @@ struct Memory::Impl {
         }
     }
 
-    /**
-     * Maps a region of pages as a specific type.
-     *
-     * @param page_table The page table to use to perform the mapping.
-     * @param base       The base address to begin mapping at.
-     * @param size       The total size of the range in bytes.
-     * @param target     The target address to begin mapping from.
-     * @param type       The page type to map the memory as.
-     */
+
     void MapPages(Common::PageTable& page_table, Common::ProcessAddress base_address, u64 size,
                   Common::PhysicalAddress target, Common::PageType type) {
         auto base = GetInteger(base_address);
@@ -676,10 +645,6 @@ struct Memory::Impl {
             GetInteger(vaddr), []() {}, []() {});
     }
 
-    /// @brief Reads a particular data type out of memory at the given virtual address.
-    /// @param vaddr The virtual address to read the data type from.
-    /// @tparam T The data type to read out of memory.
-    /// @returns The instance of T read from the specified virtual address.
     template <typename T>
     inline T Read(Common::ProcessAddress vaddr) noexcept requires(std::is_trivially_copyable_v<T>) {
         const u64 addr = GetInteger(vaddr);
@@ -688,9 +653,6 @@ struct Memory::Impl {
         }, [&]() {
             HandleRasterizerDownload(addr, sizeof(T));
         }); ptr) [[likely]] {
-            // It may be tempting to rewrite this particular section to use "reinterpret_cast";
-            // afterall, it's trivially copyable so surely it can be copied ov- Alignment.
-            // Remember, alignment. memcpy() will deal with all the alignment extremely fast.
             T result{};
             std::memcpy(&result, ptr, sizeof(T));
             return result;
@@ -698,9 +660,6 @@ struct Memory::Impl {
         return T{};
     }
 
-    /// @brief Writes a particular data type to memory at the given virtual address.
-    /// @param vaddr The virtual address to write the data type to.
-    /// @tparam T The data type to write to memory.
     template <typename T>
     inline void Write(Common::ProcessAddress vaddr, const T data) noexcept requires(std::is_trivially_copyable_v<T>) {
         const u64 addr = GetInteger(vaddr);
@@ -729,9 +688,6 @@ struct Memory::Impl {
         return true;
     }
 
-    /// The first branch of GetPointerImpl and nothing else: a page with a host pointer, with no
-    /// logging and none of the rasterizer handling the other page types trigger. An access that
-    /// crosses a page boundary is declined, because the next page needs its own translation.
     u8* GetPlainExclusivePointer(Common::ProcessAddress vaddr, std::size_t size) const {
         const u64 addr = GetInteger(vaddr) & 0xffffffffffffULL;
         if ((addr & YUZU_PAGEMASK) + size > YUZU_PAGESIZE ||
@@ -798,10 +754,6 @@ struct Memory::Impl {
         gpu_device_memory->ApplyOpOnPointer(p, scratch_buffers[core], [&](DAddr address) {
             auto& current_area = rasterizer_write_areas[core];
             PAddr subaddress = address >> YUZU_PAGEBITS;
-            // Performance note:
-            // It may not be a good idea to assume accesses are within the same subaddress (i.e same page)
-            // It is often the case the games like to access wildly different addresses. Hence why I propose
-            // we should let the compiler just do it's thing...
             if (current_area.last_address != subaddress) {
                 // Short circuit the need to check for address/size
                 auto const do_collection = (address != 0 && size != 0)
@@ -850,12 +802,7 @@ struct Memory::Impl {
     std::array<Common::ScratchBuffer<u32>, Core::Hardware::NUM_CPU_CORES> scratch_buffers{};
     std::span<Core::GPUDirtyMemoryManager> gpu_dirty_managers;
     std::mutex sys_core_guard;
-#ifdef __ANDROID__
-    std::optional<Common::HeapTracker> heap_tracker;
-    Common::HeapTracker* host_buffer{};
-#else
     Common::HostMemory* host_buffer{};
-#endif
 };
 
 Memory::Memory(Core::System& system_) : system{system_} {
@@ -929,9 +876,6 @@ bool Memory::IsValidVirtualAddressRange(Common::ProcessAddress base, u64 size) c
     return true;
 }
 
-// A writable raw pointer covers, as far as this class can tell, the rest of its
-// page: pages need not be contiguous in host memory, which is why WalkBlock and
-// GetSpan exist for anything longer.
 u8* Memory::GetPointer(Common::ProcessAddress vaddr) {
     impl->NoteRecompPointer(GetInteger(vaddr), YUZU_PAGESIZE - (GetInteger(vaddr) & YUZU_PAGEMASK));
     return impl->GetPointer(vaddr);
@@ -1088,21 +1032,12 @@ bool Memory::InvalidateNCE(Common::ProcessAddress vaddr, size_t size) {
         impl->InvalidateGPUMemory(ptr, size);
     }
 
-#ifdef __ANDROID__
-    if (!rasterizer && mapped) {
-        impl->host_buffer->DeferredMapSeparateHeap(GetInteger(vaddr));
-    }
-#endif
 
     return mapped && ptr != nullptr;
 }
 
 bool Memory::InvalidateSeparateHeap(void* fault_address) {
-#ifdef __ANDROID__
-    return impl->host_buffer->DeferredMapSeparateHeap(static_cast<u8*>(fault_address));
-#else
     return false;
-#endif
 }
 
 } // namespace Core::Memory

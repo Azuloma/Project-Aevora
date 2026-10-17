@@ -20,10 +20,6 @@
     "openssl"
   ],
   "features": {
-    "android": {
-      "description": "Android build dependencies",
-      "dependencies": []
-    },
     "suyu-tests": {
       "description": "Test framework dependencies",
       "dependencies": ["catch2"]

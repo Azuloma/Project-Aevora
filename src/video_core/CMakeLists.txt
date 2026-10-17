@@ -399,8 +399,5 @@ if ((ARCHITECTURE_x86_64 OR ARCHITECTURE_arm64) AND NOT SUYU_NO_JIT)
     target_link_libraries(video_core PRIVATE dynarmic::dynarmic)
 endif()
 
-if (ANDROID AND ARCHITECTURE_arm64)
-    target_link_libraries(video_core PRIVATE adrenotools)
-endif()
 
 create_target_directory_groups(video_core)

@@ -4,9 +4,6 @@
 # SPDX-FileCopyrightText: 2016 Citra Emulator Project
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# TODO(crueter): A lot of this should be moved to the root.
-# otherwise we have to do weird shenanigans with library linking and stuff
-# Or just add a CPMUtil thing to propagate packages
 
 # Explicitly declare this option here to propagate to the oaknut CPM call
 option(DYNARMIC_TESTS "Build tests" ${BUILD_TESTING})
@@ -62,9 +59,6 @@ endif()
 AddJsonPackage(unordered-dense)
 
 # httplib
-if (IOS)
-    set(HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF)
-endif()
 AddJsonPackage(httplib)
 
 if (YUZU_STATIC_ROOM)
@@ -144,10 +138,6 @@ endif()
 if (ENABLE_SDL3)
     if (NOT YUZU_USE_BUNDLED_SDL3)
         if (NOT WIN32)
-            # Yuzu itself needs: Atomic Audio Events Joystick Haptic Sensor Threads Timers
-            # Since 2.0.18 Atomic+Threads required for HIDAPI/libusb (see https://github.com/libsdl-org/SDL/issues/5095)
-            # Yuzu-cmd also needs: Video (depends on Loadso/Dlopen)
-            # CPUinfo also required for SDL Audio, at least until 2.28.0 (see https://github.com/libsdl-org/SDL/issues/7809)
             set(SDL_UNUSED_SUBSYSTEMS
                 File Filesystem
                 Locale Power Render)
@@ -277,9 +267,6 @@ if (NOT TARGET RenderDoc::API)
     add_library(RenderDoc::API ALIAS renderdoc)
 endif()
 
-if (ANDROID AND ARCHITECTURE_arm64)
-    AddJsonPackage(libadrenotools)
-endif()
 
 AddJsonPackage(gamemode)
 
@@ -402,21 +389,8 @@ if (YUZU_CRASH_DUMPS AND NOT TARGET libbreakpad_client)
     endif()
 endif()
 
-# oboe
-if (ANDROID)
-    AddJsonPackage(oboe)
 
-    add_library(oboe::oboe ALIAS oboe)
-endif()
-
-if (IOS)
-    # Device-only static MoltenVK, built by iHorizon/scripts/build-moltenvk-ios.sh.
-    # Never fall back to the bundled macOS dylib for an iOS target.
-    set(MOLTENVK_LIBRARY "" CACHE FILEPATH "Path to the iOS arm64 static MoltenVK library")
-    if (NOT EXISTS "${MOLTENVK_LIBRARY}" OR NOT MOLTENVK_LIBRARY MATCHES "\\.a$")
-        message(FATAL_ERROR "iOS Vulkan requires MOLTENVK_LIBRARY pointing to an iOS static .a")
-    endif()
-elseif (APPLE AND NOT IOS)
+if (APPLE AND NOT IOS)
     add_subdirectory(metal-cpp)
 
     # moltenvk
@@ -432,10 +406,6 @@ elseif (APPLE AND NOT IOS)
     endif()
 endif()
 
-# Dear ImGui (core + Vulkan renderer backend) for the suyu-cmd debug overlay.
-# Upstream ships no CMake project, so it is fetched source-only and built here.
-# The Vulkan backend resolves its entry points through ImGui_ImplVulkan_LoadFunctions
-# because the renderer loads Vulkan dynamically instead of linking vulkan-1.
 if (YUZU_CMD)
     # Forced bundled: the targets below are built from source, so a system imgui package must not
     # satisfy the request (it would leave imgui_SOURCE_DIR unset).

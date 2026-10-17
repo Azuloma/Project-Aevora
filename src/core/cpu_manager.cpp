@@ -67,9 +67,6 @@ void CpuManager::HandleInterrupt(Kernel::KernelCore& kernel) {
     Kernel::KInterruptManager::HandleInterrupt(kernel, s32(core_index));
 }
 
-///////////////////////////////////////////////////////////////////////////////
-///                             MultiCore                                   ///
-///////////////////////////////////////////////////////////////////////////////
 
 void CpuManager::MultiCoreRunGuestThread(Kernel::KernelCore& kernel) {
     // Similar to UserModeThreadStarter in HOS
@@ -88,9 +85,6 @@ void CpuManager::MultiCoreRunGuestThread(Kernel::KernelCore& kernel) {
 }
 
 void CpuManager::MultiCoreRunIdleThread(Kernel::KernelCore& kernel) {
-    // Not accurate to HOS. Remove this entire method when singlecore is removed.
-    // See notes in KScheduler::ScheduleImpl for more information about why this
-    // is inaccurate.
     kernel.CurrentScheduler()->OnThreadStart(kernel);
     while (true) {
         auto& physical_core = kernel.CurrentPhysicalCore();
@@ -101,9 +95,6 @@ void CpuManager::MultiCoreRunIdleThread(Kernel::KernelCore& kernel) {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-///                             SingleCore                                   ///
-///////////////////////////////////////////////////////////////////////////////
 
 void CpuManager::SingleCoreRunGuestThread(Kernel::KernelCore& kernel) {
     auto* thread = Kernel::GetCurrentThreadPointer(kernel);
@@ -176,12 +167,6 @@ void CpuManager::RunThread(std::stop_token token, std::size_t core) {
     std::string name = is_multicore ? ("CPUCore_" + std::to_string(core)) : std::string{"CPUThread"};
     Common::SetCurrentThreadName(name.c_str());
     Common::SetCurrentThreadPriority(Common::ThreadPriority::Critical);
-#ifdef __ANDROID__
-    // Aimed specifically for Snapdragon 8 Elite devices
-    // This kills performance on desktop, but boosts perf for UMA devices
-    // like the S8E. Mediatek and Mali likely won't suffer.
-    Common::PinCurrentThreadToPerformanceCore(core);
-#endif
     auto& data = core_data[core];
     data.host_context = Common::Fiber::ThreadToFiber();
 

@@ -13,28 +13,7 @@ set(FFmpeg_HWACCEL_LDFLAGS)
 
 if (NOT YUZU_USE_BUNDLED_FFMPEG)
     set(FFmpeg_CROSS_COMPILE_FLAGS "")
-    if (ANDROID)
-        # TODO: Maybe use CMAKE_SYSROOT? and probably provide a toolchain file for android
-        # I mean isn't that the "proper" way anyways?
-        string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" FFmpeg_HOST_SYSTEM_NAME)
-        set(TOOLCHAIN "${ANDROID_NDK}/toolchains/llvm/prebuilt/${FFmpeg_HOST_SYSTEM_NAME}-${CMAKE_HOST_SYSTEM_PROCESSOR}")
-        set(SYSROOT "${TOOLCHAIN}/sysroot")
-        set(FFmpeg_CPU "armv8-a")
-        list(APPEND FFmpeg_CROSS_COMPILE_FLAGS
-            --enable-cross-compile
-            --arch=arm64
-            #--cpu=${FFmpeg_CPU}
-            --cross-prefix="${TOOLCHAIN}/bin/aarch64-linux-android-"
-            --sysroot="${SYSROOT}"
-            --target-os=android
-            --extra-ldflags="--ld-path=${TOOLCHAIN}/bin/ld.lld"
-            --extra-ldflags="-nostdlib"
-        )
-        set(FFmpeg_IS_CROSS_COMPILING TRUE)
-    # User attempts to do a FFmpeg cross compilation because...
-    # Here we just quickly test against host/system processors not matching
-    # TODO: Test for versions not matching as well?
-    elseif (NOT (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES CMAKE_SYSTEM_PROCESSOR
+    if (NOT (CMAKE_HOST_SYSTEM_PROCESSOR MATCHES CMAKE_SYSTEM_PROCESSOR
     AND CMAKE_HOST_SYSTEM_NAME MATCHES CMAKE_SYSTEM_NAME))
         string(TOLOWER "${CMAKE_SYSTEM_NAME}" FFmpeg_SYSTEM_NAME)
         if (FFmpeg_SYSTEM_NAME STREQUAL "openorbis" OR FFmpeg_SYSTEM_NAME STREQUAL "managarm")
@@ -59,12 +38,7 @@ endif()
 if (PLATFORM_PS4 OR PLATFORM_MANAGARM)
     # Doesn't support VA-API, don't go thru the embarrassment of trying to enable it
     list(APPEND FFmpeg_HWACCEL_FLAGS --disable-vaapi)
-elseif (ANDROID)
-    list(APPEND FFmpeg_HWACCEL_FLAGS
-        --enable-mediacodec
-        --enable-jni
-    )
-elseif (UNIX AND NOT DEFINED FFmpeg_IS_CROSS_COMPILING AND NOT ANDROID)
+elseif (UNIX AND NOT DEFINED FFmpeg_IS_CROSS_COMPILING)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBVA libva)
     pkg_check_modules(CUDA cuda)
@@ -299,7 +273,7 @@ else()
     set(FFmpeg_BUILD_LIBRARIES ${FFmpeg_LIBRARIES})
 
     # BSD make or Solaris make don't support ffmpeg make-j8
-    if (PLATFORM_LINUX OR ANDROID OR APPLE OR WIN32 OR PLATFORM_FREEBSD)
+    if (PLATFORM_LINUX OR APPLE OR WIN32 OR PLATFORM_FREEBSD)
         set(FFmpeg_MAKE_ARGS -j${SYSTEM_THREADS})
     else()
         set(FFmpeg_MAKE_ARGS "")
