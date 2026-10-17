@@ -246,7 +246,9 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `src/suyu` (Qt) | `GMainWindow` (`main.h:170`, `main.cpp` ~8,500 lines), `BootGame`/`LoadROM`, `bootmanager.h` (`EmuThread`, `GRenderWindow`), `game_list.h`, `configuration/`. Recompiled-image actions: `OnLoadRecompiledImage`, `LoadRecompiledImagesFrom`, `OnLaunchRecompiledBuild`, `OnLaunchStaticBuild`. |
 | MCP server in Qt app | `src/suyu/mcp_server.{h,cpp}`, created at `main.cpp:5346-5445` (v). Port comes from `SUYU_MCP_PORT`. There are also "Hacker"/"Gamer" modes (`main.cpp:585-590` (v), `gamer_environment.*`). Fork-specific; purpose and security exposure not yet reviewed. |
 | `src/suyu_cmd` | SDL command-line frontend (`suyu.cpp`). Also used as the static launcher host (export build kit). The launcher's window title comes from the executable name in `emu_window/emu_window_sdl2_vk.cpp` (~`:35-62`); convert paths with `Common::FS::PathToUTF8String`, never `path::string()`, on Windows. |
-| `src/suyu_cmd/overlay/debug_overlay.{h,cpp}` | Dear ImGui Vulkan overlay UI: command bar, Debug window sections, build identity, native status, recompiled CPU, and GPU diagnostics; created by default unless `SUYU_DEBUG_OVERLAY=0`. |
+| `src/suyu_cmd/overlay/debug_overlay.{h,cpp}` | Dear ImGui Vulkan overlay UI: command bar, View menu, Debug window sections, Mods/folders (`BuildModsFoldersWindow` at `debug_overlay.cpp:546` (v)), Game section (`BuildGameSection` at `:646` (v)), build identity, native status, recompiled CPU, and GPU diagnostics. |
+| `src/suyu_cmd/overlay/mods_folders.h:92-194` **(v)** | Bounded mod/cheat scan and background `ModsScanner`, including runtime folder snapshots and error reporting. |
+| `src/suyu_cmd/fullscreen_toggle.h:20-51` **(v)** | SDL-free F11/Alt+Enter chord and hotkey ownership contract. |
 | `SuyuCmd::AcquireDebugOverlay` | `src/suyu_cmd/overlay/debug_overlay.cpp:108` **(v, 2026-10-16)** | Process-wide overlay acquisition; intentionally never destroys the object because the renderer retains a raw pointer and owns shutdown. |
 | `src/suyu_cmd/overlay/overlay_logic.h:96-256` **(v)** | ImGui-free command-bar visibility plus bounded mouse, keyboard, and UTF-8 text-input routing. |
 | `src/suyu_cmd/overlay/overlay_actions.h:21-41` **(v)** | Bounded FIFO UI action/status channel bound to the event thread. |
@@ -255,7 +257,8 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `src/suyu_cmd/overlay/rebind_session.h:18-111` **(v)** | Non-blocking five-second controller rebind state machine and hooks. |
 | `src/suyu_cmd/resolution_scale_host.h:13-25` **(v)** | Event-thread Resolution Scale host hooks. |
 | `src/common/resolution_scale_table.h:14-50` **(v)** | Shared 13-entry Resolution Scale table and enum-order validation. |
-| `src/suyu_cmd/emu_window/emu_window_sdl2.cpp:553-575` **(v)** | F12 mods discovery under `<exe>/mods/<title-id>/<mod-name>`. |
+| `src/suyu_cmd/emu_window/emu_window_sdl2.h:98-151,201` **(v)**; `emu_window_sdl2.cpp:965-1003,1097-1123,1418-1436` **(v)** | `IsFullscreen`, `ToggleFullscreen`, `ApplyFullscreenState`, `OnFullscreenChanged`, `hotkey_keys`, `OverlayFolderPaths`, and `OpenOverlayFolder`; SDL window/event routing and F12 panel remain until F6. |
+| `src/suyu_cmd/emu_window/emu_window_sdl2_vk.h:46-48` **(v)**; `emu_window_sdl2_vk.cpp:40-41,259-286` **(v)** | `InstallOverlayModsFolders`, `InstallOverlayFullscreen`, and Vulkan SDL overlay callbacks. |
 | `src/suyu_cmd/controller_assign.h:27,135` | `PadBinding` and `Slots`, the controller-slot and Joy-Con assignment definitions shared by automatic assignment and the F12 panel. |
 | `src/suyu_cmd/overlay/overlay_stats.h` | Frame-time history, guest-PC/module placement, fallback counters/verdict, execution-mode text, and timing helpers. |
 | `src/suyu_cmd/overlay/build_identity.{h,cpp}` | Parses packaged `aot_manifest.json` display fields and stores the launcher build identity. |
@@ -286,7 +289,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 |---|---|
 | `src/tests/` | Catch2 `tests` target covering common utilities, core timing, crypto, network, video_core memory tracker, and input calibration. |
 | `tests/recompiler_smoke` | Translator golden-hash/smoke tests (synthetic code), including ABI6FMI and GGFMI variants; topology/identity units, production bundle-loading and mixed-image checks, the three-module xmod fixture, loader stub and lookup-boundary cases, `check_prebuild` split consumer checks, and `smoke_env_option_unit`; MSVC golden hashes require `/utf-8`, matching the real build. |
-| `tests/recompiler_smoke/overlay_logic_unit.cpp`, `overlay_actions_unit.cpp`, `graphics_settings_unit.cpp`, `controller_settings_unit.cpp`, `build_identity_unit.cpp` | Standalone tests for overlay command/input, action queue, graphics/controller settings, and AOT manifest build-identity parsing. |
+| `tests/recompiler_smoke/overlay_logic_unit.cpp`, `overlay_actions_unit.cpp`, `graphics_settings_unit.cpp`, `controller_settings_unit.cpp`, `build_identity_unit.cpp`, `mods_folders_unit.cpp`, `fullscreen_toggle_unit.cpp` | Standalone tests for overlay command/input, action queue, graphics/controller settings, build identity, mods scanning, and fullscreen; mods/fullscreen are registered at `CMakeLists.txt:124-130` and run at `run.py:908-911` (v). |
 | `tests/recompiler_smoke/thread_time_unit.cpp` **(v)** | Standalone `RecompThreadTimeLedger` unit; registered as `smoke_thread_time_unit` and invoked by `run.py`. |
 | `tests/recompiler_smoke/guest_time_unit.cpp` | `smoke_guest_time_unit`, registered in `CMakeLists.txt:115-117` and `run.py:854`. (v, 2026-10-11) |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` **(v, 2026-10-10)** | Standalone `RecompShardedCounters` unit; registered as `smoke_sharded_counters_unit` and invoked by `run.py`, with a race-free shared-slot negative control. |

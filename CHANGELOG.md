@@ -11,23 +11,29 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - Added the F2 bounded FIFO UI action/status channel with event-thread binding, reentrancy guard, detach refusal, loading-time pump, and overflow status.
 - Added the F3 Graphics window with Resolution Scale, a shared 13-entry table, save-only next-launch application, and a Qt/table drift check.
 - Added the F4 Player 1 Controller window with device selection, mapping, keyboard and Joy-Con actions, binding rows, and a non-blocking five-second rebind session with analog validation.
+- Added F5 Mods and folders plus the Game section (title, title ID, version, applet): a background `ModsScanner` reads runtime path-table folders, lists flat `cheat_*` files, coalesces requests, caps entries at 512, distinguishes missing/unreadable folders, and reports up to eight errors.
+- Added fullscreen toggle support for F11, Alt+Enter (including keypad Enter), and `View > Fullscreen`, with windowed geometry restore, maximize fallback, hotkey press ownership, and SDL enter/leave-fullscreen status updates.
 
 ### Changed
 - Shared controller snapshots and Player 1 binding helpers keep UI reads mutex-protected and route mutations through the event thread; F12 changes are reflected in the overlay.
 - Overlay popup regions capture the whole display while open, and overlay reset clears ImGui keys and mouse state after focus loss.
-- Commits: `22a1045`, `350af77`, `2d1a42e`, `2b219fa`, `468cd47`, `7ab529e`, `6498ed1`, `2fdf3f9` (F1-F4 and review fixes).
+- Fixed the command-bar popup bug: a combo popup was treated as a menu, summoning the hidden bar and letting `BeginMainMenuBar` steal focus; the rule now keeps only an already-visible bar alive. A headless replay used the real router, rule, and ImGui 1.92.9b sources, and `overlay_logic_unit` covers hidden-bar popup and hover cases.
+- Commits: `22a1045`, `350af77`, `2d1a42e`, `2b219fa`, `468cd47`, `7ab529e`, `6498ed1`, `2fdf3f9`, `59d7338`, `1506b19`, `7138f29`, `7d73d31`, `06c8abb`.
 
 ### Verified
 - Standalone tests pass after each stage with negative controls: `overlay_logic_unit`, `overlay_actions_unit`, `graphics_settings_unit`, and `controller_settings_unit`. Real-router mutations checked key-release ownership, reentrancy, detach refusal, same-value skip, and the analog `accept` predicate.
 - `suyu-cmd` builds with exit 0 after every stage. The three new CMake registrations and `run.py` calls were added; the CMake-driven test build was not run, and tests were built directly with `cl`.
 - One Code reviewer round per stage was completed; F1 six, F2 four, F3 three, and F4 seven findings were fixed.
+- F5 standalone tests and the fullscreen unit pass with negative controls; `suyu-cmd` built with exit 0 after each change. The CMake-driven smoke build was not run; tests were built directly with `cl`.
+- Fullscreen review fixes covered geometry restore, fallback reporting, modifier ownership, and SDL failure/event handling. The command-bar replay reproduced the old focus transition and verified selection/focus restoration after the fix.
 
 ### Not verified
-- No manual check of overlay windows in a running game or with real devices (ImGui layout, combo, menus, rebind with a real pad, Map/Combine/Split, popup capture region). The user should test on PLA/any title before F6 retires F12.
+- No hand-test result has been recorded yet beyond the combo bug reproduction; the user should confirm Resolution Scale, Controller, Mods/folders, Game, fullscreen, click isolation, and F12 parity before F6 retires F12.
 - Backend limitation (also in F12 and Qt): `BeginMapping` puts every input engine in configuration mode, which stops value updates; a key or axis held when a capture starts and released during it keeps its stored pressed value after `StopMapping`, so the game can see a stuck input until it is pressed and released again (`src/input_common/main.cpp`, `input_engine.cpp`). Needs an input-backend policy; not fixed.
 - `controller_assign.h` has no unit test (it needs `ParamPackage`, which standalone test targets do not link), so the new `only_slot` filter and host wiring (`HandleControllerRequest`, `MakeRebindHooks`) are covered only by pure-logic seams and review.
 - The Qt Resolution Scale table remains a second copy (gated by the drift test, not derived).
 - Comments longer than two lines still exist elsewhere in touched files (reviewers listed examples in `emu_window_sdl2.cpp`, `emu_window_sdl2_vk.cpp`, `suyu_cmd/CMakeLists.txt`); trim them when touched.
+- The host was last reconfigured with `GIT_REV` `7d73d31`; HEAD is now `06c8abb`, so a reconfigure is required for matching binaries. The last PLA export remains `ac96270` and contains none of this overlay work.
 
 ## v0.0.1-dev25 - Unreleased
 

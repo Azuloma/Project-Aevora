@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-16 (session 31). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
+Handoff prepared: 2026-10-17 (session 31 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
 
 ## Objective
 
@@ -8,96 +8,62 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD 2fdf3f9 contains F0-F4. The last PLA export is unchanged at ac96270, so the host `GIT_REV` still reads ac96270 only if the host was not reconfigured: re-check `GIT_REV` against HEAD before exporting. The last PLA export is `D:\HisuiWakeExports\_NEW` at ac96270, fully static, with TTAS, lock-free marks, and chain start default-on; launcher and PDB are in `D:\HisuiWakeBuild\backup\ac96270_aot`. Older backups are `d0ae37b_aot` and `f943708_aot`/`_jit`; evidence logs and samples are in `D:\HisuiWakeBuild\logs`, analysis scripts in `D:\HisuiWakeBuild\tmp_gt`. Optimization is paused; ImGui Stage F is the focus. These Markdown changes and previous batches are uncommitted until the user commits.
+HEAD is `06c8abb`. The last PLA export is unchanged at `ac96270` in `D:\HisuiWakeExports\_NEW` and contains none of the overlay work. The host was last rebuilt successfully with `GIT_REV` `7d73d31`; the binaries contain the later command-bar fix but retain that embedded revision until the next reconfigure. Optimization is paused. The user is hand-testing the overlay; no results beyond the combo/popup fix have been recorded. These Markdown changes remain uncommitted until the user commits.
 
 ## What was done so far
 
-- Dev19: FPXV; see CHANGELOG.md.
-- Dev20: sharded counters, two-line comment rule, opt-in chain start; see CHANGELOG.md.
-- Dev21: guest-time ledger and lookup diagnostics; see CHANGELOG.md.
-- Dev22: `SUYU_RECOMP_EXCL_STATS`; see CHANGELOG.md.
-- Dev23: cross chain default-on, lock-free-mark option, atomic monitor slots; see CHANGELOG.md.
-- Dev24: 32-bit block index, index-miss shortcut, launcher index report; see CHANGELOG.md.
-- Dev25: access diagnostics, SpinLock TTAS, and default-on TTAS/lock-free marks/chain start; see CHANGELOG.md.
-- Session 30: measured TTAS and ac96270 PLA export; main DLL 1,721.8 MiB, launcher 483.5 MiB, 26 FPS versus 24.3 FPS unattributed; see CHANGELOG.md.
-- Stage F0-F4: overlay survey, keyboard/text forwarding, action queue, Graphics window, and Player 1 Controller window; commits through `2fdf3f9` are complete.
+- Dev19-dev25 delivered FPXV, diagnostics, index, chain, TTAS, and default-option work; see [CHANGELOG.md](../../CHANGELOG.md).
+- Session 30 measured TTAS and recorded the `ac96270` PLA export; see [CHANGELOG.md](../../CHANGELOG.md).
+- Stage F0-F5 delivered the overlay survey, keyboard/text forwarding, action queue, Graphics, Player 1 Controller, Mods and folders, background scanning, cheat-file discovery, errors, and Game section; commits are listed below and in [CHANGELOG.md](../../CHANGELOG.md).
+- Fullscreen toggle adds F11, Alt+Enter, View menu, geometry restore, maximize fallback, hotkey ownership, and SDL enter/leave handling (`7138f29`, `7d73d31`).
+- The command-bar popup bug was fixed in `06c8abb`; headless replay of the real router/rule and ImGui 1.92.9b sources reproduced the old focus theft and verified the fix.
 
 ## Immediate next action
 
-Implement F5: Mods/folders/status parity with the F12 panel. Mods are `<exe>/mods/<title-id>/<mod-name>` read at `src/suyu_cmd/emu_window/emu_window_sdl2.cpp:~552-575` **(v)**; before F6 the user should confirm overlay parity on PLA.
+For the next session, in order:
 
-## Stage F plan (ImGui Settings, current focus)
+1. Ask the user for hand-test results and record only what they report.
+2. If a build matching HEAD is wanted, reconfigure and rebuild `suyu` and `suyu-cmd` through `cmd.exe /c` with BuildTools vcvars64: `cmake -S <repo> -B D:\HisuiWakeBuild\msvc-release`; verify `GIT_REV` afterward. This takes about 20 minutes; do not measure FPS meanwhile.
+3. Fix hand-test findings one at a time; staggered first-use window positions are a known candidate.
+4. After parity is confirmed, F6 retires F12: remove its panel/key branch, controller-assignment wording, and docs/index/CLAUDE references.
+5. After F6, ask whether to resume the paused optimization backlog or export PLA with the overlay. A full export needs a commit, reconfigure, and the standing export procedure.
 
-Goal: Settings -> Graphics and Controller (Player 1) windows plus the Mods/folders and status content of the F12 panel in the ImGui overlay, then retire the F12 panel. Each stage has one behavior, tests with a negative control, one Code reviewer round, and a user commit; settings changes use the action queue and shared definitions.
+## Stage F plan
 
-- F0 survey: done (read-only; no code).
-- F1 keyboard/text forwarding: done, commits `22a1045`, `350af77`.
-- F2 UI action queue: done, commits `2d1a42e`, `2b219fa`.
-- F3 Graphics: done, commits `468cd47`, `7ab529e`.
-- F4 Controller: done, commits `6498ed1`, `2fdf3f9`.
-- F5 Mods/folders/status: parity with the F12 panel.
-- F6 retire F12: remove panel/key branch and update all references after user confirms PLA parity.
+F0 survey: done. F1 keyboard/text forwarding: done (`22a1045`, `350af77`). F2 action queue: done (`2d1a42e`, `2b219fa`). F3 Graphics: done (`468cd47`, `7ab529e`). F4 Controller: done (`6498ed1`, `2fdf3f9`). F5 Mods/folders/status and Game section: done (`59d7338`, `1506b19`). Fullscreen toggle: done (`7138f29`, `7d73d31`). Command-bar popup fix: done (`06c8abb`). F6 remains: retire F12 only after the user confirms parity by hand.
 
 ## Open issues in priority order
 
-### Group E - ImGui Stage F
+### Group E - overlay hand test
 
-F0 survey, F1 keyboard/text, F2 action queue, F3 Graphics, and F4 Player 1 Controller are done. F5 Mods/folders/status and F6 F12 retirement remain; follow the Stage F plan above.
+Confirm by hand: Resolution Scale pick/save/next-launch effect; Controller Map, keyboard, rebinding, timeout, Clear, Combine/Split; Mods and folders Open x3, list, Rescan, and cheat files; Game section; fullscreen F11/Alt+Enter/menu, Exclusive/Borderless, restore size, and multi-monitor; no click leakage while menus/combos are open; and F12 parity. The combo/popup issue is fixed in `06c8abb`, but the user has not yet confirmed it. All overlay windows currently use `(16, 48)` and overlap; stagger them if the user wants the UX fix.
 
-### Not verified / open
-
-- No manual check of the overlay windows in a running game or with real devices (ImGui layout, combo, menus, rebind with a real pad, Map/Combine/Split, popup capture region). The user should test on PLA/any title before F6 retires F12.
-- Backend limitation (also in F12 and Qt): `BeginMapping` puts every input engine in configuration mode, which stops value updates; a key or axis held when a capture starts and released during it keeps its stored pressed value after `StopMapping`, so the game can see a stuck input until it is pressed and released again (`src/input_common/main.cpp`, `input_engine.cpp`). Needs an input-backend policy; not fixed.
-- `controller_assign.h` has no unit test (it needs `ParamPackage`, which standalone test targets do not link), so the new `only_slot` filter and host wiring (`HandleControllerRequest`, `MakeRebindHooks`) are covered only by pure-logic seams and review.
-- The Qt Resolution Scale table remains a second copy (gated by the drift test, not derived).
-- Comments longer than two lines still exist elsewhere in touched files (reviewers listed examples in `emu_window_sdl2.cpp`, `emu_window_sdl2_vk.cpp`, `suyu_cmd/CMakeLists.txt`); trim them when touched.
+Other open Group E items: a held key/axis can remain stuck when capture starts and release occurs during capture (`src/input_common/main.cpp`, `input_engine.cpp`); `controller_assign.h` has no unit test because it needs `ParamPackage`; and the Qt Resolution Scale table is a translated second copy guarded by `smoke_graphics_settings_unit`. A maximize fallback that the user undoes by hand needs one extra toggle. Longer comments in F12 code may be reported by review and are removed with F6.
 
 ### Paused optimization backlog
 
-- B2: separate monitor lock and reservation slots with `alignas(64)`; evaluate after TTAS.
-- B3: exclusive timing/bridge shortening; baseline was deferred by the user.
-- B5: plain-store unlock needs STLXR/LDAR ordering analysis.
-- B6: dispatch/lookup/slice was 3.18% of samples; sdk/main exits about 8M each way per 10 s.
-- A7: FMI checks were 3.9% of samples; refine only with fault handling preserved.
-- A8: prologue/entry checks were 1.5%/1.1%; chain-start on/off A/B remains outstanding.
-- C9: rasterizer write notification is about 1.1 us/store, about 1.6 core-ms/frame.
-- D10: XMOD1 accounting, miss/gap recording, IVAU, budget stop, and publication-log checks remain.
-- D11: older diagnostics, attribution, loader/refusal, export-regression, and carried A/B items remain.
-
-Details and the full Group A/B/C/D lists are archived in OLD_HISTORY.md. The exclusive-access upper bound was about 14 core-ms/frame; SpinLock baseline was 6.0%/5.57%, while TTAS was 5.79% vs 5.88% page and 5.28% vs 5.50% host functions. Chain-start A/B and lock-free soak remain outstanding; the 26 FPS attribution is open.
+B2, B3, B5, B6, A7, A8, C9, D10, and D11 remain unchanged. Full details and the older Group A/B/C/D lists are in [OLD_HISTORY.md](OLD_HISTORY.md). No attribution is made for the 26 FPS reading.
 
 ## Contracts to preserve
 
-Keep opt-in diagnostics execution-neutral when off, exact-0 default-on semantics, FP_SHARED/FPXV ABI/result/cache contracts, overlay/fallback wording, two-line comments, and same-position averaged FPS with ms/frame. Cross chain, chain start, TTAS, lock-free marks, FM inline, direct/indirect chain, split main, and FPX options are default-on (`=0` disables); ledgers and lookup/exclusive/access diagnostics remain opt-in. Preserve saved-value CAS, atomic monitor slots, the 32-bit index contract, and overlay decisions: F12 retires after ImGui parity, Resolution Scale applies next launch, and controller UI is Player 1 only.
+Keep opt-in diagnostics execution-neutral when off, exact-0 default-on semantics, FP_SHARED/FPXV ABI/result/cache contracts, overlay/fallback wording, two-line comments, and same-position averaged FPS with ms/frame. Cross chain, chain start, TTAS, lock-free marks, FM inline, direct/indirect chain, split main, and FPX are default-on (`=0` disables). Ledgers and lookup/exclusive/access diagnostics remain opt-in. Preserve saved-value CAS, atomic monitor slots, the 32-bit index contract, and F12 parity decisions.
+
+Overlay contracts: the action queue is the only way the UI changes settings; settings apply on the event thread; Resolution Scale is save-only until next launch; the UI reads snapshots only; every capture/rebind begin has exactly one stop; and controller UI is Player 1 only.
 
 ## How to proceed
 
-Use the Stage F rhythm: one behavior per stage, tests with a negative control, one Code reviewer round, user commits, and md Implementer batches at milestones. When resuming optimization, first use the user's on/off measurements; the user currently declined attribution measurements.
+Read CLAUDE.md, README.md, this plan, and the index; inspect status/log before work; ask the user when a choice is required; use one worker at a time; keep changes focused; and record verified facts in the next Markdown batch. Do not claim a hand-test or export result that was not reported or run.
 
 ## How to work / procedures
 
-- Clean every build/test/export/probe/experiment: use D:\HisuiWakeBuild\scratch\<task>\, then D:\HisuiWakeBuild\diag\cleanup_scratch.ps1; check targets and leave no D:\fx_*, __pycache__, or .bak.
-- Keep msvc-release, cpm, diag, tmp_gt, ovl, imgui_dl, backup, logs, and root .bat helpers.
-- Run .cmd/vcvars stages via cmd.exe /c from PowerShell; start each vcvars64 stage as its own process and check it is running within a minute. Never run concurrent builds/exports.
-- Smoke: python tests/recompiler_smoke/run.py --source <repo> --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include; fixture-only: add --only-xmod.
-- Export matrix: python tests/export_integration/run_export_integration.py --suyu-dir D:\HisuiWakeBuild\msvc-release\bin --work <new short folder> --only-aot-cache-matrix, after vcvars and with an empty work folder.
-- Host rebuild: D:\HisuiWakeBuild\diag\reconf_build.cmd with export variables cleared; after export tests run D:\HisuiWakeBuild\rebuild-suyu.bat via cmd.exe /c.
-- Rebuild the host before export integration after generator changes; the compiled-in generator otherwise remains stale. A warm full run took about 11 minutes and a first core rebuild after configuration changes may take about 30 minutes.
-- Exports are user-started; use a new empty output folder, same-position/orientation sampling, normal exit for logs, and a non-elevated shell. Never run CPU-heavy work during FPS measurement.
-- FPXV: `python tests/recompiler_fpx/run.py --cases 3000 --adv 3000 --legs 123 --controls --hits`; ABI5/ABI6 golden hashes must stay unchanged.
-- After commits reconfigure/build and verify GIT_REV; after every export copy logs and rebuild as required. Do not weaken negative controls; C++ tests use repository editing tools.
-- Tooling lessons: Python edit scripts putting `\n` escapes into C++ string literals produced real newlines twice (use Edit for string literals); Start-Process needs its log file created first; Orca `check --wait` replays until its `delivery_*` id is acked.
-- Exclusive measurement: lock-free marking and TTAS are on by default; use `$env:SUYU_EXCL_LOCKFREE_MARK="0"` for the locked condition and `$env:SUYU_SPINLOCK_TTAS="0"` for the old stub, with `$env:SUYU_GUEST_TIME="1"; $env:SUYU_RECOMP_EXCL_STATS="1"; $env:SUYU_RECOMP_LOOKUP_STATS="1"` for `excl-stats` (a separate run from FPS-only runs); stand still ~30 s, record averaged FPS, exit normally, read `excl-stats` from ~52 s, and copy the log after EACH condition (only the current and one previous log are kept).
-- Exclusive test: `python tests/exclusive_access/run.py --build-dir D:\HisuiWakeBuild\msvc-release --work <folder outside the repo>` after vcvars64 (via `cmd.exe /c`) runs unset, `0`, `1` and `2` of `SUYU_SPINLOCK_TTAS`, each with locked and lock-free marks; it links host dynarmic.lib, so rebuild after dynarmic changes. A weakened ReadAndMarkLockFree must exit 1; restore in finally.
-- Sampling (RIP samples of CPUCore_0..2): `D:\HisuiWakeBuild\diag\hotrva\sample_raw_rip2.ps1 -ProcId <pid> -Out <file>` from a separate non-elevated PowerShell while standing still; analysis with `D:\HisuiWakeBuild\tmp_gt\analyze_launcher.py <samples> <launcher.exe next to its pdb> <label> "Pokémon Legends_ Arceus.exe" <top>` and `tmp_gt\page_cmp.py` (SpinLock page offsets and exclusive-function shares). The remaining sampling, guest-time, lookup/access-stats, ARM64-dump and JIT-comparison procedures are archived verbatim in OLD_HISTORY.md (session 30 cleanup, `How to work / procedures`).
-- Session 30 lessons: restoring a negative-control source with Copy-Item preserves old mtime, so rewrite/touch before rebuilding and rerun the check; `Remove-Item D:\fx_*` is blocked, use `D:\HisuiWakeBuild\diag\cleanup_scratch.ps1 -Path D:\fx_<name>`; start Orca workers from Bash with `--spec "$(cat <file>)"`; parse every JSON object from `orca orchestration check --wait`, select the one with `messages`, and pass `--ack` while checking dispatchId; run `vcvars64.bat` through PowerShell `cmd.exe /c "call vcvars64.bat >nul 2>&1 && ..."`; use `(std::numeric_limits<T>::max)()` when xbyak.h exposes windows.h's `max`; restore weakened negative controls and rerun the matrix, stopping after the expected FAIL only once worker processes are gone; warm export integration takes 13-15 minutes and `--only-defaults` about 3 minutes; F12's modal Win32 loop runs on the SDL event thread, so its settings changes already run there.
+- Build standalone tests after BuildTools vcvars64 through `cmd.exe /c` with `cl /std:c++20 /EHsc /W4 /I src <test>`. Add `/Zc:preprocessor` and `/utf-8` for `settings_enums.h` or UTF-8 literals.
+- Every new standalone test needs a shared contract check that a deliberately weakened copy fails; negative controls must fail fast and must not hang.
+- For overlay input bugs, write a headless replay linking the real router/command-bar header with ImGui sources from `D:\HisuiWakeBuild\cpm\imgui\v1.92.9b` (`imgui.cpp`, `imgui_draw.cpp`, `imgui_tables.cpp`, `imgui_widgets.cpp`) before changing code.
+- Put scripts containing `\n` or quotes in files; shell heredocs broke twice. Scratch lives in `D:\HisuiWakeBuild\scratch\<task>\` and is removed after each task.
+- Build `suyu-cmd` after code changes. Reconfigure after the user's commit to refresh `GIT_REV`; never run builds during FPS measurement. Use the standing export procedure for a new PLA export.
+- Orca: one worker at a time, acknowledge the previous delivery id, release each worker, and note that `check --wait` can replay earlier messages.
 
 ## Design notes
 
-The arena fastmem design record is archived in OLD_HISTORY.md and was not implemented. The TTAS record and measurements are archived there; TTAS produced no measured gain and remains default-on by user decision.
+`AcquireDebugOverlay` is never destroyed because the renderer retains a raw pointer and owns shutdown. ImGui state belongs to the scheduler worker; capture regions lag one frame. F3 is save-only because the running renderer reads rescaling information without synchronization. F1 Reset uses `ClearInputKeys`/`ClearInputMouse` because Reset+FocusGained merge in one ImGui batch. A popup keeps an already-visible command bar up but must not summon a hidden bar: combo popups are not menus, and the old rule let `BeginMainMenuBar` steal focus. Hotkey press ownership lasts until release; focus loss resets it.
 
-- `AcquireDebugOverlay` never destroys the overlay because the renderer keeps a raw pointer and shuts it down in its own destructor; on an early-exit path the window (declared after the system in `main`) is destroyed first. Never destroying it also avoids Vulkan calls during static destruction after the device is gone.
-- The overlay's ImGui state is owned by the scheduler worker thread (`Record` runs NewFrame/UI/Render/submission there); `Initialize` and `Shutdown` run on the renderer thread while the worker is quiescent.
-- Mouse capture regions lag the UI by up to one frame: a click made in the frame a window appears can be lost, never doubled.
-- F3 uses save-only Resolution Scale application because the running renderer reads rescaling info without synchronization; `CreateGPU` recomputes it at the next launch.
-- F1 Reset clears ImGui keys and mouse state because a Reset+FocusGained pair in one batch merges inside ImGui 1.92.9b and would leave keys down.
