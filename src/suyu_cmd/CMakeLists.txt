@@ -24,6 +24,7 @@ if (SUYU_CMD OR YUZU_CMD)
         emu_window/emu_window_sdl2_vk.h
         precompiled_headers.h
         controller_assign.h
+        fullscreen_toggle.h
         native_status.cpp
         native_status.h
         overlay/build_identity.cpp

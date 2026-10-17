@@ -43,6 +43,9 @@ constexpr u64 kStatusRefreshMs = 750;
 constexpr u64 kControlsSaveMs = 2000;
 constexpr Sint32 kEventWaitSliceMs = 250;
 
+constexpr SuyuCmd::FullscreenKeys kFullscreenKeys{SDL_SCANCODE_F11, SDL_SCANCODE_RETURN,
+                                                  SDL_SCANCODE_KP_ENTER};
+
 // Gamepads SDL recognises plus suyu's own Joy-Con / Pro Controller driver; wheels and virtual
 // devices take no player. @p sdl_gamepads, when given, gets how many gamepads SDL sees.
 std::vector<Common::ParamPackage> ControllerPads(const std::vector<Common::ParamPackage>& devices,
@@ -959,6 +962,24 @@ void EmuWindow_SDL2::ShowCursor(bool show_cursor) {
     }
 }
 
+bool EmuWindow_SDL2::IsFullscreen() const {
+    return (SDL_GetWindowFlags(render_window) & SDL_WINDOW_FULLSCREEN) != 0;
+}
+
+void EmuWindow_SDL2::ToggleFullscreen() {
+    if (IsFullscreen()) {
+        if (!SDL_SetWindowFullscreen(render_window, false)) {
+            LOG_ERROR(Frontend, "Leaving fullscreen failed: {}", SDL_GetError());
+        }
+    } else {
+        Fullscreen();
+    }
+    SDL_SyncWindow(render_window);
+    const bool fullscreen = IsFullscreen();
+    ShowCursor(!fullscreen);
+    OnFullscreenChanged(fullscreen);
+}
+
 void EmuWindow_SDL2::Fullscreen() {
     switch (Settings::values.fullscreen_mode.GetValue()) {
     case Settings::FullscreenMode::Exclusive:
@@ -1046,9 +1067,18 @@ void EmuWindow_SDL2::WaitEvent() {
         is_open = false;
         break;
     case SDL_EVENT_KEY_DOWN:
-        if (!taken_by_overlay) {
-            OnKeyEvent(static_cast<int>(event.key.scancode), SDL_PRESSED);
+        if (taken_by_overlay) {
+            break;
         }
+        if (SuyuCmd::IsFullscreenChord(static_cast<std::uint32_t>(event.key.scancode),
+                                       (SDL_GetModState() & SDL_KMOD_ALT) != 0,
+                                       kFullscreenKeys)) {
+            if (!event.key.repeat) {
+                ToggleFullscreen();
+            }
+            break;
+        }
+        OnKeyEvent(static_cast<int>(event.key.scancode), SDL_PRESSED);
         break;
     case SDL_EVENT_KEY_UP:
         if (!taken_by_overlay) {

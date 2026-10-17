@@ -369,6 +369,13 @@ void DebugOverlay::BuildCommandBar() {
             ImGui::MenuItem("Mods and folders", nullptr, &show_mods_folders_window);
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("View")) {
+            const bool fullscreen = window_fullscreen.load(std::memory_order_relaxed);
+            if (ImGui::MenuItem("Fullscreen", "F11", fullscreen)) {
+                PostFullscreenToggle();
+            }
+            ImGui::EndMenu();
+        }
         // Placeholder: the entry exists so the layout is settled, but does nothing yet.
         ImGui::BeginDisabled();
         ImGui::MenuItem("Cheats");
@@ -606,6 +613,15 @@ void DebugOverlay::PostModsFolders(ModsFoldersRequest request) {
                           return UiActionResult{false, "Mods and folders are not available"};
                       }
                       return mods_folders_applier(request);
+                  }});
+}
+
+void DebugOverlay::PostFullscreenToggle() {
+    actions.Post({"Fullscreen", [this] {
+                      if (!fullscreen_toggler) {
+                          return UiActionResult{false, "Fullscreen is not available"};
+                      }
+                      return fullscreen_toggler();
                   }});
 }
 

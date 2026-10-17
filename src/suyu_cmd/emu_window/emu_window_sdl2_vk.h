@@ -43,6 +43,8 @@ protected:
     void InstallOverlayResolutionScale();
     void PublishOverlayResolutionScale();
     void InstallOverlayController();
+    void InstallOverlayFullscreen();
+    void OnFullscreenChanged(bool fullscreen) override;
     void InstallOverlayModsFolders();
 
     std::unique_ptr<SuyuCmd::ModsScanner> mods_scanner;

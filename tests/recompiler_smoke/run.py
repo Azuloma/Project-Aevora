@@ -907,6 +907,7 @@ def main():
         call([executable(export_build, "smoke_chain_start_budget_unit")])
         call([executable(export_build, "smoke_overlay_logic_unit")])
         call([executable(export_build, "smoke_overlay_actions_unit")])
+        call([executable(export_build, "smoke_fullscreen_toggle_unit")])
         call([executable(export_build, "smoke_mods_folders_unit"), root])
         call([executable(export_build, "smoke_controller_settings_unit")])
         call([executable(export_build, "smoke_graphics_settings_unit"), source])

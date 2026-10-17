@@ -38,6 +38,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
         InstallOverlayResolutionScale();
         InstallOverlayController();
         InstallOverlayModsFolders();
+        InstallOverlayFullscreen();
     }
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Exports are renamed after the game at packaging time; reuse that name as the title.
@@ -277,6 +278,21 @@ void EmuWindow_SDL2_VK::InstallOverlayModsFolders() {
     });
 }
 
+void EmuWindow_SDL2_VK::InstallOverlayFullscreen() {
+    debug_overlay->SetFullscreenToggler([this] {
+        ToggleFullscreen();
+        return SuyuCmd::UiActionResult{};
+    });
+    debug_overlay->PublishFullscreen(IsFullscreen());
+}
+
+void EmuWindow_SDL2_VK::OnFullscreenChanged(bool fullscreen) {
+    if (debug_overlay) {
+        debug_overlay->SetHardwareCursorHidden(fullscreen);
+        debug_overlay->PublishFullscreen(fullscreen);
+    }
+}
+
 void EmuWindow_SDL2_VK::InstallOverlayController() {
     debug_overlay->SetControllerApplier([this](const SuyuCmd::ControllerRequest& request) {
         return HandleControllerRequest(request);
@@ -317,6 +333,7 @@ void EmuWindow_SDL2_VK::RunOverlayActions() {
     if (debug_overlay) {
         // Also catches changes made elsewhere, such as the F12 panel.
         PublishOverlayResolutionScale();
+        debug_overlay->PublishFullscreen(IsFullscreen());
         const std::size_t ran = debug_overlay->GetActions().RunPending();
         PublishOverlayResolutionScale();
         ServiceOverlayController(ran > 0);
@@ -348,6 +365,7 @@ EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
         debug_overlay->SetResolutionScaleApplier({});
         debug_overlay->SetControllerApplier({});
         debug_overlay->SetModsFoldersApplier({});
+        debug_overlay->SetFullscreenToggler({});
         mods_scanner.reset();
         CancelControllerRebind();
         debug_overlay->GetActions().DetachEventThread();

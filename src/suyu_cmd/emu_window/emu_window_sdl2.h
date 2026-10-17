@@ -11,6 +11,7 @@
 
 #include "core/frontend/emu_window.h"
 #include "core/frontend/graphics_context.h"
+#include "suyu_cmd/fullscreen_toggle.h"
 #include "suyu_cmd/overlay/controller_settings.h"
 #include "suyu_cmd/overlay/mods_folders.h"
 #include "suyu_cmd/overlay/rebind_session.h"
@@ -131,6 +132,15 @@ protected:
 
     /// Called when user passes the fullscreen parameter flag
     void Fullscreen();
+
+    /// Whether the window is fullscreen right now. Event thread only.
+    bool IsFullscreen() const;
+
+    /// Switches between fullscreen and windowed. Event thread only.
+    void ToggleFullscreen();
+
+    /// Called after a toggle with the resulting state, so a frontend can adapt its cursor.
+    virtual void OnFullscreenChanged(bool fullscreen) {}
 
     /// Called when a configuration change affects the minimal size of the window
     void OnMinimalClientAreaChangeRequest(std::pair<u32, u32> minimal_size) override;

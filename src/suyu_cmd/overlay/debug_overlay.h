@@ -90,6 +90,17 @@ public:
         resolution_scale_index.store(index, std::memory_order_relaxed);
     }
 
+    /// Switches fullscreen; set and called on the event thread only.
+    using FullscreenToggler = std::function<UiActionResult()>;
+    void SetFullscreenToggler(FullscreenToggler toggler) {
+        fullscreen_toggler = std::move(toggler);
+    }
+
+    /// Whether the window is fullscreen, as the event thread last saw it.
+    void PublishFullscreen(bool fullscreen) {
+        window_fullscreen.store(fullscreen, std::memory_order_relaxed);
+    }
+
     /// The window hides the OS pointer (fullscreen); the overlay then draws its own while the
     /// pointer is over it so the bar can be used.
     void SetHardwareCursorHidden(bool hidden) {
@@ -110,6 +121,7 @@ private:
     void BuildModsFoldersWindow();
     void PostModsFolders(ModsFoldersRequest request);
     void BuildGameSection();
+    void PostFullscreenToggle();
     void PostController(ControllerRequest request);
     void PostResolutionScale(std::size_t index);
     void BuildBackendSection();
@@ -130,6 +142,8 @@ private:
     ResolutionScaleApplier resolution_scale_applier; ///< Event thread only.
     std::atomic<std::size_t> resolution_scale_index{0};
     ControllerApplier controller_applier; ///< Event thread only.
+    FullscreenToggler fullscreen_toggler;   ///< Event thread only.
+    std::atomic<bool> window_fullscreen{false};
     ModsFoldersApplier mods_folders_applier; ///< Event thread only.
     SnapshotBox<ModsFoldersSnapshot> mods_folders_snapshot;
     SnapshotBox<ControllerSnapshot> controller_snapshot;
