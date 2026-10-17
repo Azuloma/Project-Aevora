@@ -9,7 +9,7 @@
 
 namespace SuyuCmd {
 
-/// The hooks that change the real setting; shared by the overlay and the F12 panel.
+/// Event-thread hooks for the overlay's saved Resolution Scale setting.
 inline ResolutionScaleHooks MakeResolutionScaleHooks() {
     return {
         .current = [] { return Settings::values.resolution_setup.GetValue(); },

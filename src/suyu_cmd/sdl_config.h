@@ -48,7 +48,7 @@ public:
     static const std::array<int, 2> default_ringcon_analogs;
 
     /// [Controls] auto_assign_controllers: whether a standalone export hands connected
-    /// gamepads to player slots. Cleared once the player picks controls in the F12 panel.
+    /// gamepads to player slots. Cleared by a choice in the overlay's Controller (Player 1) window.
     inline static bool auto_assign_controllers = true;
     /// [Controls] auto_assigned_pads: which pad got which slot (SuyuCmd::PadBinding).
     inline static std::string auto_assigned_pads;

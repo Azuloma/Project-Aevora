@@ -6916,7 +6916,7 @@ bool GameExportDialog::PackageNativeExport(const QString& rom_path, const QStrin
             out << "- LICENSES/       : suyu's license, third-party notices and source information\n";
             out << "- mods/           : optional; drop <title_id>/<mod name>/ folders here\n";
             out << "- user/           : this game's own config, saves, and logs (not suyu's)\n\n";
-            out << "Press F12 in-game for the debug panel (status, mods, folders).\n";
+            out << "Move the mouse to the top edge of the game window for the overlay menu (settings, mods, folders).\n";
             readme.close();
         }
 

@@ -83,7 +83,7 @@ inline FrameTiming TimeFrame(float delta_seconds) {
     return {true, delta_seconds * 1000.0f, std::min(delta_seconds, kMaxAnimationDeltaSeconds)};
 }
 
-/// A title id as 16 uppercase hex digits, the way the F12 panel and game folders write it.
+/// Match the 16 uppercase hex digits used by game folders.
 inline std::string FormatTitleId(std::uint64_t title_id) {
     constexpr char kDigits[] = "0123456789ABCDEF";
     std::string text(16, '0');

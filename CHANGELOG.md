@@ -7,6 +7,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 *Development entry 26 toward v0.0.1. Not a release; no build artifacts are published.*
 
 ### Added
+- Added [IMGUI_OVERLAY.md](docs/Aevora/IMGUI_OVERLAY.md), the developer guide to the Vulkan overlay architecture, input routing, UI contracts, tests, and extension pattern.
 - Added F1 ImGui overlay keyboard/text forwarding: owned key presses, bounded UTF-8 text events, focus reset, capture requests, and SDL text-input synchronization.
 - Added the F2 bounded FIFO UI action/status channel with event-thread binding, reentrancy guard, detach refusal, loading-time pump, and overflow status.
 - Added the F3 Graphics window with Resolution Scale, a shared 13-entry table, save-only next-launch application, and a Qt/table drift check.
@@ -15,10 +16,11 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - Added fullscreen toggle support for F11, Alt+Enter (including keypad Enter), and `View > Fullscreen`, with windowed geometry restore, maximize fallback, hotkey press ownership, and SDL enter/leave-fullscreen status updates.
 
 ### Changed
-- Shared controller snapshots and Player 1 binding helpers keep UI reads mutex-protected and route mutations through the event thread; F12 changes are reflected in the overlay.
+- F6 removed the Win32 F12 debug panel and its `OnKeyEvent` branch; F12 now follows ordinary keyboard routing. The Vulkan overlay remains available through the command bar, while OpenGL and Null retain no overlay fallback.
+- Shared controller snapshots and Player 1 binding helpers keep UI reads mutex-protected and route mutations through the event thread; controller changes are reflected in the overlay.
 - Overlay popup regions capture the whole display while open, and overlay reset clears ImGui keys and mouse state after focus loss.
 - Fixed the command-bar popup bug: a combo popup was treated as a menu, summoning the hidden bar and letting `BeginMainMenuBar` steal focus; the rule now keeps only an already-visible bar alive. A headless replay used the real router, rule, and ImGui 1.92.9b sources, and `overlay_logic_unit` covers hidden-bar popup and hover cases.
-- Commits: `22a1045`, `350af77`, `2d1a42e`, `2b219fa`, `468cd47`, `7ab529e`, `6498ed1`, `2fdf3f9`, `59d7338`, `1506b19`, `7138f29`, `7d73d31`, `06c8abb`.
+- Commits: `22a1045`, `350af77`, `2d1a42e`, `2b219fa`, `468cd47`, `7ab529e`, `6498ed1`, `2fdf3f9`, `59d7338`, `1506b19`, `7138f29`, `7d73d31`, `06c8abb`; F6 is uncommitted.
 
 ### Verified
 - Standalone tests pass after each stage with negative controls: `overlay_logic_unit`, `overlay_actions_unit`, `graphics_settings_unit`, and `controller_settings_unit`. Real-router mutations checked key-release ownership, reentrancy, detach refusal, same-value skip, and the analog `accept` predicate.
@@ -26,14 +28,15 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - One Code reviewer round per stage was completed; F1 six, F2 four, F3 three, and F4 seven findings were fixed.
 - F5 standalone tests and the fullscreen unit pass with negative controls; `suyu-cmd` built with exit 0 after each change. The CMake-driven smoke build was not run; tests were built directly with `cl`.
 - Fullscreen review fixes covered geometry restore, fallback reporting, modifier ownership, and SDL failure/event handling. The command-bar replay reproduced the old focus transition and verified selection/focus restoration after the fix.
+- F6 verification: `buildsuyu.cmd` built `suyu` and `suyu-cmd` with `BUILD_EXIT=0` and no new warnings in touched files (`D:\HisuiWakeBuild\logs\f6_build.log`); `overlay_logic_unit` and `controller_settings_unit` built with `cl` and exited 0. The grep check leaves only unrelated F1-F12 ImGui key mapping, `bootmanager.cpp`, and `nintendo_account.cpp` matches. One Code reviewer round found a comment regression in Joy-Con combine/split descriptions; the Implementer restored the missing result, cleared-slot, and sideways-split details, and `git diff --check` passed.
 
 ### Not verified
-- No hand-test result has been recorded yet beyond the combo bug reproduction; the user should confirm Resolution Scale, Controller, Mods/folders, Game, fullscreen, click isolation, and F12 parity before F6 retires F12.
-- Backend limitation (also in F12 and Qt): `BeginMapping` puts every input engine in configuration mode, which stops value updates; a key or axis held when a capture starts and released during it keeps its stored pressed value after `StopMapping`, so the game can see a stuck input until it is pressed and released again (`src/input_common/main.cpp`, `input_engine.cpp`). Needs an input-backend policy; not fixed.
+- The combo/popup fix is confirmed by the user; the user approved F6 after the parity question. F6 itself has not been hand-tested yet. The F6 binaries contain the implemented F6 code, with the later review correction being comment-only.
+- `BeginMapping` puts every input engine in configuration mode, which stops value updates; a key or axis held when a capture starts and released during it keeps its stored pressed value after `StopMapping`, so the game can see a stuck input until it is pressed and released again (`src/input_common/main.cpp`, `input_engine.cpp`). Needs an input-backend policy; not fixed.
 - `controller_assign.h` has no unit test (it needs `ParamPackage`, which standalone test targets do not link), so the new `only_slot` filter and host wiring (`HandleControllerRequest`, `MakeRebindHooks`) are covered only by pure-logic seams and review.
 - The Qt Resolution Scale table remains a second copy (gated by the drift test, not derived).
-- Comments longer than two lines still exist elsewhere in touched files (reviewers listed examples in `emu_window_sdl2.cpp`, `emu_window_sdl2_vk.cpp`, `suyu_cmd/CMakeLists.txt`); trim them when touched.
-- The host was last reconfigured with `GIT_REV` `7d73d31`; HEAD is now `06c8abb`, so a reconfigure is required for matching binaries. The last PLA export remains `ac96270` and contains none of this overlay work.
+- Comments longer than two lines still exist elsewhere in touched files (reviewers listed examples in `emu_window_sdl2_vk.cpp`, `suyu_cmd/CMakeLists.txt`); trim them when touched.
+- The host was reconfigured and rebuilt at `a9d6c62`; F6 binaries were built from the uncommitted tree. The last PLA export remains `ac96270` and contains none of the overlay work.
 
 ## v0.0.1-dev25 - Unreleased
 

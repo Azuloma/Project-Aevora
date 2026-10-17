@@ -131,7 +131,7 @@ inline void Give(Settings::PlayerInput& player, const Common::ParamPackage& pad,
     player.connected = true;
 }
 
-/// Slot questions shared by the automatic and the F12 paths.
+/// Slot queries shared by automatic assignment and the overlay's Controller (Player 1) window.
 struct Slots {
     std::array<Settings::PlayerInput, 10>& players;
     const std::vector<Common::ParamPackage>& devices;
@@ -405,10 +405,8 @@ inline bool AssignControllers(
     return changed;
 }
 
-/// F12 "Combine Joy-Cons": a connected pair whose halves are on two different players becomes
-/// one player, Dual Joy-Cons, in the lower slot; the other slot is cleared and disconnected.
-/// With @p map_pad empty nothing changes and only the slot it would use is returned. With
-/// @p only_slot set, only a pair that has a half on that slot is considered.
+/// Connected pair across players -> Dual Joy-Cons in lower slot; clears other slot's mappings.
+/// Disconnects other slot. Empty map_pad returns target slot only; only_slot requires a half there.
 inline std::optional<std::size_t> CombineJoycons(
     std::array<Settings::PlayerInput, 10>& players, const std::vector<Common::ParamPackage>& devices,
     const std::array<int, Settings::NativeButton::NumButtons>& stock_keys,
@@ -437,10 +435,8 @@ inline std::optional<std::size_t> CombineJoycons(
     return std::nullopt;
 }
 
-/// F12 "Split Joy-Cons": a pair on one player becomes two sideways Joy-Cons, the left half on
-/// that player and the right half on the next free player after it, each with its own
-/// default mapping. With @p map_pad empty nothing changes and only the pair's slot is
-/// returned. With @p only_slot set, only a pair on that slot is considered.
+/// Split a player's pair into sideways Joy-Cons with default mappings: left stays, right moves to
+/// next free player after it. Empty map_pad returns pair slot only; only_slot requires pair there.
 inline std::optional<std::size_t> SplitJoycons(
     std::array<Settings::PlayerInput, 10>& players, const std::vector<Common::ParamPackage>& devices,
     const std::array<int, Settings::NativeButton::NumButtons>& stock_keys,

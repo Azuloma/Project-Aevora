@@ -2,9 +2,10 @@
   <img alt="aevora-icon" src="Assets/Aevora-git.ICON.png" width="300px" />
 <p>
 <p align="center">
-  <img src="https://img.shields.io/badge/Platform-Windows%20x64-1e90ff" alt="Platform">
-  <img src="https://img.shields.io/badge/Recomp%20type-Static%20AoT-ff6347" alt="Recomp type">
-  <img src="https://img.shields.io/badge/License-GPL%203.0%20(v3)-808080" alt="License">
+  <img src="https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-blue?style=for-the-badge&logo=archlinux" alt="Badge">
+  <img src="https://img.shields.io/badge/recompile%20type-static%20aot-b84b3a?style=for-the-badge&logo=ebox" alt="Badge">
+  <img src="https://img.shields.io/badge/status-active%20developemt-e28044?style=for-the-badge&logo=penpot" alt="Badge">
+  <img src="https://img.shields.io/badge/license-GPL--3.0%20(v3)-lightgrey?style=for-the-badge&logo=unlicense" alt="Badge">
 <p>
 <p align="center">
   <strong>An experimental static recompiled version of "Pokémon Legends: Arceus," the landmark first game in the Pokémon Legends series.</strong><br>
@@ -17,7 +18,7 @@
 <p>
 
 > [!IMPORTANT]
-> At Aevora, we utilize AI-powered coding (including so-called "vibe coding"). Our development is guided by human review and real-world testing, prioritizing code that is easy for humans to understand and maintain. We do not consider AI-generated code or successful compilation alone to be proof that the game is functioning correctly.<br> If you disagree with the use of AI or do not trust AI-written code, that is your right. I do not disagree with or find those opinions unfair.
+> At Aevora, we utilize AI-powered coding (including so-called "vibe coding"). Our development is guided by human review and real-world testing, prioritizing code that is easy for humans to understand and maintain. We do not consider AI-generated code or successful compilation alone to be proof that the game is functioning correctly. If you disagree with the use of AI or do not trust AI-written code, that is your right. I do not disagree with or find those opinions unfair.
 
 > [!NOTE]
 > In the expected setup, the user will need to provide the base game's NSP file and corresponding update files separately. The user will also need to provide the key and any necessary firmware, which are not included with Aevora.
@@ -35,12 +36,12 @@ Currently, it has become clear that the Suyu recompiler's code execution method 
 
 ## Platform
 
-| Platform | Current status | Statically recompiled components |
-| --- | --- | --- |
-| Windows (x64) | Experimental; gameplay verified, performance improvements ongoing | Game CPU code (ARM64 → x64) |
-| macOS | Not yet validated | No verified AOT build |
-| Linux | Not yet validated | No verified AOT build |
-| Android | Not supported; outside the project's scope | N/A |
+| Platform      | Current status                                                    | Statically recompiled components |
+| ------------- | ----------------------------------------------------------------- | -------------------------------- |
+| Windows (x64) | Experimental; gameplay verified, performance improvements ongoing | Game CPU code (ARM64 → x64)     |
+| macOS         | Not yet validated                                                 | No verified AOT build            |
+| Linux         | Not yet validated                                                 | No verified AOT build            |
+| Android       | Not supported; outside the project's scope                        | N/A                              |
 
 ## Implemented features
 
@@ -53,13 +54,12 @@ These planned features are not guaranteed to be implemented, and may change depe
 
 - Remove the GUI associated with Suyu and provide GUIs for the Aevora launcher and Aevora Recompiler
 - Ultrawide support
-- Native 4K and WQHD support, and no Dynamic resolution
+- No Dynamic resolution
 - 60FPS Mode
 - Implementation of anti-aging (TAA, FXAA, MSAA)
 - Increased shadow resolution and distance
 - Increased LoD and draw distance
 - Enhanced ambient occlusion
-- 16x anisotropic filtering and increased filtering distance
 - Reducing stutter that occurs during shader compilation
 - Native controller and keyboard support
 

@@ -127,9 +127,8 @@ NativeStatusSnapshot SampleNativeStatus(Core::System& system, bool consume_perf)
         }
     }
 
-    // ShaderNotify's reporting bookkeeping is not synchronised, so exactly one thread may query
-    // it. Every sampler (the window's status refresh and the F12 panel's timer) runs on the
-    // main thread; the result is published here so the title and the overlay read one value.
+    // ShaderNotify's bookkeeping is not synchronised: query it only on the main thread,
+    // then publish one value for the title and overlay.
     if (s.game_running) {
         s.shaders_building = system.GPU().ShaderNotify().ShadersBuilding();
     }

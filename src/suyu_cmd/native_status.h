@@ -29,10 +29,7 @@ enum class NativeBackendClass {
     Unknown,
 };
 
-/// One timestamped reading of everything the status display needs.
-///
-/// Filled by exactly one sampler per process. The title, the F12 panel and any
-/// benchmark read the same snapshot; none of them sample independently, because
+/// One sampler publishes a shared snapshot for the title, overlay, and benchmarks;
 /// the underlying performance counters are destructive to read.
 struct NativeStatusSnapshot {
     std::string game_name;
@@ -152,7 +149,6 @@ inline std::string FormatNativeTitle(const NativeStatusSnapshot& s) {
                       static_cast<unsigned long long>(s.jit_transitions));
         out += jit;
     }
-    out += " | F12 Controls";
     return out;
 }
 

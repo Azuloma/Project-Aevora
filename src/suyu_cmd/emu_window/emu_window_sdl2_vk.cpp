@@ -328,7 +328,6 @@ void EmuWindow_SDL2_VK::PublishOverlayResolutionScale() {
 
 void EmuWindow_SDL2_VK::RunOverlayActions() {
     if (debug_overlay) {
-        // Also catches changes made elsewhere, such as the F12 panel.
         PublishOverlayResolutionScale();
         debug_overlay->PublishFullscreen(FullscreenRequested());
         const std::size_t ran = debug_overlay->GetActions().RunPending();
