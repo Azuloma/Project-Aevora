@@ -16,6 +16,7 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 ### Changed
 
 - The overlay now uses embedded Roboto as the primary Latin font with BIZ UDPGothic Regular merged behind it for Japanese glyphs; this supersedes dev28's BIZ-only wording.
+- Later normal commits `cf07cb2` and `941a465` changed the HUD to 150% text size in embedded Roboto Bold.
 - `tests/recompiler_smoke/bundle_host.cpp` `wmain` now calls `SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)` so the unloadable-DLL case (`dll-invalid`) fails through the loader diagnostic instead of the modal "Bad Image" dialog.
 - Documentation commits `a1e9240` and `71879f9` are included in this milestone; the implementation commits are `4c711ee`, `ffdff12`, `16f899b`, and `10fad30`.
 
@@ -25,11 +26,11 @@ All notable changes to Aevora are recorded here. Versions follow the scheme in [
 - `rebuild-suyu.bat` reconfigured and built `suyu` + `suyu-cmd` (1595/1595, "Build succeeded") with the HUD; after the review fixes `buildsuyu.cmd` built 9/9 steps with `BUILD_EXIT=0`. No warnings were found in touched files; one pre-existing C4005 `WIN32_LEAN_AND_MEAN` redefinition at `emu_window_sdl2.cpp:148` was untouched.
 - Code review by the Orca Code reviewer (`gpt-6.1-sol`, high) of `ffdff12` found 3 medium and 1 low findings, all confirmed and fixed in `16f899b`: F12 consumed when no HUD exists, F12 ignored while ImGui had the keyboard, failed `GetProcessTimes` reads producing 0%/100%, and a 3-line comment. The reviewer found no sampler/Shutdown race, no null resource-limit path, and one VulkanOverlayContext construction site.
 - `python -B tests/recompiler_smoke/run.py --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include` (MSVC, after vcvars64 through `cmd.exe`, `CPM_SOURCE_CACHE=D:\HisuiWakeBuild\cpm`) first failed at bundle-host `dll-invalid` with a 60 s `TimeoutExpired` because Windows showed a modal "Bad Image" dialog in the non-interactive session; the loader code and tests in that area had not changed, and whether the dialog came from Windows build 10.0.26300 was not determined. After the bundle-host fix, the full run exited 0 with 32 "smoke checks passed" lines, including PERF HUD, FULLSCREEN TOGGLE, and the 9 three-module split cases.
+- User-reported hand test after the host rebuild and export (2026-10-18, after normal commits `cf07cb2` and `941a465`): the HUD was 150% size and readable in bold; F12 toggled it and values changed from `N/A` to numbers after switching it on; CPU/GPU/system memory roughly matched Task Manager; and F12 worked while an ImGui window was open.
 
 ### Not verified
 
-- PDH GPU counter behavior on real hardware; the on-screen HUD position, 70% alpha, scaling, and Roboto digits; F12 by hand (toggle, ImGui-focused, and `SUYU_DEBUG_OVERLAY=0` game routing); values against Task Manager; FPS/overhead effect (none measured); and `tests/exclusive_access/run.py` (not run; the HUD does not touch it).
-- An exported build still needs the user's commit, host reconfigure, `GIT_REV` check against HEAD, and a full export first.
+- `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead effect, and `tests/exclusive_access/run.py` remain unverified (`run.py` was not run; the HUD does not touch that code). No numerical results were reported.
 
 ## v0.0.1-dev28 - Unreleased
 

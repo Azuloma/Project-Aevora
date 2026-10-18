@@ -8,20 +8,20 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-Current status: HEAD `10fad30`; dev29 (`4c711ee..10fad30`) is committed. The host has not yet been reconfigured at this HEAD: `msvc-release\src\common\scm_rev.cpp` currently reports `GIT_REV` `71879f92e1cb66afe4d33cad45879259f22a54c3`, so check it again after reconfiguration and before export. The user reported a full export of `4c711ee` was OK: overlay Roboto with merged BIZ UDPGothic, 125% scale, `#46478B`, and rounded windows. No manifest/cache fields or FPS were reported; the dev27 FPS baseline was dropped, and optimization is paused. See [CHANGELOG.md](../../CHANGELOG.md) for dev29 evidence.
+Current status: HEAD `941a465`; the working tree contains an uncommitted docs batch. Dev29 (`4c711ee..10fad30`) remains committed, and normal commits `cf07cb2` and `941a465` are recorded here, not as CHANGELOG entries. The host was rebuilt at `941a465`; `D:\HisuiWakeBuild\msvc-release\src\common\scm_rev.cpp` reports `GIT_REV` `941a46522b0d430a8fb279f7510a300aed418cb4`, equal to HEAD. After that rebuild and an export, the user reported that the HUD hand-test checks passed: 150% bold readability, F12 toggle and `N/A`-to-number transition, rough CPU/GPU/system-memory agreement with Task Manager, and F12 while an ImGui window was open. No manifest/cache fields, numerical results, FPS, or overhead were reported; the dev27 FPS baseline was dropped, and optimization is paused. See [CHANGELOG.md](../../CHANGELOG.md) for dev29 evidence.
 
 ## What was done so far
 
 - Dev19-dev27 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, ImGui overlay, and Android/iOS removal; details are in [CHANGELOG.md](../../CHANGELOG.md).
 - Dev28 and normal commit `4c711ee` delivered the overlay style/font work: Roboto with merged BIZ UDPGothic, 125% scale, `#46478B`, and rounded windows; see [CHANGELOG.md](../../CHANGELOG.md).
 - Dev29 delivered the performance HUD, F12 ownership fixes, embedded Roboto font update, and bundle-host Bad Image dialog suppression; see [CHANGELOG.md](../../CHANGELOG.md).
+- Normal commits `cf07cb2` and `941a465` changed the performance HUD to 150% embedded Roboto Bold, and the user reported the listed post-export HUD checks as passing; see [CHANGELOG.md](../../CHANGELOG.md).
 - The user-reported full export of `4c711ee` confirmed the overlay behavior described in Status.
 
 ## Immediate next action
 
 1. The user commits the docs batch.
-2. Reconfigure the host, verify `GIT_REV`, run a full export, and hand-test the HUD: F12 toggle, five values versus Task Manager, first-second N/A, ImGui focused, and `SUYU_DEBUG_OVERLAY=0` passing F12 to the game.
-3. The user chooses among B3, non-measurement items, or overlay issues.
+2. The user chooses the next step among B3, the non-measurement open items, and the open overlay issues; the still-unreported HUD checks remain an optional follow-up.
 
 ## Open items
 
@@ -29,6 +29,7 @@ Current status: HEAD `10fad30`; dev29 (`4c711ee..10fad30`) is committed. The hos
 - `research/tests` has 7 failures and 1 error pre-existing on HEAD. Tracked repository artifacts that should not be in git are six `__pycache__` `.pyc` files (`tests/exclusive_access`, `tests/export_build_kit`, `tests/export_regression`, `tests/recompiler_smoke`, `tools/export_build_kit`) and `src/suyu/game_card.cpp.bak`; `tools/cpp-lint.sh:37-38` has tab indentation flagged by `git diff --check` (file style).
 - The cause of the Bad Image dialog on this Windows build is undetermined.
 - Product loader `recomp_bundle.cpp:305` `LoadLibraryExW` still has no error-mode handling; an optional runtime change was offered to the user and was not made.
+- The HUD checks listed as not reported in [CHANGELOG.md](../../CHANGELOG.md) remain untested: `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
 
 ## Optimization backlog
 
