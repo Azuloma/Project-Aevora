@@ -8,26 +8,19 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-Current status: HEAD `97f1bcf` (dev28); the host was rebuilt at `97f1bcf`, and `GIT_REV` was verified as `97f1bcfbc59397ee23502e487ad4fa49016c7d60`. The uncommitted Roboto font change (a normal commit, not a versioned dev entry) changes the overlay to primary Roboto with merged BIZ UDPGothic Regular for Japanese glyphs; the host rebuild passed and `smoke_overlay_style_unit` passed. Logs for the dev28 commit are `D:\HisuiWakeBuild\logs\reconf_dev28.log`, `reconf_dev28_configure.log`, and `build_dev28_final.log`; the follow-up build log is `D:\HisuiWakeBuild\logs\build_roboto.log` with detail in `build_roboto_detail.log`.
-
-The user said they will not export or measure at `bbaff08`, so the dev27 FPS baseline is dropped. The mixed Roboto/BIZ text has not been hand-tested at 125% with host `suyu-cmd`; an export needs a commit and a full export.
-
-The follow-up `rebuild-suyu.bat` exited 0. `suyu-cmd.exe` is 37,323,264 bytes after the Roboto change. The standalone smoke test was built with `cl` and exited 0; the full `run.py` suite was not run.
+Current status: HEAD `4c711ee`; the host was reconfigured and rebuilt at `4c711ee`, and `GIT_REV` `4c711eeed47b4cbba7b092bf6cbf3dc6bb6baa9a` matches HEAD. The first rebuild failed with `LNK1104` on `bin\suyu.exe`; no `suyu` process was running, the cause is unidentified, and it was judged a transient file lock; the immediate re-run exited 0. Logs are `D:\HisuiWakeBuild\logs\reconf_roboto.log`, `build_roboto_commit_fail1.log`, and `reconf_roboto2.log`. The user then ran a full export of the `4c711ee` build and reported that the overlay features (Roboto with merged BIZ UDPGothic font, 125% scale, `#46478B` theme with translucent bar/title, and rounded windows) work as expected and no bugs were found; this is user-reported and was not reproduced by an agent. No export manifest, `aot_cache_outcome`/`aot_cache_publish`/`aot_cache_reused` fields, launcher backup, or FPS numbers were reported.
 
 Optimization is paused.
 
 ## What was done so far
 
 - Dev19-dev27 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, ImGui overlay, and Android/iOS removal; details are in [CHANGELOG.md](../../CHANGELOG.md).
-- The overlay replaced the F12 panel through Stage F0-F6; architecture and contracts are in [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md).
 - Dev28 added the embedded BIZ UDPGothic overlay font, centralized style/scale rules, and the overlay style smoke unit; it was committed as `97f1bcf`.
-- The uncommitted Roboto font change (a normal commit, not a versioned dev entry) adds Roboto as the primary Latin font and merges BIZ UDPGothic Regular for Japanese glyphs; the test checks both embedded sources byte-for-byte.
+- The overlay replaced the F12 panel through Stage F0-F6; the Roboto/BIZ UDPGothic font change was committed as normal commit `4c711ee` (not a versioned dev entry), and the user-reported full export confirmed the overlay behavior described in Status.
 
 ## Immediate next action
 
-1. The user hand-tests the mixed Roboto/BIZ overlay look with host `suyu-cmd` at 125%.
-2. The user commits the Roboto change files: `.reuse/dep5`, `README.md`, `docs/Aevora/IMGUI_OVERLAY.md`, `docs/Aevora/CODEBASE_INDEX.md`, `docs/Aevora/WORK_PLAN.md`, `src/suyu_cmd/CMakeLists.txt`, `src/suyu_cmd/overlay/overlay_style.h`, `src/suyu_cmd/overlay/overlay_style.cpp`, `tests/recompiler_smoke/CMakeLists.txt`, `tests/recompiler_smoke/overlay_style_unit.cpp`, and `dist/fonts/Roboto/` (2 files).
-3. The user chooses the next step; the dev27 FPS baseline was dropped, and B3 needs the user's choice.
+1. The user chooses the next step: B3 or another backlog/open item; the dev27 FPS baseline was dropped.
 
 ## Open items
 
