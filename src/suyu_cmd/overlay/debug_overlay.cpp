@@ -378,11 +378,14 @@ void DebugOverlay::BuildPerfHud() {
         return;
     }
     const std::string line = FormatPerfHudLine(perf_hud_sampler->Latest());
-    const ImVec2 text_size = ImGui::CalcTextSize(line.c_str());
+    ImFont* const font = ImGui::GetFont();
+    const float font_size_px = ImGui::GetFontSize() * kPerfHudTextScale;
+    const ImVec2 text_size = font->CalcTextSizeA(font_size_px, FLT_MAX, 0.0f, line.c_str());
     const ImVec2 position{Scaled(kPerfHudMarginPx),
                           ImGui::GetIO().DisplaySize.y - text_size.y - Scaled(kPerfHudMarginPx)};
     // The foreground list belongs to no window, so the HUD never takes input.
-    ImGui::GetForegroundDrawList()->AddText(position, kPerfHudTextColor, line.c_str());
+    ImGui::GetForegroundDrawList()->AddText(font, font_size_px, position, kPerfHudTextColor,
+                                            line.c_str());
 }
 
 void DebugOverlay::PublishCaptureRegions() {
