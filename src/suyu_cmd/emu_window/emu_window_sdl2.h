@@ -83,6 +83,9 @@ protected:
     /// Runs the actions the overlay's UI queued. Event thread only.
     virtual void RunOverlayActions() {}
 
+    /// Shows or hides the overlay's performance HUD. Event thread only.
+    virtual void TogglePerfHud() {}
+
     /// What the overlay's Controller window shows. Event thread only.
     SuyuCmd::ControllerSnapshot BuildControllerSnapshot();
 

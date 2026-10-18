@@ -348,6 +348,12 @@ void EmuWindow_SDL2_VK::SyncOverlayTextInput() {
     }
 }
 
+void EmuWindow_SDL2_VK::TogglePerfHud() {
+    if (debug_overlay) {
+        debug_overlay->GetPerfHud().Toggle();
+    }
+}
+
 Core::Frontend::VulkanOverlay* EmuWindow_SDL2_VK::GetVulkanOverlay() {
     return debug_overlay;
 }

@@ -39,6 +39,9 @@ if (SUYU_CMD OR YUZU_CMD)
         overlay/overlay_stats.h
         overlay/overlay_style.cpp
         overlay/overlay_style.h
+        overlay/perf_hud.h
+        overlay/perf_hud_sampler.cpp
+        overlay/perf_hud_sampler.h
         overlay/rebind_session.h
         sdl_config.cpp
         resolution_scale_host.h
@@ -397,6 +400,7 @@ if (SUYU_CMD OR YUZU_CMD)
                 set_target_properties(${_t} PROPERTIES LINK_FLAGS_RELEASE "-Wl,--subsystem,windows")
             endif()
             target_link_libraries(${_t} PRIVATE ${PLATFORM_LIBRARIES} Threads::Threads)  # Fixed typo: yuzu-cmd -> suyu-cmd
+            target_link_libraries(${_t} PRIVATE pdh)  # Performance HUD GPU counter
         endif()
 
         if (MSVC AND SUYU_USE_BUNDLED_SDL3)

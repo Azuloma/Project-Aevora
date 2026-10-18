@@ -198,6 +198,7 @@ void RendererVulkan::InitializeOverlay() {
         .graphics_queue_family = device.GetGraphicsFamily(),
         .api_version = VK_API_VERSION_1_1,
         .image_count = static_cast<u32>(swapchain.GetImageCount()),
+        .memory_budget = device.CanReportMemoryUsage(),
     };
     if (!candidate->Initialize(overlay_context)) {
         LOG_ERROR(Render_Vulkan, "Frontend overlay failed to initialize; continuing without it");

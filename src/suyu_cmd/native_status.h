@@ -37,6 +37,9 @@ struct NativeStatusSnapshot {
     std::uint64_t title_id{};
 
     bool game_running{};
+    // Guest (emulated Switch) memory of the application process; total 0 means unknown.
+    std::uint64_t guest_memory_used_bytes{};
+    std::uint64_t guest_memory_total_bytes{};
 
     // Performance is published by whichever sampler owns the counters and
     // expires if that sampler stops reporting.

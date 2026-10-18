@@ -9,11 +9,16 @@
 
 namespace SuyuCmd {
 
-/// The scancodes that switch fullscreen; the host supplies them so this stays SDL-free.
+/// Scancode that matches no key, so an unset hotkey never fires.
+inline constexpr std::uint32_t kNoScancode = 0xFFFFFFFFu;
+
+/// The scancodes of the host hotkeys (fullscreen and the performance HUD); the host supplies
+/// them so this stays SDL-free.
 struct FullscreenKeys {
     std::uint32_t toggle;       ///< pressed alone
     std::uint32_t enter;        ///< pressed with Alt
     std::uint32_t keypad_enter; ///< pressed with Alt
+    std::uint32_t perf_hud{kNoScancode}; ///< pressed alone, with or without Alt
 };
 
 /// True for F11, or Enter / keypad Enter while Alt is held.
@@ -33,13 +38,15 @@ public:
     enum class Route : std::uint8_t {
         Game,    ///< not a hotkey
         Toggle,  ///< a fresh hotkey press: switch fullscreen
+        ToggleHud, ///< a fresh press of the HUD key: show or hide the performance HUD
         Consume, ///< the hotkey's own repeat; nobody acts on it
     };
 
     /// `repeat` is SDL's auto-repeat flag; only a fresh press can start a toggle.
     Route OnKeyDown(std::uint32_t scancode, bool alt_down, bool repeat, const FullscreenKeys& keys) {
         const bool tracked = scancode < kHotkeyTrackedKeys;
-        const bool chord = IsFullscreenChord(scancode, alt_down, keys);
+        const bool hud = scancode == keys.perf_hud;
+        const bool chord = hud || IsFullscreenChord(scancode, alt_down, keys);
         if (repeat) {
             if (tracked && hotkey_keys.test(scancode)) {
                 return Route::Consume;
@@ -58,7 +65,7 @@ public:
             if (tracked) {
                 hotkey_keys.set(scancode);
             }
-            return Route::Toggle;
+            return hud ? Route::ToggleHud : Route::Toggle;
         }
         if (tracked) {
             game_keys.set(scancode);

@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <vector>
 
 #include "core/frontend/vulkan_overlay.h"
@@ -15,6 +16,8 @@
 #include "suyu_cmd/overlay/overlay_actions.h"
 #include "suyu_cmd/overlay/overlay_logic.h"
 #include "suyu_cmd/overlay/overlay_stats.h"
+#include "suyu_cmd/overlay/perf_hud.h"
+#include "suyu_cmd/overlay/perf_hud_sampler.h"
 
 namespace SuyuCmd {
 
@@ -50,6 +53,11 @@ public:
     /// UI actions the window's event thread runs, and the status messages they send back.
     UiActionChannel& GetActions() {
         return actions;
+    }
+
+    /// Whether the bottom-left performance HUD is shown; the event thread toggles it.
+    PerfHudVisibility& GetPerfHud() {
+        return perf_hud;
     }
 
     /// Applies a Resolution Scale pick; set and called on the event thread only.
@@ -113,6 +121,7 @@ private:
     void ApplyQueuedInput();
     void CollectActionStatus();
     void BuildUi();
+    void BuildPerfHud();
     void PublishCaptureRegions();
     void BuildCommandBar();
     void BuildDebugWindow();
@@ -139,6 +148,8 @@ private:
 
     OverlayInputRouter input_router;
     UiActionChannel actions;
+    PerfHudVisibility perf_hud;
+    std::unique_ptr<PerfHudSampler> perf_hud_sampler; ///< Created in Initialize.
     ResolutionScaleApplier resolution_scale_applier; ///< Event thread only.
     std::atomic<std::size_t> resolution_scale_index{0};
     ControllerApplier controller_applier; ///< Event thread only.

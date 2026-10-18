@@ -127,6 +127,11 @@ NativeStatusSnapshot SampleNativeStatus(Core::System& system, bool consume_perf)
         }
     }
 
+    if (auto* application = system.ApplicationProcess(); application != nullptr) {
+        s.guest_memory_used_bytes = application->GetUsedUserPhysicalMemorySize(system.Kernel());
+        s.guest_memory_total_bytes = application->GetTotalUserPhysicalMemorySize(system.Kernel());
+    }
+
     // ShaderNotify's bookkeeping is not synchronised: query it only on the main thread,
     // then publish one value for the title and overlay.
     if (s.game_running) {

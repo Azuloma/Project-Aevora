@@ -18,6 +18,7 @@ struct VulkanOverlayContext {
     u32 graphics_queue_family;
     u32 api_version;
     u32 image_count; ///< Swapchain images, bounds how many frames can be in flight
+    bool memory_budget; ///< VK_EXT_memory_budget is enabled on `device`
 };
 
 /// Frontend-provided layer drawn on top of the final presented frame.

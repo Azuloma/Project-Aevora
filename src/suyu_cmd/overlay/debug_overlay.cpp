@@ -34,6 +34,10 @@ constexpr u32 kExtraFramesInFlight = 1;
 // Action outcomes kept for the settings windows to show.
 constexpr std::size_t kRecentStatusCount = 8;
 
+constexpr float kPerfHudMarginPx = 8.0f;
+const ImU32 kPerfHudTextColor =
+    IM_COL32(255, 255, 255, static_cast<int>(kPerfHudTextAlpha * 255.0f + 0.5f));
+
 // Keys ImGui navigates and edits text with; every other scancode is ignored by the overlay.
 ImGuiKey ToImGuiKey(std::uint16_t scancode) {
     if (scancode >= SDL_SCANCODE_A && scancode <= SDL_SCANCODE_Z) {
@@ -99,6 +103,47 @@ PFN_vkVoidFunction LoadVulkanFunction(const char* name, void* user_data) {
     return get_proc_addr(static_cast<VkInstance>(context->instance), name);
 }
 
+// Device-local heap usage over the OS budget for this process; N/A without VK_EXT_memory_budget.
+HudPercent ReadGpuMemoryPercent(const Core::Frontend::VulkanOverlayContext& context) {
+    if (!context.memory_budget) {
+        return Unavailable();
+    }
+    const auto get_proc_addr =
+        reinterpret_cast<PFN_vkGetInstanceProcAddr>(context.get_instance_proc_addr);
+    const auto get_memory_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties2>(
+        get_proc_addr(static_cast<VkInstance>(context.instance),
+                      "vkGetPhysicalDeviceMemoryProperties2"));
+    if (get_memory_properties == nullptr) {
+        return Unavailable();
+    }
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{};
+    budget.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+    VkPhysicalDeviceMemoryProperties2 properties{};
+    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+    properties.pNext = &budget;
+    get_memory_properties(static_cast<VkPhysicalDevice>(context.physical_device), &properties);
+
+    std::uint64_t used_bytes = 0;
+    std::uint64_t budget_bytes = 0;
+    for (u32 heap = 0; heap < properties.memoryProperties.memoryHeapCount; ++heap) {
+        if ((properties.memoryProperties.memoryHeaps[heap].flags &
+             VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0) {
+            continue;
+        }
+        used_bytes += budget.heapUsage[heap];
+        budget_bytes += budget.heapBudget[heap];
+    }
+    return RatioPercent(used_bytes, budget_bytes);
+}
+
+HudPercent ReadGuestMemoryPercent() {
+    NativeStatusSnapshot snapshot;
+    if (!TryGetNativeStatusSnapshot(snapshot) || !snapshot.game_running) {
+        return Unavailable();
+    }
+    return RatioPercent(snapshot.guest_memory_used_bytes, snapshot.guest_memory_total_bytes);
+}
+
 } // namespace
 
 bool IsDebugOverlayRequested() {
@@ -148,12 +193,18 @@ bool DebugOverlay::Initialize(const Core::Frontend::VulkanOverlayContext& new_co
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     ApplyOverlayStyle();
 
+    perf_hud_sampler = std::make_unique<PerfHudSampler>(
+        [vulkan_context = context] { return ReadGpuMemoryPercent(vulkan_context); },
+        ReadGuestMemoryPercent);
+
     last_frame_time = std::chrono::steady_clock::now();
     LOG_INFO(Frontend, "Debug overlay initialized (ImGui {})", ImGui::GetVersion());
     return true;
 }
 
 void DebugOverlay::Shutdown() {
+    // Joins the sampler thread before the Vulkan device it queries goes away.
+    perf_hud_sampler.reset();
     if (backend_ready) {
         ImGui_ImplVulkan_Shutdown();
         backend_ready = false;
@@ -311,10 +362,27 @@ void DebugOverlay::BuildUi() {
     BuildGraphicsWindow();
     BuildControllerWindow();
     BuildModsFoldersWindow();
+    BuildPerfHud();
 
     // A hidden OS pointer would leave nothing to aim with; draw one only while it is over the UI.
     ImGuiIO& io = ImGui::GetIO();
     io.MouseDrawCursor = hardware_cursor_hidden && (command_bar_visible || io.WantCaptureMouse);
+}
+
+void DebugOverlay::BuildPerfHud() {
+    const bool visible = perf_hud.Visible();
+    if (perf_hud_sampler) {
+        perf_hud_sampler->SetActive(visible);
+    }
+    if (!visible || !perf_hud_sampler) {
+        return;
+    }
+    const std::string line = FormatPerfHudLine(perf_hud_sampler->Latest());
+    const ImVec2 text_size = ImGui::CalcTextSize(line.c_str());
+    const ImVec2 position{Scaled(kPerfHudMarginPx),
+                          ImGui::GetIO().DisplaySize.y - text_size.y - Scaled(kPerfHudMarginPx)};
+    // The foreground list belongs to no window, so the HUD never takes input.
+    ImGui::GetForegroundDrawList()->AddText(position, kPerfHudTextColor, line.c_str());
 }
 
 void DebugOverlay::PublishCaptureRegions() {

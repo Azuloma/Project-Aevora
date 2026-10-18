@@ -98,9 +98,52 @@ int LostReleasesAndResetsNeverStickOrToggleTwice() {
     return 0;
 }
 
+constexpr std::uint32_t kHudKey = 69;
+constexpr FullscreenKeys kHudKeys{68, 40, 88, kHudKey};
+
+// Negative control: reports the HUD key as a fullscreen toggle.
+class HudAsFullscreenTracker {
+public:
+    Route OnKeyDown(std::uint32_t scancode, bool alt_down, bool repeat, const FullscreenKeys& keys) {
+        const Route route = inner.OnKeyDown(scancode, alt_down, repeat, keys);
+        return route == Route::ToggleHud ? Route::Toggle : route;
+    }
+    bool OnKeyUp(std::uint32_t scancode) {
+        return inner.OnKeyUp(scancode);
+    }
+
+private:
+    HotkeyKeyTracker inner;
+};
+
+// The HUD key rules, shared by the real tracker and the control. False on a breach.
+template <class Tracker>
+bool HudKeyRulesHold(Tracker tracker) {
+    // Alone or with Alt it toggles the HUD once; repeats and the release stay with the hotkey.
+    if (tracker.OnKeyDown(kHudKey, false, false, kHudKeys) != Route::ToggleHud ||
+        tracker.OnKeyDown(kHudKey, false, true, kHudKeys) != Route::Consume ||
+        !tracker.OnKeyUp(kHudKey) ||
+        tracker.OnKeyDown(kHudKey, true, false, kHudKeys) != Route::ToggleHud ||
+        !tracker.OnKeyUp(kHudKey)) {
+        return false;
+    }
+    // Fullscreen keeps working beside it.
+    return tracker.OnKeyDown(kHudKeys.toggle, false, false, kHudKeys) == Route::Toggle;
+}
+
+int HudKeyHasItsOwnRoute() {
+    CHECK(HudKeyRulesHold(HotkeyKeyTracker{}));
+    CHECK(!HudKeyRulesHold(HudAsFullscreenTracker{}));
+    // Without a configured HUD key no scancode is taken as one.
+    HotkeyKeyTracker tracker;
+    CHECK(tracker.OnKeyDown(kHudKey, false, false, kKeys) == Route::Game);
+    return 0;
+}
+
 } // namespace
 
 int main() {
+    CHECK(HudKeyHasItsOwnRoute() == 0);
     CHECK(ChordNeedsAltForEnter() == 0);
     CHECK(OwnershipFollowsTheFirstPress() == 0);
     CHECK(LostReleasesAndResetsNeverStickOrToggleTwice() == 0);

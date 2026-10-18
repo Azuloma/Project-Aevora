@@ -41,7 +41,7 @@ constexpr u64 kControlsSaveMs = 2000;
 constexpr Sint32 kEventWaitSliceMs = 250;
 
 constexpr SuyuCmd::FullscreenKeys kFullscreenKeys{SDL_SCANCODE_F11, SDL_SCANCODE_RETURN,
-                                                  SDL_SCANCODE_KP_ENTER};
+                                                  SDL_SCANCODE_KP_ENTER, SDL_SCANCODE_F12};
 
 // Gamepads SDL recognises plus suyu's own Joy-Con / Pro Controller driver; wheels and virtual
 // devices take no player. @p sdl_gamepads, when given, gets how many gamepads SDL sees.
@@ -437,6 +437,9 @@ void EmuWindow_SDL2::WaitEvent() {
             if (const auto toggled = ToggleFullscreen(); !toggled.ok) {
                 LOG_ERROR(Frontend, "{}", toggled.message);
             }
+            break;
+        case SuyuCmd::HotkeyKeyTracker::Route::ToggleHud:
+            TogglePerfHud();
             break;
         case SuyuCmd::HotkeyKeyTracker::Route::Consume:
             break;
