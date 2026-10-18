@@ -2271,3 +2271,26 @@ Commit `4c711ee` (a normal commit; no dev entry or CHANGELOG section by the user
 The host was reconfigured and rebuilt at `4c711ee` (`GIT_REV` equals HEAD). The first rebuild failed with `LNK1104` on `bin\suyu.exe` while no `suyu` process was running (transient lock suspected); the re-run exited 0. Logs: `D:\HisuiWakeBuild\logs\reconf_roboto.log`, `build_roboto_commit_fail1.log`, `reconf_roboto2.log`.
 
 The user ran a full export of the `4c711ee` build and reported that the overlay features work as expected with no bugs (user-reported; no manifest, `aot_cache_*` fields, launcher backup, or FPS were reported). The user will not export or measure at `bbaff08`, so the dev27 FPS baseline is dropped. B3 is undecided. The hover reveal strip (`overlay_logic.h`, 20 px, contract in `overlay_logic_unit`) is intentionally not scaled by 125%.
+
+## Archived on 2026-10-18 from WORK_PLAN.md (session 35 cleanup)
+
+### Header links
+
+Handoff prepared: 2026-10-18 (session 35 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), [session 32 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-32-cleanup), [session 33 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-33-cleanup), [session 34 cleanup](OLD_HISTORY.md#archived-on-2026-10-18-from-work_planmd-session-34-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
+
+### Status
+
+Current status: HEAD `941a465`; the working tree contains an uncommitted docs batch. Dev29 (`4c711ee..10fad30`) remains committed, and normal commits `cf07cb2` and `941a465` are recorded here, not as CHANGELOG entries. The host was rebuilt at `941a465`; `D:\HisuiWakeBuild\msvc-release\src\common\scm_rev.cpp` reports `GIT_REV` `941a46522b0d430a8fb279f7510a300aed418cb4`, equal to HEAD. After that rebuild and an export, the user reported that the HUD hand-test checks passed: 150% bold readability, F12 toggle and `N/A`-to-number transition, rough CPU/GPU/system-memory agreement with Task Manager, and F12 while an ImGui window was open. No manifest/cache fields, numerical results, FPS, or overhead were reported; the dev27 FPS baseline was dropped, and optimization is paused. See [CHANGELOG.md](../../CHANGELOG.md) for dev29 evidence.
+
+### What was done so far
+
+- Dev19-dev27 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, ImGui overlay, and Android/iOS removal; details are in [CHANGELOG.md](../../CHANGELOG.md).
+- Dev28 and normal commit `4c711ee` delivered the overlay style/font work: Roboto with merged BIZ UDPGothic, 125% scale, `#46478B`, and rounded windows; see [CHANGELOG.md](../../CHANGELOG.md).
+- Dev29 delivered the performance HUD, F12 ownership fixes, embedded Roboto font update, and bundle-host Bad Image dialog suppression; see [CHANGELOG.md](../../CHANGELOG.md).
+- Normal commits `cf07cb2` and `941a465` changed the performance HUD to 150% embedded Roboto Bold, and the user reported the listed post-export HUD checks as passing; see [CHANGELOG.md](../../CHANGELOG.md).
+- The user-reported full export of `4c711ee` confirmed the overlay behavior described in Status.
+
+### Immediate next action
+
+1. The user commits the docs batch.
+2. The user chooses the next step among B3, the non-measurement open items, and the open overlay issues; the still-unreported HUD checks remain an optional follow-up.
