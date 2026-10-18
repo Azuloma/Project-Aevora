@@ -396,6 +396,8 @@ int RunCase(const std::string& name, const std::filesystem::path& dir) {
 // Wide entry point: the image directory reaches the loader exactly as the process
 // was given it, whatever the ANSI code page.
 int wmain(int argc, wchar_t** argv) {
+    // An unloadable DLL must fail the case, not raise the modal Bad Image dialog.
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     if (argc != 3) {
         std::fprintf(stderr, "usage: bundle_host <case> <image directory>\n");
         return kExitHostCheckFailed;
