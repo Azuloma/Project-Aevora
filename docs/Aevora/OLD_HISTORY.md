@@ -2239,3 +2239,35 @@ Other open Group E items: a held key/axis can remain stuck when capture starts a
 HEAD `bbaff08` (dev27). The user ran a full PLA export at `bbaff08`, finished 2026-10-17 23:00 into `D:\HisuiWakeExports\Pokémon Legends_ Arceus`. The launcher embeds `GIT_REV bbaff08` (the exporter reconfigured the tree at 22:30); `export-package.json` records producer `9113fa9` because the `suyu.exe` that ran the export was built before the commit; the source content is identical to `bbaff08`. Manifest: `chain_start`, cross/direct/indirect chain, `fm_inline`, `fp_shared`, `fpx_vec`, `translate_all` true; `fallback_enabled` false; `requires_runtime_codegen` false; `image_abi` 6; `image_features` 15. Main DLL 1,805,439,488 bytes (`size_of_image` 1,818,562,560); launcher 506,726,912 bytes (`size_of_image` 514,203,648); both below 2 GiB. Launcher and PDB are saved in `D:\HisuiWakeBuild\backup\bbaff08_aot`; EXE RSDS and PDB info stream GUID `108b7bc317890347bd92cb150e8ac4f8`, Age 1041 (equal). The export dialog cache fields (`aot_cache_outcome`/`aot_cache_publish`/`aot_cache_reused`) and the user's FPS reading are not reported yet.
 
 The earlier c456b32-plus-removal export is superseded; its backup folder is `D:\HisuiWakeBuild\backup\c456b32_androidrm_aot`. The Code Implementer role was removed; the main agent implements code and the Code reviewer reviews it. Optimization is paused.
+
+## Archived on 2026-10-18 from WORK_PLAN.md (session 34 cleanup)
+
+### Status
+
+Current status: HEAD `4c711ee`; the host was reconfigured and rebuilt at `4c711ee`, and `GIT_REV` `4c711eeed47b4cbba7b092bf6cbf3dc6bb6baa9a` matches HEAD. The first rebuild failed with `LNK1104` on `bin\suyu.exe`; no `suyu` process was running, the cause is unidentified, and it was judged a transient file lock; the immediate re-run exited 0. Logs are `D:\HisuiWakeBuild\logs\reconf_roboto.log`, `build_roboto_commit_fail1.log`, and `reconf_roboto2.log`. The user then ran a full export of the `4c711ee` build and reported that the overlay features (Roboto with merged BIZ UDPGothic font, 125% scale, `#46478B` theme with translucent bar/title, and rounded windows) work as expected and no bugs were found; this is user-reported and was not reproduced by an agent. No export manifest, `aot_cache_outcome`/`aot_cache_publish`/`aot_cache_reused` fields, launcher backup, or FPS numbers were reported.
+
+Optimization is paused.
+
+### What was done so far
+
+- Dev19-dev27 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, ImGui overlay, and Android/iOS removal; details are in [CHANGELOG.md](../../CHANGELOG.md).
+- Dev28 added the embedded BIZ UDPGothic overlay font, centralized style/scale rules, and the overlay style smoke unit; it was committed as `97f1bcf`.
+- The overlay replaced the F12 panel through Stage F0-F6; the Roboto/BIZ UDPGothic font change was committed as normal commit `4c711ee` (not a versioned dev entry), and the user-reported full export confirmed the overlay behavior described in Status.
+
+### Immediate next action
+
+1. The user chooses the next step: B3 or another backlog/open item; the dev27 FPS baseline was dropped.
+
+### How to proceed
+
+Read CLAUDE.md, README.md, this plan, and [CODEBASE_INDEX.md](CODEBASE_INDEX.md); inspect status and logs before work; ask the user when a choice is required; use one worker at a time; the main agent implements, Code reviewer reviews, Code Explorer surveys read-only, and md Implementer edits Markdown; keep changes focused; and record only verified facts in the next Markdown batch. The next session first asks the user for the FPS baseline on the `bbaff08` export before starting B3. Do not claim a hand-test or export result that was not reported or run.
+
+### Session 34 record
+
+Overlay work in `src/suyu_cmd/overlay/` covered font, scale, and theme. Commit `97f1bcf` (`v0.0.1-dev28`) embedded BIZ UDPGothic Regular (SIL OFL 1.1), set the UI scale to 125% (`kUiScaleFactor` 1.25, single source `overlay_style.h`), applied the `#46478B` theme (menu bar and title bars take the `WindowBg` alpha 0.94; buttons opaque; only closed combo frames through `BeginThemedCombo`), set window rounding to 6 px at 100% (7.5 px applied), and set the main-menu-bar window background alpha to 0 because a code review found `WindowBg` composited under `MenuBarBg` (about 0.996 effective alpha). It also added `CMakeModules/EmbedBinary.cmake`, `smoke_overlay_style_unit` with negative controls, `LICENSES/OFL-1.1.txt`, the `.reuse/dep5` entry, and the README credit.
+
+Commit `4c711ee` (a normal commit; no dev entry or CHANGELOG section by the user's decision) made Roboto (variable font, OFL 1.1, google/fonts commit `1c627bfa375fc51cf86fabeca4f6e08a95f0aa5c`) the primary Latin font and merged BIZ UDPGothic behind it through `ImFontConfig::MergeMode` for Japanese glyphs. Two sources are embedded (`aevora_overlay_font_latin_*`, `aevora_overlay_font_japanese_*`) and the unit test checks both byte-for-byte.
+
+The host was reconfigured and rebuilt at `4c711ee` (`GIT_REV` equals HEAD). The first rebuild failed with `LNK1104` on `bin\suyu.exe` while no `suyu` process was running (transient lock suspected); the re-run exited 0. Logs: `D:\HisuiWakeBuild\logs\reconf_roboto.log`, `build_roboto_commit_fail1.log`, `reconf_roboto2.log`.
+
+The user ran a full export of the `4c711ee` build and reported that the overlay features work as expected with no bugs (user-reported; no manifest, `aot_cache_*` fields, launcher backup, or FPS were reported). The user will not export or measure at `bbaff08`, so the dev27 FPS baseline is dropped. B3 is undecided. The hover reveal strip (`overlay_logic.h`, 20 px, contract in `overlay_logic_unit`) is intentionally not scaled by 125%.
