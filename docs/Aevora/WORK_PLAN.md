@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-18 (session 34 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), [session 32 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-32-cleanup), [session 33 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-33-cleanup), [session 34 cleanup](OLD_HISTORY.md#archived-on-2026-10-18-from-work_planmd-session-34-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
+Handoff prepared: 2026-10-18 (session 35 end). Older material: [session 29 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-29-cleanup), [session 30 cleanup](OLD_HISTORY.md#archived-on-2026-10-16-from-work_planmd-session-30-cleanup), [session 31 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-31-cleanup), [session 32 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-32-cleanup), [session 33 cleanup](OLD_HISTORY.md#archived-on-2026-10-17-from-work_planmd-session-33-cleanup), [session 34 cleanup](OLD_HISTORY.md#archived-on-2026-10-18-from-work_planmd-session-34-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
 
 ## Objective
 
@@ -8,24 +8,27 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-Current status: HEAD `4c711ee` plus uncommitted handoff docs (the user is expected to commit WORK_PLAN/CLAUDE/OLD_HISTORY). The host was reconfigured and rebuilt at `4c711ee`, with `GIT_REV` equal to HEAD at that time. The user reported a full export of `4c711ee` was OK: overlay Roboto with merged BIZ UDPGothic, 125% scale, `#46478B`, and rounded windows. No manifest/cache fields or FPS were reported; the dev27 FPS baseline was dropped, and optimization is paused. See [OLD_HISTORY.md](OLD_HISTORY.md#archived-on-2026-10-18-from-work_planmd-session-34-cleanup) for detail.
+Current status: HEAD `10fad30`; dev29 (`4c711ee..10fad30`) is committed. The host has not yet been reconfigured at this HEAD: `msvc-release\src\common\scm_rev.cpp` currently reports `GIT_REV` `71879f92e1cb66afe4d33cad45879259f22a54c3`, so check it again after reconfiguration and before export. The user reported a full export of `4c711ee` was OK: overlay Roboto with merged BIZ UDPGothic, 125% scale, `#46478B`, and rounded windows. No manifest/cache fields or FPS were reported; the dev27 FPS baseline was dropped, and optimization is paused. See [CHANGELOG.md](../../CHANGELOG.md) for dev29 evidence.
 
 ## What was done so far
 
 - Dev19-dev27 delivered the recompiler, diagnostics, 32-bit index, chain/default-option work, TTAS and lock-free marks, fullscreen toggle, ImGui overlay, and Android/iOS removal; details are in [CHANGELOG.md](../../CHANGELOG.md).
 - Dev28 and normal commit `4c711ee` delivered the overlay style/font work: Roboto with merged BIZ UDPGothic, 125% scale, `#46478B`, and rounded windows; see [CHANGELOG.md](../../CHANGELOG.md).
+- Dev29 delivered the performance HUD, F12 ownership fixes, embedded Roboto font update, and bundle-host Bad Image dialog suppression; see [CHANGELOG.md](../../CHANGELOG.md).
 - The user-reported full export of `4c711ee` confirmed the overlay behavior described in Status.
 
 ## Immediate next action
 
-1. Ask the user to choose the next step: B3 (exclusive bridge/lock path, behind an `=0` switch, then one export to compare on/off at the same position), non-measurement open items (configure_audio combo index, tracked `__pycache__`/`.bak` cleanup, `controller_assign.h` test), or open overlay issues.
-2. After the user commits, reconfigure the host and verify `GIT_REV` before building or exporting.
+1. The user commits the docs batch.
+2. Reconfigure the host, verify `GIT_REV`, run a full export, and hand-test the HUD: F12 toggle, five values versus Task Manager, first-second N/A, ImGui focused, and `SUYU_DEBUG_OVERLAY=0` passing F12 to the game.
+3. The user chooses among B3, non-measurement items, or overlay issues.
 
 ## Open items
 
 - Pre-existing Qt combo-index bug in `src/suyu/configuration/configure_audio.cpp:72,89`: combo index is cast to `AudioEngine` although Libretro is index 4 and value 5; value 4 remains the Null-sink fallback.
 - `research/tests` has 7 failures and 1 error pre-existing on HEAD. Tracked repository artifacts that should not be in git are six `__pycache__` `.pyc` files (`tests/exclusive_access`, `tests/export_build_kit`, `tests/export_regression`, `tests/recompiler_smoke`, `tools/export_build_kit`) and `src/suyu/game_card.cpp.bak`; `tools/cpp-lint.sh:37-38` has tab indentation flagged by `git diff --check` (file style).
-- `CHANGELOG.md` dev28 section still names BIZ UDPGothic as the only overlay font (now Roboto + merged BIZ UDPGothic); `4c711ee` has no CHANGELOG entry by the user's choice.
+- The cause of the Bad Image dialog on this Windows build is undetermined.
+- Product loader `recomp_bundle.cpp:305` `LoadLibraryExW` still has no error-mode handling; an optional runtime change was offered to the user and was not made.
 
 ## Optimization backlog
 
@@ -45,7 +48,7 @@ B1 (TTAS) and B4 (lock-free marks default-on) are done in dev25; no speed effect
 
 ## Open overlay issues
 
-See [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md). Still open: a held key/axis can remain stuck across capture; `controller_assign.h` is untested; the Qt Resolution Scale table has a second translated copy; a hand-undone maximize fallback needs one extra toggle; and the overlay is unavailable on OpenGL/Null, which the user plans to remove.
+See [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md). Still open: a held key/axis can remain stuck across capture; `controller_assign.h` is untested; the Qt Resolution Scale table has a second translated copy; a hand-undone maximize fallback needs one extra toggle; the overlay is unavailable on OpenGL/Null, which the user plans to remove; and PDH GPU accuracy versus Task Manager is unverified.
 
 ## Contracts to preserve
 

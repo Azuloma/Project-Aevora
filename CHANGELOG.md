@@ -2,6 +2,35 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-dev29 - Unreleased
+
+*Development entry 29 toward v0.0.1. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the bottom-left performance HUD, drawn as ImGui foreground-list text with no window, input, or capture region. It is off at every launch and toggled by F12; it uses the default Roboto font, white text at alpha 0.70 (`kPerfHudTextAlpha`), no background or shadow, an 8 px scaled margin, and the line format `CPU: XXX.XX%, GPU: XXX.XX%, GMem: XXX.XX%, MMem: XXX.XX%, SysMem: XXX.XX%`; unavailable values print `N/A` (never 0%), and all values are N/A for the first second after switching on.
+- F12 is claimed by `HotkeyKeyTracker` (`Route::ToggleHud`, `FullscreenKeys::perf_hud`, and `kNoScancode`) only for a window with a HUD (`EmuWindow_SDL2::HasPerfHud`/`ActiveHotkeys`), which is the Vulkan window with an overlay. With `SUYU_DEBUG_OVERLAY=0` or on OpenGL/Null windows, F12 still reaches the game. F12 works while an ImGui window holds the keyboard; the game never sees its press, repeat, or release, and HUD visibility does not use the UI action queue (`PerfHudVisibility` is a single-writer atomic).
+- Added CPU, GPU, GMem, MMem, and SysMem sampling. CPU uses process `GetProcessTimes` deltas divided by wall time and logical cores; GPU uses the PDH `\GPU Engine(pid_<pid>_*)\Utilization Percentage` counters, summed per engine type and reported from the busiest type; GMem uses `VK_EXT_memory_budget` device-local heap usage/budget; MMem uses application `KProcess` physical-memory totals; and SysMem uses `GlobalMemoryStatusEx` total minus available over total. A failed CPU read gives `N/A` (`CpuPercentBetween`).
+- Added `src/suyu_cmd/overlay/perf_hud.h`, `perf_hud_sampler.{h,cpp}`, `tests/recompiler_smoke/perf_hud_unit.cpp` (`smoke_perf_hud_unit`), and HUD-key ownership cases with a negative control in `fullscreen_toggle_unit.cpp`. Sampling runs on `PerfHudSampler`'s own thread once per second (`kPerfHudSampleIntervalMs`) only while visible, and the thread is joined in `DebugOverlay::Shutdown` before the Vulkan device goes away. CPU/GPU/SysMem are Windows-only; `suyu-cmd` links `pdh` on `WIN32`.
+
+### Changed
+
+- The overlay now uses embedded Roboto as the primary Latin font with BIZ UDPGothic Regular merged behind it for Japanese glyphs; this supersedes dev28's BIZ-only wording.
+- `tests/recompiler_smoke/bundle_host.cpp` `wmain` now calls `SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)` so the unloadable-DLL case (`dll-invalid`) fails through the loader diagnostic instead of the modal "Bad Image" dialog.
+- Documentation commits `a1e9240` and `71879f9` are included in this milestone; the implementation commits are `4c711ee`, `ffdff12`, `16f899b`, and `10fad30`.
+
+### Verified
+
+- In a scratch folder, now removed, `perf_hud_unit` and `fullscreen_toggle_unit` built standalone with `cl /W4` and exited 0 before and after the review fixes.
+- `rebuild-suyu.bat` reconfigured and built `suyu` + `suyu-cmd` (1595/1595, "Build succeeded") with the HUD; after the review fixes `buildsuyu.cmd` built 9/9 steps with `BUILD_EXIT=0`. No warnings were found in touched files; one pre-existing C4005 `WIN32_LEAN_AND_MEAN` redefinition at `emu_window_sdl2.cpp:148` was untouched.
+- Code review by the Orca Code reviewer (`gpt-6.1-sol`, high) of `ffdff12` found 3 medium and 1 low findings, all confirmed and fixed in `16f899b`: F12 consumed when no HUD exists, F12 ignored while ImGui had the keyboard, failed `GetProcessTimes` reads producing 0%/100%, and a 3-line comment. The reviewer found no sampler/Shutdown race, no null resource-limit path, and one VulkanOverlayContext construction site.
+- `python -B tests/recompiler_smoke/run.py --nlohmann-include D:\HisuiWakeBuild\cpm\nlohmann_json\v3.12.0\include` (MSVC, after vcvars64 through `cmd.exe`, `CPM_SOURCE_CACHE=D:\HisuiWakeBuild\cpm`) first failed at bundle-host `dll-invalid` with a 60 s `TimeoutExpired` because Windows showed a modal "Bad Image" dialog in the non-interactive session; the loader code and tests in that area had not changed, and whether the dialog came from Windows build 10.0.26300 was not determined. After the bundle-host fix, the full run exited 0 with 32 "smoke checks passed" lines, including PERF HUD, FULLSCREEN TOGGLE, and the 9 three-module split cases.
+
+### Not verified
+
+- PDH GPU counter behavior on real hardware; the on-screen HUD position, 70% alpha, scaling, and Roboto digits; F12 by hand (toggle, ImGui-focused, and `SUYU_DEBUG_OVERLAY=0` game routing); values against Task Manager; FPS/overhead effect (none measured); and `tests/exclusive_access/run.py` (not run; the HUD does not touch it).
+- An exported build still needs the user's commit, host reconfigure, `GIT_REV` check against HEAD, and a full export first.
+
 ## v0.0.1-dev28 - Unreleased
 
 *Development entry 28 toward v0.0.1. Not a release; no build artifacts are published.*

@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-The Aevora overlay is the Vulkan `suyu-cmd` window's developer and quality-of-life surface. It is acquired by the SDL2 Vulkan window and rendered through the Vulkan presentation path; the OpenGL and Null windows do not provide this overlay (the user has chosen not to keep an F12 fallback). The overlay uses Dear ImGui, whose core and Vulkan backend are forced into the `Aevora::imgui` CPM package (`externals/CMakeLists.txt:435-465`, `cpmfile.json:120-125`).
+The Aevora overlay is the Vulkan `suyu-cmd` window's developer and quality-of-life surface. It is acquired by the SDL2 Vulkan window and rendered through the Vulkan presentation path; the OpenGL and Null windows do not provide this overlay. The overlay uses Dear ImGui, whose core and Vulkan backend are forced into the `Aevora::imgui` CPM package (`externals/CMakeLists.txt:435-465`, `cpmfile.json:120-125`).
 
 ## Architecture
 
@@ -38,6 +38,10 @@ The command bar exposes Debug, Graphics, Controller, Mods and folders, Game, and
 - Game reads the launcher/game identity section (`debug_overlay.cpp:646-681`).
 - View > Fullscreen posts the fullscreen action; the event-thread host applies it (`debug_overlay.cpp:369-376,619-627`, `emu_window_sdl2_vk.cpp:281-289`).
 
+### Performance HUD
+
+The performance HUD is off by default on every launch and is toggled by F12. It draws one bottom-left line on ImGui's foreground draw list, outside any window and capture region, so it takes no input; the default Roboto font, white 70% text, no background/shadow, and an 8 px scaled margin are defined by `perf_hud.h` and `debug_overlay.cpp:372-385`. `HotkeyKeyTracker` owns F12 only when `EmuWindow_SDL2::HasPerfHud` is true; `ActiveHotkeys` disables ownership with `kNoScancode` otherwise, and the SDL route consumes press/repeat/release even when ImGui has keyboard focus (`fullscreen_toggle.h:13-73`, `emu_window_sdl2.cpp:306-466`). Thus OpenGL/Null windows pass F12 to the game, while the Vulkan window with an overlay toggles the HUD without the UI action queue (`PerfHudVisibility`). `PerfHudSampler` samples once per second on its own thread only while visible and is joined by `DebugOverlay::Shutdown` before Vulkan teardown (`perf_hud_sampler.h:15-37`, `debug_overlay.cpp:205-208`). Values unavailable from the platform or counters display `N/A`, and the first second after enabling is all N/A; CPU/GPU/SysMem are Windows-only (`perf_hud.h:19-104`, `perf_hud_sampler.h:15-18`).
+
 ## Contracts
 
 - The action queue is the only UI-to-setting mutation path; actions run in posting order on the bound event thread (`overlay_actions.h:39-100`).
@@ -53,7 +57,7 @@ To add a window or setting, define a small immutable snapshot/request contract, 
 
 ## Tests and input replay
 
-The standalone smoke units cover routing and popup ownership (`overlay_logic_unit`), queue ordering/overflow/thread affinity (`overlay_actions_unit`), the shared scale table and event-thread application (`graphics_settings_unit`), Player 1 rebind and binding rules (`controller_settings_unit`), fullscreen chord ownership (`fullscreen_toggle_unit`), and both embedded overlay font/style byte streams and theme rules (`overlay_style_unit`). Each includes a negative control; the relevant test sources are indexed in [CODEBASE_INDEX.md](CODEBASE_INDEX.md).
+The standalone smoke units cover routing and popup ownership (`overlay_logic_unit`), queue ordering/overflow/thread affinity (`overlay_actions_unit`), the shared scale table and event-thread application (`graphics_settings_unit`), Player 1 rebind and binding rules (`controller_settings_unit`), fullscreen and HUD chord ownership (`fullscreen_toggle_unit`), performance HUD math/formatting/visibility (`perf_hud_unit`), and both embedded overlay font/style byte streams and theme rules (`overlay_style_unit`). Each includes a negative control; the relevant test sources are indexed in [CODEBASE_INDEX.md](CODEBASE_INDEX.md). The font statement in Look and style is unchanged.
 
 For an input bug, replay the real router/command-bar headers with ImGui 1.92.9b sources from `D:\HisuiWakeBuild\cpm\imgui\v1.92.9b` (`imgui.cpp`, `imgui_draw.cpp`, `imgui_tables.cpp`, `imgui_widgets.cpp`) before changing code ([WORK_PLAN.md](WORK_PLAN.md#how-to-work--procedures)).
 
