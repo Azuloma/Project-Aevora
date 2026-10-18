@@ -143,6 +143,7 @@ elseif(NOT GENERATED_DIR)
   endif()
   set(overlay_font_cpps)
   foreach(font_spec "aevora_overlay_font_latin|Roboto/Roboto-VariableFont.ttf"
+                    "aevora_overlay_font_latin_bold|Roboto/Roboto-Bold.ttf"
                     "aevora_overlay_font_japanese|BIZUDPGothic/BIZUDPGothic-Regular.ttf")
     string(REPLACE "|" ";" font_parts "${font_spec}")
     list(GET font_parts 0 font_symbol)

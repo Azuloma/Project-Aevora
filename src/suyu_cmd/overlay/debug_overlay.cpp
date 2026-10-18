@@ -378,7 +378,9 @@ void DebugOverlay::BuildPerfHud() {
         return;
     }
     const std::string line = FormatPerfHudLine(perf_hud_sampler->Latest());
-    ImFont* const font = ImGui::GetFont();
+    // Bold is a separate font; if it failed to load, the regular one still shows the HUD.
+    ImFont* const bold_font = OverlayBoldFont();
+    ImFont* const font = bold_font != nullptr ? bold_font : ImGui::GetFont();
     const float font_size_px = ImGui::GetFontSize() * kPerfHudTextScale;
     const ImVec2 text_size = font->CalcTextSizeA(font_size_px, FLT_MAX, 0.0f, line.c_str());
     const ImVec2 position{Scaled(kPerfHudMarginPx),

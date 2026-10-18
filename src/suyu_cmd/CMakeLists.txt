@@ -340,6 +340,7 @@ if (SUYU_CMD OR YUZU_CMD)
     # The overlay fonts are compiled once into a library shared by every suyu-cmd target.
     set(AEVORA_OVERLAY_FONTS
         "aevora_overlay_font_latin|Roboto/Roboto-VariableFont.ttf"
+        "aevora_overlay_font_latin_bold|Roboto/Roboto-Bold.ttf"
         "aevora_overlay_font_japanese|BIZUDPGothic/BIZUDPGothic-Regular.ttf")
     set(AEVORA_OVERLAY_FONT_SOURCES)
     foreach(_font ${AEVORA_OVERLAY_FONTS})

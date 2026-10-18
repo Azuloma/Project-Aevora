@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 
+struct ImFont;
+
 namespace SuyuCmd {
 
 // ImGui-free overlay look: scale, theme colors, and the embedded font. Applied in overlay_style.cpp.
@@ -74,15 +76,20 @@ constexpr ThemePalette MakeThemePalette(float window_bg_alpha) {
     };
 }
 
-// Embedded TTFs (SIL OFL 1.1), generated from dist/fonts at build time: Roboto for Latin text and
-// BIZ UDPGothic Regular for the Japanese glyphs Roboto lacks.
+// Embedded TTFs (SIL OFL 1.1), generated from dist/fonts at build time: Roboto for Latin text,
+// Roboto Bold for emphasized Latin text, and BIZ UDPGothic Regular for the Japanese glyphs.
 extern "C" const std::uint64_t aevora_overlay_font_latin_words[];
 extern "C" const std::size_t aevora_overlay_font_latin_size_bytes;
+extern "C" const std::uint64_t aevora_overlay_font_latin_bold_words[];
+extern "C" const std::size_t aevora_overlay_font_latin_bold_size_bytes;
 extern "C" const std::uint64_t aevora_overlay_font_japanese_words[];
 extern "C" const std::size_t aevora_overlay_font_japanese_size_bytes;
 
 // Applies the font, scale, colors, and rounding to the current ImGui context.
 void ApplyOverlayStyle();
+
+// The bold Latin font loaded by ApplyOverlayStyle, or nullptr if it failed to load.
+ImFont* OverlayBoldFont();
 
 // A combo whose closed frame uses the theme color; the open list keeps the default colors.
 bool BeginThemedCombo(const char* label, const char* preview);

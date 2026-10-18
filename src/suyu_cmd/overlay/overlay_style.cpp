@@ -10,6 +10,8 @@ namespace SuyuCmd {
 
 namespace {
 
+ImFont* g_bold_font = nullptr;
+
 ImVec4 ToImVec4(const Rgba& color) {
     return {color.r, color.g, color.b, color.a};
 }
@@ -40,6 +42,14 @@ void ApplyOverlayStyle() {
                                    0.0f, &japanese_config) == nullptr) {
         LOG_ERROR(Frontend, "Debug overlay could not load the embedded BIZ UDPGothic font");
     }
+    // A separate font, not merged: callers pick it by pointer for text that should be bold.
+    ImFontConfig bold_config = latin_config;
+    g_bold_font = atlas.AddFontFromMemoryTTF(
+        const_cast<std::uint64_t*>(aevora_overlay_font_latin_bold_words),
+        static_cast<int>(aevora_overlay_font_latin_bold_size_bytes), 0.0f, &bold_config);
+    if (g_bold_font == nullptr) {
+        LOG_ERROR(Frontend, "Debug overlay could not load the embedded Roboto Bold font");
+    }
     style.FontSizeBase = kBaseFontSizePx;
     style.FontScaleMain = kUiScaleFactor;
 
@@ -51,6 +61,10 @@ void ApplyOverlayStyle() {
     style.Colors[ImGuiCol_Button] = ToImVec4(palette.button);
     style.Colors[ImGuiCol_ButtonHovered] = ToImVec4(palette.button_hovered);
     style.Colors[ImGuiCol_ButtonActive] = ToImVec4(palette.button_active);
+}
+
+ImFont* OverlayBoldFont() {
+    return g_bold_font;
 }
 
 bool BeginThemedCombo(const char* label, const char* preview) {

@@ -181,4 +181,6 @@ Files: dist/fonts/Roboto/*
 Copyright: 2011 The Roboto Project Authors (https://github.com/googlefonts/roboto-classic)
 License: OFL-1.1
 Comment: Roboto variable font by Christian Robertson, ParaType and Font Bureau, unmodified from
-         https://github.com/google/fonts/tree/main/ofl/roboto (commit 1c627bfa375fc51cf86fabeca4f6e08a95f0aa5c)
+         https://github.com/google/fonts/tree/main/ofl/roboto (commit 1c627bfa375fc51cf86fabeca4f6e08a95f0aa5c);
+         Roboto-Bold.ttf (static, web/static) is unmodified from the googlefonts/roboto-3-classic
+         release v3.016 (Roboto_v3.016.zip), SHA-256 07ee011e62fd0dd0639f730fe20f6a49e325ecc1110134fadfb0062acdee3772

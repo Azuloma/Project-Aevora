@@ -136,6 +136,9 @@ int main(int argc, char** argv) {
     CHECK(EmbeddedFontMatchesTheTtf(argv[1], "Roboto/Roboto-VariableFont.ttf",
                                     aevora_overlay_font_latin_words,
                                     aevora_overlay_font_latin_size_bytes, 100000) == 0);
+    CHECK(EmbeddedFontMatchesTheTtf(argv[1], "Roboto/Roboto-Bold.ttf",
+                                    aevora_overlay_font_latin_bold_words,
+                                    aevora_overlay_font_latin_bold_size_bytes, 100000) == 0);
     CHECK(EmbeddedFontMatchesTheTtf(argv[1], "BIZUDPGothic/BIZUDPGothic-Regular.ttf",
                                     aevora_overlay_font_japanese_words,
                                     aevora_overlay_font_japanese_size_bytes, 1000000) == 0);

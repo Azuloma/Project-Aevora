@@ -20,7 +20,7 @@ inline constexpr std::uint32_t kPerfHudSampleIntervalMs = 1000;
 /// Text opacity of the HUD (white at this alpha).
 inline constexpr float kPerfHudTextAlpha = 0.70f;
 /// HUD text size relative to the overlay's regular text size.
-inline constexpr float kPerfHudTextScale = 1.25f;
+inline constexpr float kPerfHudTextScale = 1.5f;
 
 /// A percentage that may be unavailable; unavailable is shown as N/A, never as 0%.
 struct HudPercent {
