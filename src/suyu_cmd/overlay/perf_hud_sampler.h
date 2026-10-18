@@ -12,9 +12,8 @@
 
 namespace SuyuCmd {
 
-/// Samples the HUD values once per kPerfHudSampleIntervalMs on its own thread, only while active,
-/// so a hidden HUD costs nothing. CPU, GPU and SysMem come from the OS (Windows only; N/A
-/// elsewhere); GMem and MMem come from the readers the owner supplies, which run on that thread.
+/// Samples the HUD values every kPerfHudSampleIntervalMs on its own thread, only while active.
+/// CPU, GPU and SysMem come from the OS (Windows only); GMem and MMem from the owner's readers.
 class PerfHudSampler {
 public:
     using Reader = std::function<HudPercent()>;

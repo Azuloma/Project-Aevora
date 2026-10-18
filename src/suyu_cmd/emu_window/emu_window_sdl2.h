@@ -83,6 +83,11 @@ protected:
     /// Runs the actions the overlay's UI queued. Event thread only.
     virtual void RunOverlayActions() {}
 
+    /// Whether this window has a performance HUD to toggle; only then does F12 belong to it.
+    virtual bool HasPerfHud() const {
+        return false;
+    }
+
     /// Shows or hides the overlay's performance HUD. Event thread only.
     virtual void TogglePerfHud() {}
 
@@ -146,6 +151,9 @@ protected:
 
     /// Switches between fullscreen and windowed. Event thread only.
     SuyuCmd::UiActionResult ToggleFullscreen();
+
+    /// The hotkeys in effect for this window.
+    SuyuCmd::FullscreenKeys ActiveHotkeys() const;
 
     /// Matches the OS cursor and the frontend to the window's actual fullscreen state.
     void ApplyFullscreenState();

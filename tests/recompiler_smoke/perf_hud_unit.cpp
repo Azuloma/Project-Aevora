@@ -1,6 +1,7 @@
 // smoke_perf_hud_unit: percentage math, N/A handling, line format and visibility of the
 // performance HUD (suyu_cmd/overlay/perf_hud.h).
 #include <cstdio>
+#include <optional>
 
 #include "suyu_cmd/overlay/perf_hud.h"
 
@@ -32,6 +33,27 @@ bool CpuRulesHold(Cpu cpu) {
 int CpuIsScaledByCores() {
     CHECK(CpuRulesHold(CpuPercent));
     CHECK(!CpuRulesHold(CpuIgnoringCores));
+    return 0;
+}
+
+// Negative control: treats a failed read as zero ticks, as the unfixed sampler did.
+HudPercent CpuFailureAsZero(std::optional<std::uint64_t> previous, std::optional<std::uint64_t> current,
+                            std::uint64_t wall, std::uint32_t cores) {
+    return CpuPercent(current.value_or(0) - previous.value_or(0), wall, cores);
+}
+
+// A failed read on either side must give N/A, never a made-up number. False on a breach.
+template <class Between>
+bool FailedReadsAreUnavailable(Between between) {
+    return !between(std::nullopt, 500, 1000, 4).available &&
+           !between(500, std::nullopt, 1000, 4).available &&
+           !between(std::nullopt, std::nullopt, 1000, 4).available &&
+           !between(900, 500, 1000, 4).available && between(500, 700, 1000, 4).available;
+}
+
+int FailedCpuReadIsUnavailable() {
+    CHECK(FailedReadsAreUnavailable(CpuPercentBetween));
+    CHECK(!FailedReadsAreUnavailable(CpuFailureAsZero));
     return 0;
 }
 
@@ -77,6 +99,7 @@ int VisibilityStartsOffAndToggles() {
 
 int main() {
     CHECK(CpuIsScaledByCores() == 0);
+    CHECK(FailedCpuReadIsUnavailable() == 0);
     CHECK(UnavailableNeverBecomesZero() == 0);
     CHECK(ValuesAreClamped() == 0);
     CHECK(LineMatchesTheRequestedLayout() == 0);

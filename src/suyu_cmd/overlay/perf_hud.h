@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <string>
 
 namespace SuyuCmd {
@@ -49,6 +50,16 @@ inline HudPercent CpuPercent(std::uint64_t cpu_ticks_delta, std::uint64_t wall_t
         return Unavailable();
     }
     return RatioPercent(cpu_ticks_delta, wall_ticks_delta * logical_cores);
+}
+
+/// CPU use between two counter reads; N/A unless both reads succeeded and time moved forward.
+inline HudPercent CpuPercentBetween(std::optional<std::uint64_t> previous_cpu_ticks,
+                                    std::optional<std::uint64_t> current_cpu_ticks,
+                                    std::uint64_t wall_ticks_delta, std::uint32_t logical_cores) {
+    if (!previous_cpu_ticks || !current_cpu_ticks || *current_cpu_ticks < *previous_cpu_ticks) {
+        return Unavailable();
+    }
+    return CpuPercent(*current_cpu_ticks - *previous_cpu_ticks, wall_ticks_delta, logical_cores);
 }
 
 /// All five HUD values for one sample.

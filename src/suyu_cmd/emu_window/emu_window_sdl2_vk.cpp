@@ -348,6 +348,10 @@ void EmuWindow_SDL2_VK::SyncOverlayTextInput() {
     }
 }
 
+bool EmuWindow_SDL2_VK::HasPerfHud() const {
+    return debug_overlay != nullptr;
+}
+
 void EmuWindow_SDL2_VK::TogglePerfHud() {
     if (debug_overlay) {
         debug_overlay->GetPerfHud().Toggle();

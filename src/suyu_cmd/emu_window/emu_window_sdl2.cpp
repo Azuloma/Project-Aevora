@@ -302,6 +302,15 @@ bool EmuWindow_SDL2::IsFullscreen() const {
     return (SDL_GetWindowFlags(render_window) & SDL_WINDOW_FULLSCREEN) != 0;
 }
 
+// F12 is claimed only by a window that has a HUD to toggle; otherwise the game keeps it.
+SuyuCmd::FullscreenKeys EmuWindow_SDL2::ActiveHotkeys() const {
+    SuyuCmd::FullscreenKeys keys = kFullscreenKeys;
+    if (!HasPerfHud()) {
+        keys.perf_hud = SuyuCmd::kNoScancode;
+    }
+    return keys;
+}
+
 SuyuCmd::UiActionResult EmuWindow_SDL2::ToggleFullscreen() {
     SuyuCmd::UiActionResult result;
     bool left_fullscreen = false;
@@ -426,13 +435,16 @@ void EmuWindow_SDL2::WaitEvent() {
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
         is_open = false;
         break;
-    case SDL_EVENT_KEY_DOWN:
-        if (taken_by_overlay) {
+    case SDL_EVENT_KEY_DOWN: {
+        const SuyuCmd::FullscreenKeys hotkeys = ActiveHotkeys();
+        // The HUD key works even while an ImGui window holds the keyboard.
+        if (taken_by_overlay &&
+            static_cast<std::uint32_t>(event.key.scancode) != hotkeys.perf_hud) {
             break;
         }
         switch (hotkey_keys.OnKeyDown(static_cast<std::uint32_t>(event.key.scancode),
                                       (event.key.mod & SDL_KMOD_ALT) != 0, event.key.repeat,
-                                      kFullscreenKeys)) {
+                                      hotkeys)) {
         case SuyuCmd::HotkeyKeyTracker::Route::Toggle:
             if (const auto toggled = ToggleFullscreen(); !toggled.ok) {
                 LOG_ERROR(Frontend, "{}", toggled.message);
@@ -448,12 +460,16 @@ void EmuWindow_SDL2::WaitEvent() {
             break;
         }
         break;
-    case SDL_EVENT_KEY_UP:
-        if (!taken_by_overlay &&
+    }
+    case SDL_EVENT_KEY_UP: {
+        const bool hud_key =
+            static_cast<std::uint32_t>(event.key.scancode) == ActiveHotkeys().perf_hud;
+        if ((!taken_by_overlay || hud_key) &&
             !hotkey_keys.OnKeyUp(static_cast<std::uint32_t>(event.key.scancode))) {
             OnKeyEvent(static_cast<int>(event.key.scancode), SDL_RELEASED);
         }
         break;
+    }
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         hotkey_keys.Reset();
         break;

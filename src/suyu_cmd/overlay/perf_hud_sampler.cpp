@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,11 +35,11 @@ std::uint64_t FileTimeTicks(const FILETIME& time) {
     return (static_cast<std::uint64_t>(time.dwHighDateTime) << 32) | time.dwLowDateTime;
 }
 
-/// Process CPU time (kernel plus user) in 100 ns ticks, or 0 if it cannot be read.
-std::uint64_t ProcessCpuTicks() {
+/// Process CPU time (kernel plus user) in 100 ns ticks, or nothing if it cannot be read.
+std::optional<std::uint64_t> ProcessCpuTicks() {
     FILETIME creation{}, exit{}, kernel{}, user{};
     if (!GetProcessTimes(GetCurrentProcess(), &creation, &exit, &kernel, &user)) {
-        return 0;
+        return std::nullopt;
     }
     return FileTimeTicks(kernel) + FileTimeTicks(user);
 }
@@ -179,7 +180,7 @@ void PerfHudSampler::Run() {
 #ifdef _WIN32
     GpuEngineCounter gpu_counter;
     const std::uint32_t logical_cores = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
-    std::uint64_t previous_cpu_ticks = ProcessCpuTicks();
+    std::optional<std::uint64_t> previous_cpu_ticks = ProcessCpuTicks();
 #endif
     auto previous_time = std::chrono::steady_clock::now();
     const auto interval = std::chrono::milliseconds(kPerfHudSampleIntervalMs);
@@ -194,11 +195,11 @@ void PerfHudSampler::Run() {
         PerfHudSample sample;
         const auto now = std::chrono::steady_clock::now();
 #ifdef _WIN32
-        const std::uint64_t cpu_ticks = ProcessCpuTicks();
+        const std::optional<std::uint64_t> cpu_ticks = ProcessCpuTicks();
         const auto wall_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now - previous_time);
-        sample.cpu = CpuPercent(cpu_ticks - previous_cpu_ticks,
-                                static_cast<std::uint64_t>(wall_ns.count() / kNanosecondsPerTick),
-                                logical_cores);
+        sample.cpu = CpuPercentBetween(
+            previous_cpu_ticks, cpu_ticks,
+            static_cast<std::uint64_t>(wall_ns.count() / kNanosecondsPerTick), logical_cores);
         previous_cpu_ticks = cpu_ticks;
         sample.gpu = gpu_counter.Read();
         sample.system_memory = SystemMemoryPercent();
