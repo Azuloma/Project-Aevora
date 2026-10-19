@@ -20,7 +20,7 @@ HEAD was `dc1881f` when this handoff was prepared (the handoff docs batch is com
 ## Immediate next action
 
 1. Read `CLAUDE.md`, this plan, and `CODEBASE_INDEX.md`; check `git status`/`git log`; confirm no `suyu.exe`, `ninja`, or `cl` process holds the build tree. A running host `suyu.exe` locks `bin\suyu.exe` and causes `LNK1104`; ask the user before ending a process they may be using.
-2. Ask the user to choose the next work item. Recommendation: start with cheap non-measurement items (tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` unit test, and optionally the `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with a test), then B3 exclusive-path optimization (requires an `=0` switch, a full export, and same-position FPS comparison), then the open overlay issues.
+2. Ask the user to choose the next work item. Recommendation: start with cheap non-measurement items (tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` unit test, and optionally the `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with a test), then the open overlay issues.
 3. Treat the unreported HUD checks as optional follow-ups: `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
 4. For each code change: main agent implements; standalone tests with negative controls; Code reviewer (Orca); fixes; `python -B tests/recompiler_smoke/run.py`; user commits; reconfigure plus `GIT_REV` check; then a docs batch via md Implementer. The user decides whether each commit is a dev entry or normal commit; ask if unstated.
 
@@ -32,21 +32,9 @@ HEAD was `dc1881f` when this handoff was prepared (the handoff docs batch is com
 - Product loader `recomp_bundle.cpp:305` `LoadLibraryExW` still has no error-mode handling; an optional runtime change was offered to the user and was not made.
 - The HUD checks listed as not reported in [CHANGELOG.md](../../CHANGELOG.md) remain untested: `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
 
-## Optimization backlog
+## Optimization direction (restarted)
 
-| Item | One-line scope | Measured basis |
-|---|---|---|
-| B2 | Separate the monitor lock and per-core reservation slots by cache line. | Exclusive pool is about 14 core-ms/frame upper bound. |
-| B3 | Measure exclusive timing and shorten the exclusive bridge/lock path. | Host exclusive functions are 5.57% of AOT samples versus 0.15% JIT; dispatch/lookup/slice is 3.18%. |
-| B5 | Replace unlock `xchg` with a plain store after ordering analysis. | Same exclusive pool; no FPS attribution yet. |
-| B6 | Reduce dispatch/lookup/slice and remaining sdk-to-main exits. | Dispatch/lookup/slice 3.18%; about 8M sdk exits each way per 10 seconds. |
-| A7 | Refine FMI memory checks where alignment permits. | FMI checks are 3.9% of samples. |
-| A8 | Revisit prologue/epilogue, entry checks, flag stores, and in-block transfers. | Prologue/epilogue 1.5%, entry checks 1.1%, flags/transfers about 0.3%. |
-| C9 | Reduce rasterizer write-notification cost. | About 1.1 us/store and 1.6 core-ms/frame. |
-| D10 | Complete the untested XMOD1 accounting, miss, gap, IVAU, budget, and publication paths. | No runtime measurement yet. |
-| D11 | Revisit carried launcher, diagnostics, dependency, and held backlog items. | No single current measurement; see archived item list. |
-
-B1 (TTAS) and B4 (lock-free marks default-on) are done in dev25; no speed effect was shown for TTAS. A7/A8 change generated code, so each requires a full export and golden-hash update.
+On 2026-10-19, the user changed the goal to reducing per-core CPU usage for low-spec machines. The previous backlog (B2-D11) was removed, and optimization restarts from scratch. The primary metric, test condition, and target machine are not yet defined and are the first item to decide. The removed backlog remains in git history (commit `d0e8d1d`).
 
 ## Open overlay issues
 
