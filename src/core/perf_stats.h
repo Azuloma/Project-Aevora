@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <mutex>
 #include "common/common_types.h"
+#include "common/cpu_budget.h"
 
 namespace Core {
 
@@ -51,8 +52,17 @@ public:
      */
     double GetLastFrameTimeScale() const;
 
+    /// Starts recording game-frame ends for SUYU_CPU_BUDGET; before this EndGameFrame records none.
+    void EnableGameFrameRecording();
+
+    /// Game frames and their intervals since the previous call.
+    Common::FrameWindow TakeGameFrameWindow();
+
 private:
     mutable std::mutex object_mutex;
+
+    std::atomic<bool> game_frame_recording{false};
+    Common::FrameIntervalRecorder game_frame_recorder;
 
     /// Title ID for the game that is running. 0 if there is no game running yet
     u64 title_id{0};

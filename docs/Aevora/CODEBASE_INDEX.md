@@ -125,6 +125,10 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `src/core/arm/recomp/arm_recomp.h:176`, `arm_recomp.cpp:750` **(v)** | `Core::GetRecompModules()` returns a thread-safe copy of the recompiled module map for overlay diagnostics. |
 | `src/core/arm/recomp/recomp_thread_time.h:21` **(v)** | `RecompThreadTimeLedger` records per-guest-thread `RunThread` wall time for the opt-in diagnostic. |
 | `src/core/hle/kernel/guest_time_ledger.h` | `GuestTimeLedger`: `BeginRun`/`EndRun`/`AddIdle`/`TakeReport`, single-writer per core. (v, 2026-10-11) |
+| `src/common/cpu_budget.h` | OS-free CPU-budget math: frame interval recording, thread matching/window aggregation, percentiles, report formatting, and window parsing. (v, 2026-10-19) |
+| `src/core/cpu_budget_sampler.{h,cpp}` | Windows process/thread CPU sampler using Toolhelp32, `GetThreadTimes`, `GetThreadDescription`, and `GetProcessTimes`; owns the `CpuBudget` sampler thread. (v, 2026-10-19) |
+| `src/core/perf_stats.{h,cpp}` | `PerfStats` game-frame recording hook (`EnableGameFrameRecording`/`TakeGameFrameWindow`) used by CPU-budget diagnostics. (v, 2026-10-19) |
+| `tests/recompiler_smoke/cpu_budget_unit.cpp` | Standalone CPU-budget math and formatting unit, registered as `smoke_cpu_budget_unit`. (v, 2026-10-19) |
 | `src/core/hle/kernel/physical_core.cpp` | `kGuestTime`, `SteadyNowNs`, `BeginRun` + report around `interface->RunThread` in `PhysicalCore::RunThread`, `EndRun` after the halt reason is known, `AddIdle` in `PhysicalCore::Idle`; verify current lines (about :138-143, :250-262, :283, :396-402). (v, 2026-10-11) |
 | `src/core/hle/kernel/physical_core.h` | Member `m_guest_time`. (v, 2026-10-11) |
 | `src/core/arm/recomp/recomp_sharded_counters.h:17` **(v, 2026-10-10)** | `RecompShardedCounters` provides per-thread cache-line-aligned slots, single-writer increments, and aggregate counter reads for dispatch-path diagnostics. |

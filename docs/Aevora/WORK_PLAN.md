@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD was `dc1881f` when this handoff was prepared (the handoff docs batch is committed on top of it by the user; later commits are docs-only unless `git log` shows otherwise). The host tree was last rebuilt at `941a465`; `D:\HisuiWakeBuild\msvc-release\src\common\scm_rev.cpp` reports `GIT_REV` `941a46522b0d430a8fb279f7510a300aed418cb4`, so it differs from the docs-only HEAD by `dc1881f`. Verified: `python -B tests/recompiler_smoke/run.py` exited 0 with 32 smoke checks passed at the `941a465` content. User-reported after that rebuild and an export: 150% bold readability, F12 toggle, `N/A`-to-number transition, rough Task Manager agreement, and F12 with an ImGui window open. No FPS or numbers were reported; still untested are `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`. Runtime work needs reconfigure plus a `GIT_REV` check after a new code commit.
+HEAD is `1b29c7d` (docs-only after `941a465` runtime); the host tree was rebuilt from the uncommitted `SUYU_CPU_BUDGET` change (`GIT_REV` is still `941a465...` because the build was not reconfigured after a commit). `python -B tests/recompiler_smoke/run.py` passed with 33 checks. Still untested are `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
 
 ## What was done so far
 
@@ -20,9 +20,10 @@ HEAD was `dc1881f` when this handoff was prepared (the handoff docs batch is com
 ## Immediate next action
 
 1. Read `CLAUDE.md`, this plan, and `CODEBASE_INDEX.md`; check `git status`/`git log`; confirm no `suyu.exe`, `ninja`, or `cl` process holds the build tree. A running host `suyu.exe` locks `bin\suyu.exe` and causes `LNK1104`; ask the user before ending a process they may be using.
-2. Ask the user to choose the next work item. Recommendation: start with cheap non-measurement items (tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` unit test, and optionally the `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with a test), then the open overlay issues.
-3. Treat the unreported HUD checks as optional follow-ups: `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
-4. For each code change: main agent implements; standalone tests with negative controls; Code reviewer (Orca); fixes; `python -B tests/recompiler_smoke/run.py`; user commits; reconfigure plus `GIT_REV` check; then a docs batch via md Implementer. The user decides whether each commit is a dev entry or normal commit; ask if unstated.
+2. The user commits the `SUYU_CPU_BUDGET` change (a dev entry or normal commit is the user's choice; ask), then reconfigures, rebuilds, and checks `GIT_REV`.
+3. Baseline measurement: JIT with `suyu.exe` (`SUYU_RECOMP_DIR` unset) is possible immediately after the host rebuild; AOT needs a full export after the commit because the launcher carries new core code. Use the same position, stand still, and the configured 30 FPS cap; read steady-state `cpu-budget` lines while skipping loading windows, with no builds or exports during measurement.
+4. Build the new optimization backlog from the breakdown, ranked by CPU ms per frame saved, with an `=0` switch for every item.
+5. Optional cheap non-measurement items remain available: tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` unit test, and optionally the `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with a test.
 
 ## Open items
 
@@ -34,7 +35,7 @@ HEAD was `dc1881f` when this handoff was prepared (the handoff docs batch is com
 
 ## Optimization direction (restarted)
 
-On 2026-10-19, the user changed the goal to reducing per-core CPU usage for low-spec machines. The previous backlog (B2-D11) was removed, and optimization restarts from scratch. The primary metric, test condition, and target machine are not yet defined and are the first item to decide. The removed backlog remains in git history (commit `d0e8d1d`).
+On 2026-10-19, the user changed the goal to reducing per-core CPU usage for low-spec machines. The previous backlog (B2-D11) was removed, and optimization restarts from scratch. The target is the user's i5-12400F (6 cores/12 threads, all P-cores), RTX 2060 SUPER, and 16 GB PC at a 30 FPS cap, using `frame_pacing_mode=0`, `use_speed_limit=true`, `speed_limit=100`, `use_vsync=2`, and `use_multi_core=true`; the user never changed pacing. Primary metrics are whole-process CPU ms per game frame and busiest-thread CPU ms per frame (`core_pct`), with p99 game-frame interval as secondary; compare AOT and JIT at the same position and optionally use affinity-limited runs to emulate fewer cores. Before this change there were no per-frame process/thread CPU or p99 metrics; the HUD is a 1 s `GetProcessTimes` percentage, guest ledgers cover guest-core wall time, and frame history has only mean/max. Surveyed spin candidates include the 30/60/90/120-only `vk_scheduler.h` frame-pacing yield (not taken in Auto), Dynarmic `SpinLock`, and semaphore spins in `common/atomic_helpers.h`. The new opt-in `SUYU_CPU_BUDGET=1` diagnostic (default off; one relaxed atomic load per game frame when off) samples Windows process/thread CPU, reports top 12 threads and frame percentiles every 1-60 s (default 10), and is available to both Qt JIT and AOT; use windows of 10 s or more because `GetThreadTimes` has roughly 15.6 ms clock-tick granularity. Thread baselines match id plus creation time; missed baselines, exited threads, and dropped intervals are reported or excluded as documented by the diagnostic. The guest-requested `suyu-cmd` `exit(0)` callback does not stop/join the sampler; normal window close does. Verified standalone unit build and 20 runs, host rebuild of `suyu`/`suyu-cmd`, and 33-check smoke run all passed; no PLA measurement has run yet. Keep the backlog ranked by CPU ms per frame saved, with an `=0` switch on each item, and retain the old cheap non-measurement items as a separate optional item. The removed backlog remains in git history (commit `d0e8d1d`).
 
 ## Open overlay issues
 
@@ -42,7 +43,7 @@ See [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md). Still open: a held key/axis can remain
 
 ## Contracts to preserve
 
-Keep opt-in diagnostics execution-neutral when off, exact-0 default-on semantics, FP_SHARED/FPXV ABI/result/cache contracts, overlay/fallback wording, two-line comments, and same-position averaged FPS with ms/frame. Cross chain, chain start, TTAS, lock-free marks, FM inline, direct/indirect chain, split main, and FPX are default-on (`=0` disables). Ledgers and lookup/exclusive/access diagnostics remain opt-in. Preserve saved-value CAS, atomic monitor slots, and the 32-bit index contract.
+Keep opt-in diagnostics execution-neutral when off, exact-0 default-on semantics, FP_SHARED/FPXV ABI/result/cache contracts, overlay/fallback wording, two-line comments, and same-position CPU ms per game frame at the 30 FPS cap (`SUYU_CPU_BUDGET`), with FPS from unsampled runs. Cross chain, chain start, TTAS, lock-free marks, FM inline, direct/indirect chain, split main, and FPX are default-on (`=0` disables). Ledgers, lookup/exclusive/access diagnostics, and `SUYU_CPU_BUDGET` remain opt-in. Preserve saved-value CAS, atomic monitor slots, and the 32-bit index contract.
 
 Overlay contracts are documented in [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md): the action queue is the only way the UI changes settings; settings apply on the event thread; Resolution Scale is save-only until next launch; the UI reads snapshots only; every capture/rebind begin has exactly one stop; and controller UI is Player 1 only.
 
@@ -66,6 +67,8 @@ Read CLAUDE.md, README.md, this plan, and [CODEBASE_INDEX.md](CODEBASE_INDEX.md)
 - For overlay input bugs, headlessly replay the real router/command-bar header with ImGui sources from `D:\HisuiWakeBuild\cpm\imgui\v1.92.9b` before changing code.
 - Put scripts containing `\n` or quotes in files; use `D:\HisuiWakeBuild\scratch\<task>\`, then clean it with `D:\HisuiWakeBuild\diag\cleanup_scratch.ps1`.
 - Build `suyu-cmd` after code changes; after the user's commit, reconfigure and verify `GIT_REV`; never build during FPS measurement. For a new PLA export, follow the standing export procedure in CLAUDE.md.
+- For CPU budget measurement, set `$env:SUYU_CPU_BUDGET="1"` and optionally `$env:SUYU_CPU_BUDGET_WINDOW_SEC` to 1-60; read the `cpu-budget` line from the normal `suyu` log, skip loading windows, and use windows of 10 s or more. Thread baselines, dropped intervals, and the `suyu-cmd` `exit(0)` sampler limitation are documented above.
+- `python -B tests/recompiler_smoke/run.py` needs `CPM_SOURCE_CACHE` set to the CPM cache (for example `D:\HisuiWakeBuild\cpm`) for `nlohmann/json.hpp`.
 - For headless overlay replay, use the real router and ImGui sources above with press/release batching, focus events, and combo-popup coverage.
 - Analysis helpers and sampling scripts are outside the repository in `D:\HisuiWakeBuild\tmp_gt` and `D:\HisuiWakeBuild\diag\hotrva`; keep diagnostics off during FPS-only runs.
 - Orca: one worker at a time, acknowledge deliveries, release each worker, and remember that `check --wait` can replay earlier messages.

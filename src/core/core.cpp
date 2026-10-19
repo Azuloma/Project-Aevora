@@ -56,6 +56,7 @@
 #include "core/loader/loader.h"
 #include "core/memory.h"
 #include "core/memory/cheat_engine.h"
+#include "core/cpu_budget_sampler.h"
 #include "core/perf_stats.h"
 #include "core/reporter.h"
 #include "core/tools/freezer.h"
@@ -431,10 +432,12 @@ struct System::Impl {
             }
         }
 
+        cpu_budget_sampler.reset();
         perf_stats.emplace(params.program_id);
         // Reset counters and set time origin to current frame
         GetAndResetPerfStats();
         perf_stats->BeginSystemFrame();
+        cpu_budget_sampler = Core::CpuBudgetSampler::CreateFromEnvironment(*perf_stats);
 
         const FileSys::PatchManager pm(params.program_id, system.GetFileSystemController(), system.GetContentProvider());
         auto const metadata = pm.GetControlMetadata();
@@ -457,6 +460,7 @@ struct System::Impl {
 
     void ShutdownMainProcess() {
         SetShuttingDown(true);
+        cpu_budget_sampler.reset();
 
         // Reset per-game flags
         Settings::values.use_squashed_iterated_blend = false;
@@ -548,6 +552,8 @@ struct System::Impl {
     std::optional<Service::KernelHelpers::ServiceContext> general_channel_context;
     std::optional<Service::Event> general_channel_event;
     std::optional<Core::PerfStats> perf_stats;
+    // Declared after perf_stats so it is destroyed, and stops reading it, first.
+    std::unique_ptr<Core::CpuBudgetSampler> cpu_budget_sampler;
     std::optional<Tegra::Host1x::Host1x> host1x_core;
     std::optional<Core::DeviceMemory> device_memory;
     std::optional<AudioCore::AudioCore> audio_core;

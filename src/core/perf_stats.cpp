@@ -85,6 +85,18 @@ void PerfStats::EndSystemFrame() {
 
 void PerfStats::EndGameFrame() {
     game_frames.fetch_add(1, std::memory_order_relaxed);
+    if (game_frame_recording.load(std::memory_order_relaxed)) {
+        const auto now_ns = duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch());
+        game_frame_recorder.RecordFrameEnd(static_cast<u64>(now_ns.count()));
+    }
+}
+
+void PerfStats::EnableGameFrameRecording() {
+    game_frame_recording.store(true, std::memory_order_relaxed);
+}
+
+Common::FrameWindow PerfStats::TakeGameFrameWindow() {
+    return game_frame_recorder.TakeWindow();
 }
 
 double PerfStats::GetMeanFrametime() const {

@@ -40,6 +40,8 @@ add_library(core STATIC
     game_settings.h
     core_timing.cpp
     core_timing.h
+    cpu_budget_sampler.cpp
+    cpu_budget_sampler.h
     cpu_manager.cpp
     cpu_manager.h
     crypto/aes_util.cpp
