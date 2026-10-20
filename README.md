@@ -28,7 +28,7 @@
 
 ## Status
 
-We've established a milestone to completely remove Suyu branding and make the project function exclusively as Aevora and a static recompiler for PLA. Work on this is currently underway.([ROADMAP](docs/Aevora/NATIVE_ROADMAP.md))
+We've established a milestone to completely remove Suyu branding and make the project function exclusively as Aevora and a static recompiler for PLA. Work on this is currently underway.([ROADMAP](docs/Aevora/NATIVE_ROADMAP.md))<br>
 Suyu references will remain in SPDX headers, copyright notices, license information, and upstream attribution, but everything else is expected to be fully replaced.
 
 ## Platform
