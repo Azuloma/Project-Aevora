@@ -6,12 +6,12 @@
 // How Aevora reads on/off environment variables whose default is "on". One definition, so the
 // exporter, the launcher and their tests agree on what an unset or odd value means.
 
+#include <optional>
 #include <string_view>
 
 namespace Common {
 
-/// An option that is on unless the variable is exactly "0". An unset variable (read as an empty
-/// string) and an empty one are both "on"; any other text is also "on", never an error, so a
+/// On unless the variable is exactly "0"; unset, empty, and any other text are all "on", so a
 /// stray value cannot silently switch an option off.
 constexpr bool EnvFlagDefaultOn(std::string_view value) {
     return value != "0";
@@ -41,6 +41,21 @@ constexpr EnvChoice ParseEnvChoice(std::string_view value) {
         return EnvChoice::On;
     }
     return EnvChoice::Invalid;
+}
+
+/// A decimal integer within [min, max]; nullopt for empty, signed, padded, or out-of-range text.
+constexpr std::optional<int> ParseEnvIntInRange(std::string_view value, int min, int max) {
+    if (value.empty() || value.size() > 9) {
+        return std::nullopt;
+    }
+    int parsed = 0;
+    for (const char digit : value) {
+        if (digit < '0' || digit > '9') {
+            return std::nullopt;
+        }
+        parsed = parsed * 10 + (digit - '0');
+    }
+    return parsed >= min && parsed <= max ? std::optional<int>{parsed} : std::nullopt;
 }
 
 } // namespace Common

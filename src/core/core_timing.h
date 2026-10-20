@@ -132,6 +132,9 @@ public:
     /// HostTiming thread only: waits for the next event or a signal (see host_timing_wait.h).
     void WaitForNextEvent(std::chrono::nanoseconds wait_ns);
 
+    /// Records one callback run when SUYU_HOST_TIMING_STATS is on; called under advance_lock.
+    void RecordEventStats(const EventType& type, std::chrono::steady_clock::time_point start);
+
     struct Event;
 
     void Reset();
@@ -150,6 +153,7 @@ public:
     Common::Event event{};
     Common::Event pause_event{};
     HostTimingWaitStats host_wait_stats{};
+    HostTimingEventStats host_event_stats{};
     std::chrono::steady_clock::time_point host_wait_report_at{};
     std::function<void()> on_thread_init{};
     std::jthread timer_thread;

@@ -33,6 +33,12 @@ HostTimingWaitPlan PlanBlockingShortWaits(nanoseconds wait_ns) {
     return {wait_ns, nanoseconds{0}};
 }
 
+// Negative control: ranks by name and drops the remainder, which hides the busiest event.
+std::string WeakEventReport(int tick_count, int audio_count) {
+    return "host-timing events Audio=" + std::to_string(audio_count) +
+           "/10us Tick=" + std::to_string(tick_count) + "/40us";
+}
+
 bool PlanIsSound(const HostTimingWaitPlan& plan, nanoseconds wait_ns, nanoseconds resolution_ns) {
     if (plan.os_block_ns + plan.fine_wait_ns != wait_ns) {
         return false;
@@ -94,6 +100,22 @@ int main() {
     CHECK(stats.LatenessPercentileUs(99) == 10);
     stats.Record(milliseconds{1}, false, false, milliseconds{40});
     CHECK(stats.LatenessPercentileUs(100) == 40000);
+
+    // Event statistics: ranked by count, averaged per name, remainder folded into other.
+    HostTimingEventStats events;
+    CHECK(events.TakeReport(2).empty());
+    for (int i = 0; i < 5; ++i) {
+        events.Record("Tick", microseconds{40});
+    }
+    for (int i = 0; i < 3; ++i) {
+        events.Record("Audio", microseconds{10});
+    }
+    events.Record("Rare", microseconds{1});
+    events.Record("Also", microseconds{1});
+    const std::string events_report = events.TakeReport(2);
+    CHECK(events_report == "host-timing events Tick=5/40us Audio=3/10us other=2");
+    CHECK(events_report != WeakEventReport(5, 3));
+    CHECK(events.TakeReport(2).empty());
 
     std::puts("host_timing_wait_unit OK");
     return 0;

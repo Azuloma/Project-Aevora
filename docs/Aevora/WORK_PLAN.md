@@ -8,20 +8,21 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `bd7521c` (session 36 handoff docs; code last changed in `ec8e1a5`, `SUYU_CPU_BUDGET`). B1 is implemented and built in the working tree but uncommitted and unmeasured; host `GIT_REV` is still `ec8e1a5f150d05b08102ad09c8da7e974b5b1191`. An AOT export of `ec8e1a5` exists, its cache is published, and it supplied the AOT baseline. Untested: the B1 JIT A/B and acceptance numbers, full export/AOT A/B, `run.py` after the thread timeout fix, `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
+HEAD is `5ccacde` (B1 wait split). The working tree holds the HID 4 ms default and HostTiming event statistics; host `GIT_REV` was `5ccacde7ae9c32c2ee4ccee08107f8be4ffa356f` at the last measurement, and the host has since been rebuilt with the working tree. Untested: a same-session 1 ms versus 4 ms repeat, AOT behavior with 4 ms, full export/AOT A/B, `tests/exclusive_access/run.py`, whether remaining HostTiming time is umwait or OS wake cost, and whether other periodic events can be coalesced.
 
 ## What was done so far
 
 - Dev19-dev29 delivered the recompiler, diagnostics, index, chain/default-option work, TTAS, overlay, Android/iOS removal, style/font, HUD, F12 fixes, embedded font, and Bad Image suppression; `cf07cb2`/`941a465` set 150% embedded Roboto Bold ([CHANGELOG.md](../../CHANGELOG.md)).
 - Session 36 changed the goal, removed B2-D11 (`1b29c7d`; old text at `d0e8d1d`), added `SUYU_CPU_BUDGET` (`ec8e1a5`, no CHANGELOG entry), measured JIT/AOT, found HostTiming's root cause, and decided B1.
-- B1 implemented the OS-blocked HostTiming wait split, single-writer stats, timeout contract fix, comments, and smoke unit; the host was rebuilt successfully, but user A/B measurements are pending.
+- B1's A/B showed no HostTiming effect: both modes stayed at about 33.17-33.18 ms/frame (99.51-99.55%); waits were already under 1 ms with `os_blocked=0`, so the unexplained process-CPU difference may be noise.
+- Event stats showed about 2600 callbacks/s, each averaging 0-5 us, while HostTiming was almost entirely waiting; the 1 ms pad period was a deliberate pre-existing overclock (hardware is 4 ms). The user therefore chose the real-hardware 4 ms Npad period as default; a single run reduced HostTiming to 21.12 ms/frame (63.38%) without perceived input latency or a visible moderate-action bug, and `SUYU_HID_NPAD_UPDATE_MS=1-8` remains an override.
 
 ## Immediate next action
 
 1. Read `CLAUDE.md`, this plan, and `CODEBASE_INDEX.md`; check `git status`/`git log`; confirm no `suyu.exe`, `ninja`, or `cl` process holds the build tree. A running host `suyu.exe` locks `bin\suyu.exe` and causes `LNK1104`; ask the user before ending a process they may be using.
-2. User commits the B1 change in a normal commit (no CHANGELOG/devN; files: `src/common/thread.cpp`, `src/core/{CMakeLists.txt,core_timing.h,core_timing.cpp,host_timing_wait.h}`, `tests/recompiler_smoke/{CMakeLists.txt,run.py,host_timing_wait_unit.cpp}`, and the two docs), then runs the JIT A/B at the same position with `SUYU_HOST_TIMING_BLOCK=0` versus default, both with `SUYU_CPU_BUDGET=1` and `SUYU_HOST_TIMING_STATS=1`, and reports the host-timing lines, CPU budget, and audio/feel check.
-3. After the user's commit: run `rebuild-suyu.bat`, verify `GIT_REV`, user JIT A/B, full export, AOT A/B; record results.
-4. Then B2.
+2. User commits the working-tree change in a normal commit (no CHANGELOG/devN).
+3. After the commit, run `rebuild-suyu.bat` and verify `GIT_REV`; repeat JIT at the same position with the default 4 ms and `SUYU_HID_NPAD_UPDATE_MS=1`, then run the full export and AOT check.
+4. Record those results, then consider coalescing other periodic events or pursuing B2.
 5. Optional cheap items: tracked `__pycache__`/`.bak` cleanup, `configure_audio` combo-index fix, `controller_assign.h` unit test, and optional `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with test.
 
 ## Open items
@@ -50,6 +51,15 @@ Target: i5-12400F (6C/12T, all P-cores), RTX 2060 SUPER, 16 GB; 30 FPS cap. Conf
 
 Baseline: `ec8e1a5`, `SUYU_CPU_BUDGET=1`, 10-second windows, user logs; JIT 13 steady windows (≥300 frames), AOT 12 (≥245). AOT is below cap, so its per-frame values include slower frames. Logs: `D:\HisuiWakeBuild\diag\cpu_budget\jit_ec8e1a5_suyu_log.txt`, `D:\HisuiWakeBuild\diag\cpu_budget\aot_ec8e1a5_suyu_log.txt`; summarizer: `D:\HisuiWakeBuild\diag\cpu_budget\summarize_cpu_budget.py`.
 
+Single-run indication for the 4 ms experiment (separate launch from the 1 ms baseline):
+
+| Npad period | HostTiming ms/frame (core %) | process CPU ms/frame | CPUCore_0/1/2 ms/frame | frame p50/p99 ms |
+| --- | ---: | ---: | ---: | ---: |
+| 1 ms baseline | 33.17 (99.51%) | 114.9 | 20.7 / 20.6 / 20.4 | 33.33 / 34.09 |
+| 4 ms, single run | 21.12 (63.38%) | 101.25 | 20.3 / 20.4 / 20.4 | 33.33 / 33.83 |
+
+The 4 ms run had `os_blocked=4569` of about 52,000 waits and wake-lateness p99 at most 20 us; user reported no perceived input latency or visible bug in moderate-action play. Logs: `D:\HisuiWakeBuild\diag\cpu_budget\jit_npad4_suyu_log.txt` and `D:\HisuiWakeBuild\diag\cpu_budget\jit_5ccacde_block0_suyu_log.txt`.
+
 | Item | Scope | Measured basis |
 | --- | --- | --- |
 | B1 | Block HostTiming in the OS for long waits; umwait only the last margin. | HostTiming 32.9 (JIT) / 39.3 (AOT) ms/frame at about 99% of a core. |
@@ -67,9 +77,7 @@ Switches (user decisions): `SUYU_HOST_TIMING_BLOCK` default-on from the start (`
 
 Verification: unit tests with `/W4 /WX`; `run.py`; host build (CMake list change, expect a full rebuild of about 25 minutes); Code reviewer and fixes; user JIT A/B at the same position (`SUYU_HOST_TIMING_BLOCK=0` vs default, both with `SUYU_CPU_BUDGET=1` and `SUYU_HOST_TIMING_STATS=1`) including an audio/feel check; commit, full export, AOT A/B.
 
-Acceptance: HostTiming `core_pct` falls substantially (target 20% or less from about 99%); FPS not lower and frame p99 not worse beyond noise; wake-lateness p99 rises by no more than the timer resolution (0.5 ms); no reported audio or behaviour regression.
-
-Risks: late timer events may disturb audio, VSync, or guest waits (watch AOT, already below 30 FPS); the 1 ms margin is still waited with umwait, so short event intervals limit the saving; if stats show waits are mostly under the margin, switch to a high-resolution waitable timer design.
+B1 result: the wait split is shipped but ineffective on its own. The measured A/B and event breakdown are recorded above; waits were overwhelmingly short, with no OS blocking in either mode, while the 4 ms Npad default produced the indicative HostTiming reduction. Repeat the 1 ms/4 ms comparison in one session before treating the gain as final.
 
 ## Open overlay issues
 
@@ -91,6 +99,8 @@ Overlay contracts are documented in [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md): the ac
 - Shell-written Markdown turned newlines into backslash-n and PowerShell backtick escapes destroyed text; use the file edit tool, and check real LF counts after each batch.
 - From session 35: mixed LF/CRLF in `tests/recompiler_smoke/CMakeLists.txt`/`run.py`; `worker-start --worktree current` rejects `--name`; bad-DLL tests call `SetErrorMode`; `rebuild-suyu.bat` relinks both executables and a running `suyu.exe` blocks it.
 - Starting `rebuild-suyu.bat` from a Bash-quoted `powershell -Command` silently did not start; start it with `Start-Process` from the PowerShell tool and confirm `cl`/`ninja` are running.
+- A `&&` after `cl` under `cmd.exe` invoked from the PowerShell tool did not run the produced executable; run the executable separately.
+- Orca `check --wait` returns on heartbeat-only deliveries; acknowledge the delivery and wait again.
 
 ## How to proceed
 

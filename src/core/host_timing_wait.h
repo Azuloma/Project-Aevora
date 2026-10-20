@@ -6,11 +6,14 @@
 // OS-free planning and statistics for the HostTiming thread's waits (SUYU_HOST_TIMING_BLOCK and
 // SUYU_HOST_TIMING_STATS). Long waits sleep in the OS; only the last margin uses umwait.
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace Core::Timing {
 
@@ -124,6 +127,52 @@ private:
     std::int64_t max_lateness_ns_{};
     std::array<std::uint64_t, kLengthBuckets> length_{};
     std::array<std::uint64_t, kLatenessBuckets> lateness_{};
+};
+
+/// Counts callbacks per event name and their run time; the caller serialises access.
+class HostTimingEventStats {
+public:
+    void Record(const std::string& name, std::chrono::nanoseconds callback_ns) {
+        Entry& entry = entries_[name];
+        ++entry.count;
+        entry.total_ns += callback_ns.count();
+    }
+
+    /// Formats the busiest names by count (ties by name) and clears the window; "" if empty.
+    std::string TakeReport(std::size_t top_count) {
+        if (entries_.empty()) {
+            return {};
+        }
+        std::vector<std::pair<std::string, Entry>> sorted(entries_.begin(), entries_.end());
+        std::sort(sorted.begin(), sorted.end(), [](const auto& left, const auto& right) {
+            return left.second.count != right.second.count ? left.second.count > right.second.count
+                                                           : left.first < right.first;
+        });
+        std::string line = "host-timing events";
+        std::uint64_t other = 0;
+        for (std::size_t i = 0; i < sorted.size(); ++i) {
+            const Entry& entry = sorted[i].second;
+            if (i >= top_count) {
+                other += entry.count;
+                continue;
+            }
+            const std::int64_t avg_ns = entry.total_ns / static_cast<std::int64_t>(entry.count);
+            line += " " + sorted[i].first + "=" + std::to_string(entry.count) + "/" +
+                    std::to_string(avg_ns / 1000) + "us";
+        }
+        if (other > 0) {
+            line += " other=" + std::to_string(other);
+        }
+        entries_.clear();
+        return line;
+    }
+
+private:
+    struct Entry {
+        std::uint64_t count{};
+        std::int64_t total_ns{};
+    };
+    std::unordered_map<std::string, Entry> entries_;
 };
 
 } // namespace Core::Timing

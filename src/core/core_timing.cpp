@@ -26,6 +26,7 @@ namespace Core::Timing {
 
 constexpr s64 MAX_SLICE_LENGTH = 10000;
 constexpr std::chrono::seconds kHostTimingStatsWindow{10};
+constexpr std::size_t kHostTimingReportedEvents = 16;
 
 namespace {
 const bool kHostTimingBlock = [] {
@@ -36,6 +37,11 @@ const bool kHostTimingStats = [] {
     const char* value = std::getenv("SUYU_HOST_TIMING_STATS");
     return Common::EnvFlagDefaultOff(value ? value : "");
 }();
+
+std::chrono::steady_clock::time_point HostTimingStatsNow() {
+    return kHostTimingStats ? std::chrono::steady_clock::now()
+                            : std::chrono::steady_clock::time_point{};
+}
 } // namespace
 
 std::shared_ptr<EventType> CreateEvent(std::string name, TimedCallback&& callback) {
@@ -241,6 +247,13 @@ u64 CoreTiming::GetGPUTicks() const {
         : Common::WallClock::CPUTickToGPUTick(cpu_ticks);
 }
 
+void CoreTiming::RecordEventStats(const EventType& type,
+                                  std::chrono::steady_clock::time_point callback_start) {
+    if (kHostTimingStats) {
+        host_event_stats.Record(type.name, std::chrono::steady_clock::now() - callback_start);
+    }
+}
+
 std::optional<s64> CoreTiming::Advance() {
     std::scoped_lock lock{advance_lock, basic_lock};
     global_timer = GetGlobalTimeNs().count();
@@ -257,15 +270,19 @@ std::optional<s64> CoreTiming::Advance() {
 
                 basic_lock.unlock();
 
+                const auto callback_start = HostTimingStatsNow();
                 event_type->callback(
                     evt_time, std::chrono::nanoseconds{GetGlobalTimeNs().count() - evt_time});
+                RecordEventStats(*event_type, callback_start);
 
                 basic_lock.lock();
             } else {
                 basic_lock.unlock();
 
+                const auto callback_start = HostTimingStatsNow();
                 const auto new_schedule_time{event_type->callback(
                     evt_time, std::chrono::nanoseconds{GetGlobalTimeNs().count() - evt_time})};
+                RecordEventStats(*event_type, callback_start);
 
                 basic_lock.lock();
 
@@ -358,6 +375,8 @@ void CoreTiming::WaitForNextEvent(std::chrono::nanoseconds wait_ns) {
         host_wait_report_at = now + kHostTimingStatsWindow;
     } else if (now >= host_wait_report_at) {
         LOG_INFO(Core, "{}", host_wait_stats.TakeReport());
+        std::scoped_lock lock{advance_lock};
+        LOG_INFO(Core, "{}", host_event_stats.TakeReport(kHostTimingReportedEvents));
         host_wait_report_at = now + kHostTimingStatsWindow;
     }
 }

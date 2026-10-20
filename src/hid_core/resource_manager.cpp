@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <cstdlib>
+#include "common/env_option.h"
 #include "common/logging.h"
 #include "core/core.h"
 #include "core/core_timing.h"
@@ -42,13 +44,24 @@
 
 namespace Service::HID {
 
-// Updating period for each HID device.
-// Period time is obtained by measuring the number of samples in a second on HW using a homebrew
-// Correct npad_update_ns is 4ms this is overclocked to lower input lag
-constexpr auto npad_update_ns = std::chrono::nanoseconds{1 * 1000 * 1000};    // (1ms, 1000Hz)
+// Update period per HID device, measured on hardware with a homebrew.
+// Real hardware polls the pads every 4 ms; 1 ms (the old default) costs low-spec PCs host CPU.
+constexpr int kDefaultNpadUpdateMs = 4;
 constexpr auto default_update_ns = std::chrono::nanoseconds{4 * 1000 * 1000}; // (4ms, 1000Hz)
 constexpr auto mouse_keyboard_update_ns = std::chrono::nanoseconds{8 * 1000 * 1000}; // (8ms, 125Hz)
 constexpr auto motion_update_ns = std::chrono::nanoseconds{5 * 1000 * 1000};         // (5ms, 200Hz)
+
+namespace {
+// SUYU_HID_NPAD_UPDATE_MS (1-8) trades input latency for fewer HostTiming wakeups; default 4.
+std::chrono::nanoseconds NpadUpdatePeriod() {
+    const char* text = std::getenv("SUYU_HID_NPAD_UPDATE_MS");
+    const auto requested = Common::ParseEnvIntInRange(text ? text : "", 1, 8);
+    if (text && text[0] != '\0' && !requested) {
+        LOG_WARNING(Service_HID, "ignoring invalid SUYU_HID_NPAD_UPDATE_MS '{}' (want 1-8)", text);
+    }
+    return std::chrono::milliseconds{requested.value_or(kDefaultNpadUpdateMs)};
+}
+} // namespace
 
 ResourceManager::ResourceManager(Core::System& system_,
                                  std::shared_ptr<HidFirmwareSettings> settings)
@@ -251,6 +264,10 @@ void ResourceManager::InitializeHidCommonSampler() {
     sleep_button->SetAppletResource(applet_resource, &shared_mutex);
     capture_button->SetAppletResource(applet_resource, &shared_mutex);
 
+    const auto npad_update_ns = NpadUpdatePeriod();
+    if (npad_update_ns != std::chrono::milliseconds{kDefaultNpadUpdateMs}) {
+        LOG_INFO(Service_HID, "npad update period set to {} ms", npad_update_ns.count() / 1000000);
+    }
     system.CoreTiming().ScheduleLoopingEvent(npad_update_ns, npad_update_ns, npad_update_event);
     system.CoreTiming().ScheduleLoopingEvent(default_update_ns, default_update_ns,
                                              default_update_event);

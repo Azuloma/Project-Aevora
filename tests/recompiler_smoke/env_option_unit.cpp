@@ -1,7 +1,8 @@
-// smoke_env_option_unit: how the on-by-default environment variables (SUYU_AOT_FASTMEM,
-// SUYU_AOT_FM_INLINE, SUYU_AOT_DIRECT_CHAIN, SUYU_AOT_INDIRECT_CHAIN, SUYU_DEBUG_OVERLAY) and the
-// three-way SUYU_AOT_SPLIT_MAIN are read (common/env_option.h).
+// smoke_env_option_unit: default-on flags, the three-way choice and bounded integer options of
+// common/env_option.h.
 #include <cstdio>
+#include <optional>
+#include <string_view>
 
 #include "common/env_option.h"
 
@@ -9,6 +10,7 @@ using Common::EnvChoice;
 using Common::EnvFlagDefaultOff;
 using Common::EnvFlagDefaultOn;
 using Common::ParseEnvChoice;
+using Common::ParseEnvIntInRange;
 
 #define CHECK(x)                                                                                 \
     do {                                                                                         \
@@ -58,9 +60,31 @@ int ChoiceDistinguishesDefaultFromRequest() {
     return 0;
 }
 
+// Negative control: accepts any leading digits, so "4ms" or "-1" would pass as numbers.
+std::optional<int> LooseInt(std::string_view value) {
+    return value.empty() ? std::nullopt : std::optional<int>{value[0] - '0'};
+}
+
+int IntInRangeRejectsOddText() {
+    CHECK(ParseEnvIntInRange("1", 1, 8) == 1);
+    CHECK(ParseEnvIntInRange("8", 1, 8) == 8);
+    CHECK(ParseEnvIntInRange("4", 1, 8) == 4);
+    CHECK(!ParseEnvIntInRange("", 1, 8));
+    CHECK(!ParseEnvIntInRange("0", 1, 8));
+    CHECK(!ParseEnvIntInRange("9", 1, 8));
+    CHECK(!ParseEnvIntInRange("-1", 1, 8));
+    CHECK(!ParseEnvIntInRange("+4", 1, 8));
+    CHECK(!ParseEnvIntInRange("4ms", 1, 8));
+    CHECK(!ParseEnvIntInRange(" 4", 1, 8));
+    CHECK(!ParseEnvIntInRange("1234567890", 1, 8));
+    CHECK(LooseInt("4ms") == 4 && !ParseEnvIntInRange("4ms", 1, 8));
+    return 0;
+}
+
 } // namespace
 
 int main() {
+    CHECK(IntInRangeRejectsOddText() == 0);
     CHECK(FlagIsOnUnlessZero() == 0);
     CHECK(FlagIsOffUnlessOne() == 0);
     CHECK(ChoiceDistinguishesDefaultFromRequest() == 0);
