@@ -36,10 +36,31 @@ HEAD is `2db4218` (`docs: compact WORK_PLAN for the session 39 handoff`) on `mai
   - Build: all hook sites compile into `core`; a header-only recorder avoids a CMake source-list change, though including translation units recompile.
   - Output: follow the coverage pattern (`WriteRecompCoverageFile`, `arm_recomp.cpp:697-707`: env path override, else `LogDir`), plus periodic log reports because teardown may not run.
 
+## N0 design (stage 1)
+
+Design note for the boundary inventory, written in session 39 (stage 1). It describes intended code; nothing below is implemented yet.
+
+- Option: `SUYU_BOUNDARY_INVENTORY=1` (`Common::EnvFlagDefaultOff`); any other value leaves it off. `SUYU_BOUNDARY_INVENTORY_PATH` overrides the report file, otherwise `LogDir/boundary_inventory.txt` (the `WriteRecompCoverageFile` pattern).
+- Off path: the flag is read once into a process-wide `inline const bool`; every hook is a single `if` on it and does nothing else. No allocation, lock, clock read, or change to guest-visible results when off; hooks only read values the existing code has already parsed.
+- Code: one header-only, OS-free recorder `src/core/boundary_inventory.h` (namespace `Core::BoundaryInventory`), so no CMake source-list change. Report formatting is a pure function of a snapshot, and the clock is passed in, so the unit test does not need `Core::System`.
+- Data model (cumulative over the process; keys with count and first-seen time):
+  - SVC: per physical core, a cache-line-aligned array of 256 counters indexed by SVC number, single writer per core (relaxed load and store); numbers above 0xFF go to one overflow counter. Hook: `PhysicalCore::RunThread` beside the existing `Svc::Call`.
+  - IPC: (service name, command type, command ID) under one mutex, plus an `unimplemented` flag set from `ReportUnimplementedFunction`. Hook: `ServiceFrameworkBase::HandleSyncRequest`. Domain sub-interfaces are recorded under their own interface name.
+  - nvdrv: `Open` records the device name and keeps an fd-to-name map (removed at `Close`); `Ioctl1/2/3` record (device name, variant, raw ioctl). Hooks: `NVDRV` in `nvdrv_interface.cpp`.
+  - Audio: distinct `AudioRendererParameterInternal` tuples at `OpenAudioRenderer`; at `RequestUpdate` the count and min/max input, output, and performance buffer sizes.
+  - HID and applets: HID command IDs come from the IPC record; library-applet creation records the applet ID (exact hook found in stage 3b).
+  - Filesystem: opens by (kind: RomFS current process, data storage by ID, save data, SDMC, BIS, other; path; mode); reads by path with count, total bytes, and largest end offset. `IFile` keeps the opened path only when the option is on.
+- Thread safety: SVC counters are single-writer per core; every other category has its own mutex. Contention while on is acceptable for a diagnostic; the inventory is not a timing measurement.
+- Output: a deterministic, sorted, tab-separated cumulative report with sections `[svc]`, `[ipc]`, `[nvdrv]`, `[audio]`, `[applet]`, `[fs-open]`, `[fs-read]`. The whole file is rewritten at most every 10 seconds from a recording thread (rate limit checked with a try-lock) and once at shutdown, because teardown may not run; each write logs one `LOG_INFO` summary line with the distinct-key counts, not the full report.
+- Caller attribution (SDK function per SVC/IPC) is stage 5; the data model leaves room for it. The AOT SVC site is the resume PC minus 4.
+- Test: `tests/recompiler_smoke/boundary_inventory_unit.cpp`, registered as `smoke_boundary_inventory_unit`: per-core SVC counts and overflow, IPC keys and the unimplemented flag, nvdrv fd reuse after `Close`, filesystem aggregation, sorted output, and the 10-second write rate limit with an injected clock. Negative control: a build macro that weakens the model (`Close` does not remove the fd, so a reused fd keeps the old device name) must make the test fail fast.
+- Repository output: the stage 7 summary aggregates filesystem paths to directory level with counts; raw reports stay in `D:\HisuiWakeBuild\diag\n0\`.
+- Verification per stage: standalone build of the unit test and its negative control (stage 2); host build, Code reviewer review including the off-path check, and a short `suyu.exe` start with the option off and on (stages 3a and 3b).
+
 ## Immediate next action
 
 1. Read `CLAUDE.md`, this plan, `NATIVE_ROADMAP.md`, and `CODEBASE_INDEX.md`; check status and confirm no `suyu.exe`, `ninja`, or `cl` holds the build tree.
-2. Continue N0 at stage 1 (design note) per `## N0 plan (session 39)`, after user approval.
+2. Continue N0 at stage 2 (header-only recorder and unit test) per `## N0 design (stage 1)`, after user approval of the design.
 3. Optional: investigate AudioManager and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), or other periodic events can be coalesced.
 4. Cheap: tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` test, an optional `LoadLibraryExW` error-mode change with test, the obsolete `*.plist` glob in `tools/translations/qt-source.sh`, and the now-dead `NOT MULTIARCH_BUILD` conditions in `src/dynarmic/CMakeModules/TargetArchitectureSpecificSources.cmake` and `src/dynarmic/tests/CMakeLists.txt`.
 
