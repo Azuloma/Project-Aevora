@@ -20,8 +20,8 @@ Snapshot of the source tree at `2fdf3f9` (2026-10-16), updated from a read-only 
 | `tools/` | Export build kit, CPM scripts, package-policy audit, shader tools, Windows helpers. |
 | `scripts/` | Build-fix notes and helper scripts. Inspect before running; some clear caches. |
 | `dist/`, `hooks/` | Desktop/icon/udev assets; `dist/fonts/Roboto/` contains the Roboto variable TTF, Roboto-Bold.ttf, and OFL notice, while `dist/fonts/BIZUDPGothic/` contains BIZ UDPGothic Regular and its OFL notice; git pre-commit hook installed by CMake. |
-| `docs/Aevora/`, `docs/Suyu/` | Current project docs, including `WORK_PLAN.md` and `OLD_HISTORY.md`; archived upstream docs. |
-| Local, outside repository: `D:\HisuiWakeBuild\diag` | `buildsuyu.cmd`, `runsmoke.cmd`, and samplers. |
+| `docs/Aevora/`, `docs/Suyu/` | Current project docs, including `WORK_PLAN.md`, `NATIVE_ROADMAP.md` and `OLD_HISTORY.md`; archived upstream docs. |
+| Local, outside repository: `D:\HisuiWakeBuild\diag` | `buildsuyu.cmd`, `runsmoke.cmd`, samplers, and `pp_compare` (preprocess-based source-change equivalence tools). |
 
 ### Lineage markers found in the tree
 

@@ -2501,3 +2501,46 @@ Read CLAUDE.md, README.md, this plan, and [CODEBASE_INDEX.md](CODEBASE_INDEX.md)
 - For headless overlay replay, use the real router and ImGui sources with press/release batching, focus events, and combo-popup coverage.
 - Analysis helpers/scripts are outside the repository in `D:\HisuiWakeBuild\tmp_gt` and `D:\HisuiWakeBuild\diag\hotrva`; keep diagnostics off during FPS-only runs.
 - Orca: one worker at a time, acknowledge deliveries, release each worker, and remember that `check --wait` can replay earlier messages.
+
+## Archived on 2026-10-20 from WORK_PLAN.md (session 38 cleanup)
+
+Moved verbatim when the plan was compacted for the session 39 handoff; the current plan is [WORK_PLAN.md](WORK_PLAN.md).
+
+### Status
+
+HEAD is `19ed191` (documentation commits on top of `7609ab3`); the working tree holds the uncommitted macOS removal (see `## Recent work (session 38)`). Host `GIT_REV` is `19ed1919a56bd91044bba87e8cf3ceeec4ce0f5f` (equal to HEAD) and the host binaries were rebuilt from the working tree after the removal. The export at `7609ab3` is done; cache publication was not established here. B1 wait splitting is present but ineffective alone because waits are under 1 ms, with about 2600 timer events/s and HID pad update at 1 kHz the largest source. Commit `97cad8f` made the Npad default 4 ms; X-Y-X results show HostTiming about 60-64% versus 99% and lower process CPU with no measurable FPS change. Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, exclusive-access and overlay/backend checks.
+
+### Recent work (session 38)
+
+- The user chose to drop macOS support completely before more optimization work; the removal is uncommitted (see the v0.0.1-devFINAL entry in [CHANGELOG.md](../../CHANGELOG.md)).
+- Plan P0-P4: Code Explorer inventory; CMake and dependency edits (reconfigure left `build.ninja` and `compile_commands.json` byte-identical); source edits verified with a before/after `/EP` preprocess comparison of all 1718 Windows translation units (1594 identical, 6 line-shift only, 116 intended removals); package-policy, smoke and exclusive_access tests; one Code reviewer round (four P3 items, fixed).
+- The three smoke golden hashes were recomputed because macOS wording left the generated CMake and runtime-header comments; the old generator reproduced the old hashes exactly and only `CMakeLists.txt` and `recomp_runtime.h` moved.
+- Left on purpose: third-party macOS branches under `externals/`, `dist/languages`, `GPUVendor::Apple`, `.gitignore` Finder entries, and the archived `docs/Suyu` pages (macOS build and support text there is upstream history; clean up with the Qt GUI removal G4).
+- Open: Linux/FreeBSD configure and build were not run; `research/tests` was not run; `NATIVE_ROADMAP.md` decisions were recorded earlier in this session (gameplay path confirmed, Tauri for the GUIs).
+- The user labelled this commit `v0.0.1-devFINAL`; README defines `devN` as a development commit count, so the label is a deliberate exception and the counting rule is not changed.
+
+### Recent work (session 37)
+
+- B1 shipped in `5ccacde`; `Event::WaitFor` now returns false on timeout in Windows fallbacks.
+- `97cad8f` added default 4 ms Npad updates and `HostTimingEventStats` (`SUYU_HOST_TIMING_STATS=1`).
+- `7609ab3` is a README commit; the host was rebuilt and its `GIT_REV` verified after export.
+- JIT/AOT X-Y-X results are retained in the measurement table below.
+- `ParseEnvIntInRange` is in `src/common/env_option.h` and is used for the 1-8 ms override.
+- Smoke `run.py` exited 0 before the last two review fixes; `host_timing_wait_unit` and `env_option_unit` were re-run afterward.
+- Code-review rounds found only P2/P3 findings; all were fixed.
+- The user's `README.md` change was committed in `7609ab3`; the working tree was clean at the start of session 38.
+
+### Immediate next action
+
+0. The user commits the macOS removal (suggested files and message are in the session report). After the commit, reconfigure and rebuild the host and check `GIT_REV` in `msvc-release\src\common\scm_rev.cpp`; a full export is needed before the next measurement because the producer revision changes.
+1. Read `CLAUDE.md`, this plan, and `CODEBASE_INDEX.md`; check status/logs and confirm no `suyu.exe`, `ninja`, or `cl` holds the build tree. Ask before ending a user process.
+2. The user is choosing between B2 and [NATIVE_ROADMAP](NATIVE_ROADMAP.md) N0 (2026-10-20). B2: compare the AOT guest-core gap versus JIT at the same position with `SUYU_GUEST_TIME` and RIP sampling; make no code change first.
+3. Optional: investigate AudioManager and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), or other periodic events can be coalesced.
+4. Cheap: tracked `__pycache__`/`.bak` cleanup, `configure_audio` combo-index fix, `controller_assign.h` test, and optional `LoadLibraryExW` error-mode change with test.
+
+### Open items
+
+- Pre-existing Qt combo-index bug: `src/suyu/configuration/configure_audio.cpp:72` maps Libretro index 4 to value 5; value 4 is Null-sink.
+- `research/tests` has 7 failures/1 error pre-existing; tracked `__pycache__`/`.pyc`, `src/suyu/game_card.cpp.bak`, and the `cpp-lint.sh` tab issue remain.
+- Bad Image dialog cause and `recomp_bundle.cpp:305` error-mode handling remain unresolved.
+- HUD checks, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py` remain untested.
