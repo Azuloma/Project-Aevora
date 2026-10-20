@@ -10,7 +10,7 @@ The long-term end goal and its milestones (N0-N10 runtime, G1-G4 tools and GUI) 
 
 ## Status
 
-HEAD is `28011a2` (`v0.0.1-devFINAL: remove macOS support and the Metal/MoltenVK backend`) on `main`; the working tree was clean after the commit. The host binaries in `D:\HisuiWakeBuild\msvc-release\bin` were built from the same sources, but `GIT_REV` in `msvc-release\src\common\scm_rev.cpp` still reads `19ed1919a56bd91044bba87e8cf3ceeec4ce0f5f` until the host is reconfigured and rebuilt. The PLA export and the persistent AOT cache entry date from `7609ab3`; the new producer revision requires a full export before the next measurement. Optimization state: B1 wait splitting alone was ineffective (waits are under 1 ms; about 2600 timer events/s, HID pad update at 1 kHz the largest source); the 4 ms Npad default (`97cad8f`) cut HostTiming from about 99% to 60-64% of a core with no measurable FPS change (table below). Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, and overlay/backend checks. macOS support is removed; Linux and FreeBSD builds were not run.
+HEAD is `2db4218` (`docs: compact WORK_PLAN for the session 39 handoff`) on `main`; the host was reconfigured and rebuilt in session 39 and `GIT_REV` in `msvc-release\src\common\scm_rev.cpp` equals `2db4218ebf260a8b050e29354790f3dae5359ccb`. The PLA export and the persistent AOT cache entry date from `7609ab3`; the new producer revision requires a full export before the next measurement. Optimization state: B1 wait splitting alone was ineffective (waits are under 1 ms; about 2600 timer events/s, HID pad update at 1 kHz the largest source); the 4 ms Npad default (`97cad8f`) cut HostTiming from about 99% to 60-64% of a core with no measurable FPS change (table below). Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, and overlay/backend checks. macOS support is removed; Linux and FreeBSD builds were not run.
 
 ## Recent work (sessions 37-38)
 
@@ -20,15 +20,28 @@ HEAD is `28011a2` (`v0.0.1-devFINAL: remove macOS support and the Metal/MoltenVK
 - Left on purpose after the removal: third-party macOS branches under `externals/`, `dist/languages`, `GPUVendor::Apple` (Asahi Linux), `.gitignore` Finder entries, and the archived `docs/Suyu` pages (clean up with the Qt GUI removal, G4).
 - Not verified after the removal: Linux/FreeBSD configure and build, Windows gameplay, a new PLA export, and `research/tests`.
 
+## N0 plan (session 39)
+
+- The user chose N0 on 2026-10-20 and asked that it proceed stage by stage, with a report, a commit message (normal commit), and user approval at the end of every stage.
+- Stages: 0 read-only hook survey (Code Explorer); 1 design note (one opt-in option, proposed `SUYU_BOUNDARY_INVENTORY=1`, execution-neutral when off; data model, output, thread safety); 2 header-only recorder plus standalone unit test with a negative control; 3a SVC and IPC hooks; 3b nvdrv, audio, HID, and filesystem hooks; 4 PLA collection on the JIT host `suyu.exe` along the supported path (AOT confirmation only after a user commit, reconfigure, and full export); 5 SDK-to-SVC/IPC mapping and NVN entry points (separate design); 6 structural-gate script with a shared deny list, synthetic test, and first report on the current launcher; 7 Markdown batch (check list, inventory summary, WORK_PLAN, CHANGELOG, CODEBASE_INDEX).
+- Decisions (user, 2026-10-20): only summarized inventory goes into the repository; raw PLA logs stay local under `D:\HisuiWakeBuild\diag\n0\`. Stage 6 is not moved earlier.
+- Stage 0 result (verified by the main agent against the current code; the survey report is local at `D:\HisuiWakeBuild\scratch\n0_stage0\report.md`):
+  - SVC: JIT and AOT both reach `Svc::Call` from `PhysicalCore::RunThread` (`src/core/hle/kernel/physical_core.cpp:322-325`); `GuestTimeLedger` already reads the SVC number there (`:281-284`).
+  - SVC caller: the AOT emitter writes `c->pc` (the resume PC, SVC address + 4) before `pending_svc` and `recomp_svc` (`src/core/recompiler/arm64_to_c.h:1511`), so the SVC site is resume PC - 4; x30 is the architectural LR. JIT exposes live LR/PC through `GetContext`.
+  - IPC: `ServiceFrameworkBase::HandleSyncRequest`/`InvokeRequest`/`InvokeRequestTipc` (`src/core/hle/service/service.cpp:87-139`) have the service name and command ID; `ReportUnimplementedFunction` (`:67-85`) is the existing unimplemented-command report. Because nvdrv, audio, HID, and filesystem are HLE services, this one hook counts their command IDs; per-subsystem hooks are needed only for detail (ioctl numbers, paths, parameters).
+  - nvdrv: `NVDRV::Open` and `Ioctl1/2/3` in `src/core/hle/service/nvdrv/nvdrv_interface.cpp:22,58-128`; the device name is known only at Open (`nvdrv.cpp` `Module::Open`), so the recorder must keep an fd-to-name map.
+  - Audio: `audio_renderer_manager.cpp` `OpenAudioRenderer` (initial parameters) and `IAudioRenderer::RequestUpdate`/`RequestUpdateAuto` (`src/core/hle/service/audio/audio_renderer.cpp:77-94`).
+  - Filesystem: `fsp_srv.cpp:466-490` (RomFS/data storage), `OpenSaveDataFileSystem`, `IFileSystem::OpenFile` (`fs_i_filesystem.cpp:91-100`, path and mode), `IFile::Read` (offset and size).
+  - NVN: no `nvnBootstrapLoader` reference exists in the tree; the only guest symbol source found is each NSO's dynsym (runtime parser in `src/core/arm/recomp/arm_recomp.cpp`). Deferred to stage 5.
+  - Build: all hook sites compile into `core`; a header-only recorder avoids a CMake source-list change, though including translation units recompile.
+  - Output: follow the coverage pattern (`WriteRecompCoverageFile`, `arm_recomp.cpp:697-707`: env path override, else `LogDir`), plus periodic log reports because teardown may not run.
+
 ## Immediate next action
 
-1. Read `CLAUDE.md`, this plan, `NATIVE_ROADMAP.md`, and `CODEBASE_INDEX.md`; check status and confirm no `suyu.exe`, `ninja`, or `cl` holds the build tree. Ask before ending a user process.
-2. Reconfigure and rebuild the host (`D:\HisuiWakeBuild\rebuild-suyu.bat` through `Start-Process`) and check that `GIT_REV` equals HEAD; a full export is required before any measurement.
-3. Ask the user which work item comes next; it was undecided at the end of session 38.
-   - N0 (boundary inventory, first runtime milestone of the roadmap): add opt-in, execution-neutral diagnostics that record, along the confirmed gameplay path, the SVC numbers, IPC services and command IDs, nvdrv ioctls, NVN entry points, audio renderer use, HID use, and filesystem access; write the manual check list for the supported path; add the structural-gate script and its first report. Start with a Code Explorer survey of where SVC and IPC dispatch live and which diagnostics already exist.
-   - B2 (continue the CPU work): compare the AOT guest-core gap with JIT at the same position using `SUYU_GUEST_TIME` and RIP sampling; make no code change first. NATIVE_ROADMAP notes that tuning of the emulated scheduler and HostTiming does not carry over to the native runtime (N3).
-4. Optional: investigate AudioManager and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), or other periodic events can be coalesced.
-5. Cheap: tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` test, an optional `LoadLibraryExW` error-mode change with test, the obsolete `*.plist` glob in `tools/translations/qt-source.sh`, and the now-dead `NOT MULTIARCH_BUILD` conditions in `src/dynarmic/CMakeModules/TargetArchitectureSpecificSources.cmake` and `src/dynarmic/tests/CMakeLists.txt`.
+1. Read `CLAUDE.md`, this plan, `NATIVE_ROADMAP.md`, and `CODEBASE_INDEX.md`; check status and confirm no `suyu.exe`, `ninja`, or `cl` holds the build tree.
+2. Continue N0 at stage 1 (design note) per `## N0 plan (session 39)`, after user approval.
+3. Optional: investigate AudioManager and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), or other periodic events can be coalesced.
+4. Cheap: tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` test, an optional `LoadLibraryExW` error-mode change with test, the obsolete `*.plist` glob in `tools/translations/qt-source.sh`, and the now-dead `NOT MULTIARCH_BUILD` conditions in `src/dynarmic/CMakeModules/TargetArchitectureSpecificSources.cmake` and `src/dynarmic/tests/CMakeLists.txt`.
 
 ## Open items
 
@@ -69,6 +82,7 @@ Keep diagnostics execution-neutral when off, exact-0 default-on semantics, ABI/r
 - Mixed-ending files require byte-preserving edits. Use file edit tools and verify real LF counts; do not emit escaped newline text.
 - A CMake source addition can trigger a long full rebuild; a running `suyu.exe` blocks relinking.
 - Verify worker deliveries and Orca heartbeat-only returns before acting on a report.
+- `orca orchestration worker-release` rejects `--run`; pass only `--dispatch` (and `--json`).
 - Bash heredocs, `printf`, and `sed` can turn backslash sequences into real newlines or drop backslashes; write Python edit scripts and `.bat` files with the Write tool and check `git diff --numstat` after every scripted edit (a `cut` helper once removed far more than intended because its end marker matched later text).
 - `cl` prints in the console code page: run `tests/package_policy` without `-X utf8` (under vcvars64) or `test_policy_helpers` fails to decode the compiler output.
 - `git rm` stages deletions; use `git reset -q` afterwards so every change stays unstaged for the user.
