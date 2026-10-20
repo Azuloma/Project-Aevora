@@ -5,6 +5,7 @@
 #include <utility>
 
 #include <fmt/ranges.h>
+#include "core/boundary_inventory.h"
 #include "core/core.h"
 #include "core/hle/kernel/k_event.h"
 #include "core/hle/service/ipc_helpers.h"
@@ -133,6 +134,9 @@ DeviceFD Module::Open(const std::string& device_name, NvCore::SessionId session_
     auto device = builder(fd)->second;
 
     device->OnOpen(session_id, fd);
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordNvdrvOpen(fd, device_name);
+    }
 
     return fd;
 }
@@ -151,6 +155,9 @@ NvResult Module::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
         return NvResult::NotImplemented;
     }
 
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordNvdrvIoctl(fd, 1, command.raw);
+    }
     return itr->second->Ioctl1(fd, command, input, output);
 }
 
@@ -168,6 +175,9 @@ NvResult Module::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> input,
         return NvResult::NotImplemented;
     }
 
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordNvdrvIoctl(fd, 2, command.raw);
+    }
     return itr->second->Ioctl2(fd, command, input, inline_input, output);
 }
 
@@ -185,6 +195,9 @@ NvResult Module::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> input, s
         return NvResult::NotImplemented;
     }
 
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordNvdrvIoctl(fd, 3, command.raw);
+    }
     return itr->second->Ioctl3(fd, command, input, output, inline_output);
 }
 
@@ -201,6 +214,9 @@ NvResult Module::Close(DeviceFD fd) {
         return NvResult::NotImplemented;
     }
 
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordNvdrvClose(fd);
+    }
     itr->second->OnClose(fd);
 
     open_files.erase(itr);

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "core/file_sys/fsa/fs_i_file.h"
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/filesystem/filesystem.h"
@@ -14,8 +16,13 @@ class IFile final : public ServiceFramework<IFile> {
 public:
     explicit IFile(Core::System& system_, FileSys::VirtualFile file_);
 
+    void SetInventoryPath(std::string path) {
+        inventory_path = std::move(path);
+    }
+
 private:
     std::unique_ptr<FileSys::Fsa::IFile> backend;
+    std::string inventory_path;
 
     Result Read(FileSys::ReadOption option, Out<s64> out_size, s64 offset,
                 const OutBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure>

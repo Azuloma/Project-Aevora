@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/file_sys/errors.h"
+#include "core/boundary_inventory.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/filesystem/fsp/fs_i_file.h"
 
@@ -32,6 +33,11 @@ Result IFile::Read(
     s64 size) {
     LOG_DEBUG(Service_FS, "called, option={}, offset={:#X}, length={}", option.value, offset,
               size);
+
+    if (!inventory_path.empty() && offset >= 0 && size >= 0) {
+        Core::BoundaryInventory::Instance().RecordFsRead(inventory_path, static_cast<u64>(offset),
+                                       static_cast<u64>(size));
+    }
 
     // Read the data from the Storage backend
     R_RETURN(

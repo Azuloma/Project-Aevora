@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/settings.h"
+#include "core/boundary_inventory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/service/am/applet_data_broker.h"
 #include "core/hle/service/am/applet_manager.h"
@@ -191,6 +192,9 @@ Result ILibraryAppletCreator::CreateLibraryApplet(
     LibraryAppletMode library_applet_mode) {
     LOG_DEBUG(Service_AM, "called with applet_id={} applet_mode={}", applet_id,
               library_applet_mode);
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordApplet(static_cast<u32>(applet_id));
+    }
 
     std::shared_ptr<ILibraryAppletAccessor> library_applet;
     if (ShouldCreateGuestApplet(applet_id)) {
@@ -217,6 +221,9 @@ Result ILibraryAppletCreator::CreateLibraryAppletEx(
     LibraryAppletMode library_applet_mode, u64 thread_id) {
     LOG_DEBUG(Service_AM, "called with applet_id={} applet_mode={} thread_id={}", applet_id,
               library_applet_mode, thread_id);
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordApplet(static_cast<u32>(applet_id));
+    }
 
     std::shared_ptr<ILibraryAppletAccessor> library_applet;
     if (ShouldCreateGuestApplet(applet_id)) {

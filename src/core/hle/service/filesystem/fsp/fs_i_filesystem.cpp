@@ -97,7 +97,13 @@ Result IFileSystem::OpenFile(OutInterface<IFile> out_interface,
     R_TRY(backend->OpenFile(&vfs_file, FileSys::Path(path->str),
                             static_cast<FileSys::OpenMode>(mode)));
 
-    *out_interface = std::make_shared<IFile>(system, vfs_file);
+    auto file = std::make_shared<IFile>(system, vfs_file);
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordFsOpen(inventory_kind, path->str, mode);
+        file->SetInventoryPath(std::string{Core::BoundaryInventory::FsKindName(inventory_kind)} + ':' +
+                               path->str);
+    }
+    *out_interface = std::move(file);
     R_SUCCEED();
 }
 

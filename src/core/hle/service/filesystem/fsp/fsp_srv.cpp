@@ -17,6 +17,7 @@
 #include "common/logging.h"
 #include "common/settings.h"
 #include "common/string_util.h"
+#include "core/boundary_inventory.h"
 #include "core/core.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/errors.h"
@@ -46,6 +47,30 @@
 #include "core/reporter.h"
 
 namespace Service::FileSystem {
+
+namespace {
+
+template <typename MakeLabel>
+void RecordInventoryStorage(IStorage& storage, Core::BoundaryInventory::FsKind kind, MakeLabel&& make_label) {
+    if (!Core::BoundaryInventory::Enabled()) {
+        return;
+    }
+    const std::string label = make_label();
+    Core::BoundaryInventory::Instance().RecordFsOpen(kind, label, 0);
+    storage.SetInventoryLabel(std::string{Core::BoundaryInventory::FsKindName(kind)} + ':' + label);
+}
+
+template <typename MakeLabel>
+void RecordInventoryFileSystem(IFileSystem& file_system, Core::BoundaryInventory::FsKind kind,
+                               MakeLabel&& make_label) {
+    if (!Core::BoundaryInventory::Enabled()) {
+        return;
+    }
+    Core::BoundaryInventory::Instance().RecordFsOpen(kind, make_label(), 0);
+    file_system.SetInventoryKind(kind);
+}
+
+} // namespace
 
 FSP_SRV::FSP_SRV(Core::System& system_)
     : ServiceFramework{system_, "fsp-srv"}, fsc{system.GetFileSystemController()},
@@ -214,8 +239,12 @@ Result FSP_SRV::OpenFileSystemWithPatch(OutInterface<IFileSystem> out_interface,
     const auto extracted_romfs = FileSys::ExtractRomFS(manual_romfs);
     ASSERT(extracted_romfs != nullptr);
 
-    *out_interface = std::make_shared<IFileSystem>(
+    auto manual = std::make_shared<IFileSystem>(
         system, extracted_romfs, SizeGetter::FromStorageId(fsc, FileSys::StorageId::NandUser));
+    RecordInventoryFileSystem(*manual, Core::BoundaryInventory::FsKind::Other, [&] {
+        return fmt::format("manual_program_id={:016X}", open_program_id);
+    });
+    *out_interface = std::move(manual);
 
     R_SUCCEED();
 }
@@ -226,8 +255,11 @@ Result FSP_SRV::OpenSdCardFileSystem(OutInterface<IFileSystem> out_interface) {
     FileSys::VirtualDir sdmc_dir{};
     fsc.OpenSDMC(&sdmc_dir);
 
-    *out_interface = std::make_shared<IFileSystem>(
+    auto sdmc = std::make_shared<IFileSystem>(
         system, sdmc_dir, SizeGetter::FromStorageId(fsc, FileSys::StorageId::SdCard));
+    RecordInventoryFileSystem(*sdmc, Core::BoundaryInventory::FsKind::Sdmc,
+                              [] { return std::string{"sdmc"}; });
+    *out_interface = std::move(sdmc);
 
     R_SUCCEED();
 }
@@ -300,8 +332,12 @@ Result FSP_SRV::OpenSaveDataFileSystem(OutInterface<IFileSystem> out_interface,
         break;
     }
 
-    *out_interface =
-        std::make_shared<IFileSystem>(system, std::move(dir), SizeGetter::FromStorageId(fsc, id));
+    auto save_data = std::make_shared<IFileSystem>(system, std::move(dir),
+                                                   SizeGetter::FromStorageId(fsc, id));
+    RecordInventoryFileSystem(*save_data, Core::BoundaryInventory::FsKind::SaveData, [&] {
+        return fmt::format("space_id={}", static_cast<u32>(space_id));
+    });
+    *out_interface = std::move(save_data);
 
     R_SUCCEED();
 }
@@ -346,8 +382,12 @@ Result FSP_SRV::OpenSaveDataFileSystemBySystemSaveDataId(OutInterface<IFileSyste
         break;
     }
 
-    *out_interface =
-        std::make_shared<IFileSystem>(system, std::move(dir), SizeGetter::FromStorageId(fsc, id));
+    auto save_data = std::make_shared<IFileSystem>(system, std::move(dir),
+                                                   SizeGetter::FromStorageId(fsc, id));
+    RecordInventoryFileSystem(*save_data, Core::BoundaryInventory::FsKind::SaveData, [&] {
+        return fmt::format("space_id={}", static_cast<u32>(space_id));
+    });
+    *out_interface = std::move(save_data);
 
     R_SUCCEED();
 }
@@ -477,7 +517,10 @@ Result FSP_SRV::OpenDataStorageByCurrentProcess(OutInterface<IStorage> out_inter
         romfs = current_romfs;
     }
 
-    *out_interface = std::make_shared<IStorage>(system, romfs);
+    auto storage = std::make_shared<IStorage>(system, romfs);
+    RecordInventoryStorage(*storage, Core::BoundaryInventory::FsKind::RomFsCurrentProcess,
+                           [] { return std::string{"current_process"}; });
+    *out_interface = std::move(storage);
 
     R_SUCCEED();
 }
@@ -493,7 +536,11 @@ Result FSP_SRV::OpenDataStorageByDataId(OutInterface<IStorage> out_interface,
         const auto archive = FileSys::SystemArchive::SynthesizeSystemArchive(title_id);
 
         if (archive != nullptr) {
-            *out_interface = std::make_shared<IStorage>(system, archive);
+            auto system_archive = std::make_shared<IStorage>(system, archive);
+            RecordInventoryStorage(*system_archive, Core::BoundaryInventory::FsKind::DataStorageById, [&] {
+                return fmt::format("system_archive_title_id={:016X}", title_id);
+            });
+            *out_interface = std::move(system_archive);
             R_SUCCEED();
         }
 
@@ -511,6 +558,8 @@ Result FSP_SRV::OpenDataStorageByDataId(OutInterface<IStorage> out_interface,
     auto storage = std::make_shared<IStorage>(
         system, pm.PatchRomFS(base.get(), std::move(data), FileSys::ContentRecordType::Data));
 
+    RecordInventoryStorage(*storage, Core::BoundaryInventory::FsKind::DataStorageById,
+                           [&] { return fmt::format("title_id={:016X}", title_id); });
     *out_interface = std::move(storage);
     R_SUCCEED();
 }
@@ -536,7 +585,10 @@ Result FSP_SRV::OpenDataStorageWithProgramIndex(OutInterface<IStorage> out_inter
         R_RETURN(ResultUnknown);
     }
 
-    *out_interface = std::make_shared<IStorage>(system, std::move(patched_romfs));
+    auto storage = std::make_shared<IStorage>(system, std::move(patched_romfs));
+    RecordInventoryStorage(*storage, Core::BoundaryInventory::FsKind::DataStorageById,
+                           [&] { return fmt::format("program_index={}", program_index); });
+    *out_interface = std::move(storage);
 
     R_SUCCEED();
 }

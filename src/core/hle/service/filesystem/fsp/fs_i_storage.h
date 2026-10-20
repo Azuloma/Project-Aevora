@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "core/file_sys/vfs/vfs.h"
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/filesystem/filesystem.h"
@@ -14,8 +16,13 @@ class IStorage final : public ServiceFramework<IStorage> {
 public:
     explicit IStorage(Core::System& system_, FileSys::VirtualFile backend_);
 
+    void SetInventoryLabel(std::string label) {
+        inventory_label = std::move(label);
+    }
+
 private:
     FileSys::VirtualFile backend;
+    std::string inventory_label;
 
     Result Read(
         OutBuffer<BufferAttr_HipcMapAlias | BufferAttr_HipcMapTransferAllowsNonSecure> out_bytes,

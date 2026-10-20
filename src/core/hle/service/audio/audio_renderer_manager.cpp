@@ -6,6 +6,7 @@
 
 #include "audio_core/audio_render_manager.h"
 #include "audio_core/common/feature_support.h"
+#include "core/boundary_inventory.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/service/audio/audio_device.h"
@@ -56,6 +57,18 @@ Result IAudioRendererManager::OpenAudioRenderer(
 
     LOG_DEBUG(Service_Audio, "Opened new AudioRenderer session {} sessions open {}", session_id,
               impl->GetSessionCount());
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordAudioOpen(fmt::format(
+            "sample_rate={} sample_count={} mixes={} sub_mixes={} voices={} sinks={} effects={} "
+            "perf_frames={} voice_drop_enabled={} rendering_device={} execution_mode={} "
+            "splitter_infos={} splitter_destinations={} external_context_size={} revision={:#x}",
+            parameter.sample_rate, parameter.sample_count, parameter.mixes, parameter.sub_mixes,
+            parameter.voices, parameter.sinks, parameter.effects, parameter.perf_frames,
+            parameter.voice_drop_enabled, parameter.rendering_device,
+            static_cast<u32>(parameter.execution_mode), parameter.splitter_infos,
+            parameter.splitter_destinations, parameter.external_context_size,
+            parameter.revision));
+    }
 
     *out_audio_renderer =
         std::make_shared<IAudioRenderer>(system, *impl, parameter, tmem_handle.Get(), tmem_size,

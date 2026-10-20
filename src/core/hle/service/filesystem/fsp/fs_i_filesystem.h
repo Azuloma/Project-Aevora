@@ -4,6 +4,7 @@
 #pragma once
 
 #include "common/common_funcs.h"
+#include "core/boundary_inventory.h"
 #include "core/file_sys/fs_filesystem.h"
 #include "core/file_sys/fsa/fs_i_filesystem.h"
 #include "core/file_sys/vfs/vfs.h"
@@ -52,9 +53,14 @@ public:
                                const InLargeData<FileSys::Sf::Path, BufferAttr_HipcPointer> path);
     Result GetFileSystemAttribute(Out<FileSys::FileSystemAttribute> out_attribute);
 
+    void SetInventoryKind(Core::BoundaryInventory::FsKind kind) {
+        inventory_kind = kind;
+    }
+
 private:
     std::unique_ptr<FileSys::Fsa::IFileSystem> backend;
     SizeGetter size_getter;
+    Core::BoundaryInventory::FsKind inventory_kind = Core::BoundaryInventory::FsKind::Other;
 };
 
 } // namespace Service::FileSystem
