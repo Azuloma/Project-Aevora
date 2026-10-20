@@ -28,7 +28,7 @@
 
 ## Status
 
-Currently, Aevora can recompile PLA with Static AoT, achieving an average of 26-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
+Currently, Aevora can recompile PLA with Static AOT, achieving an average of 26-30 FPS. Only the CPU is currently statically recompiled; other components such as GPU, memory, and sound rely on Suyu emulation.
 
 <p align="center">
   <img alt="aevora-icon" src="Assets/github-ss01.png" width="800px" />
@@ -45,7 +45,7 @@ Currently, it has become clear that the Suyu recompiler's code execution method 
 
 ## Features
 
-- Native CPU processing in Static AoT recompiler
+- Native CPU processing in Static AOT recompiler
 - An implementation of ImGUI, useful for debugging and quick configuration changes
 
 ## Planned Features
@@ -55,8 +55,8 @@ These planned features are not guaranteed to be implemented, and may change depe
 - Remove the GUI associated with Suyu and provide GUIs for the Aevora launcher and Aevora Recompiler
 - Ultrawide support
 - No Dynamic resolution
-- 60FPS Mode
 - Implementation of anti-aging (TAA, FXAA, SMAA)
+- Interpolated 60 FPS and 120 FPS modes
 - Increased shadow resolution and distance
 - Increased LoD and draw distance
 - Enhanced ambient occlusion
@@ -96,7 +96,7 @@ There will be no Patreon, Ko-fi, or other fundraising campaign, and the project 
 
 Aevora is Suyu-derived software and original code contributions are licensed under the **GNU General Public License, version 3 or later (`GPL-3.0-or-later`)**. See [LICENSE.txt](LICENSE.txt) for the full license text.
 
-The ImGui overlay embeds Roboto, designed by Christian Robertson, ParaType, and Font Bureau, with BIZ UDPGothic Regular designed by Morisawa Inc. and Type Bank Co. for Japanese glyphs Roboto lacks; both are under the SIL Open Font License 1.1. See [LICENSES/OFL-1.1.txt](LICENSES/OFL-1.1.txt), [Roboto's OFL.txt](dist/fonts/Roboto/OFL.txt), and [BIZ UDPGothic's OFL.txt](dist/fonts/BIZUDPGothic/OFL.txt).
+The ImGui overlay embeds Roboto, designed by Christian Robertson, ParaType, and Font Bureau, with BIZ UDPGothic Regular designed by Morisawa Inc. and Type Bank Co. for Japanese glyphs Roboto lacks; both are under the SIL Open Font License 1.1. See [LICENSES/OFL-1.1.txt](LICENSES/OFL-1.1.txt), [Roboto&#39;s OFL.txt](dist/fonts/Roboto/OFL.txt), and [BIZ UDPGothic&#39;s OFL.txt](dist/fonts/BIZUDPGothic/OFL.txt).
 
 Existing source files, third-party dependencies, and assets retain their respective copyright notices and license terms. See individual file headers, [LICENSES/](LICENSES/), and [.reuse/dep5](.reuse/dep5) for the retained notices.
 

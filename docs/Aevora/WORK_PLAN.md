@@ -8,22 +8,21 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `5ccacde` (B1 wait split). The working tree holds the HID 4 ms default and HostTiming event statistics; host `GIT_REV` was `5ccacde7ae9c32c2ee4ccee08107f8be4ffa356f` at the last measurement, and the host has since been rebuilt with the working tree. Untested: a same-session 1 ms versus 4 ms repeat, AOT behavior with 4 ms, full export/AOT A/B, `tests/exclusive_access/run.py`, whether remaining HostTiming time is umwait or OS wake cost, and whether other periodic events can be coalesced.
+HEAD is `7609ab3` (README on top of `97cad8f`); host `GIT_REV` was verified as `7609ab3a14992551ba578a14d4f5df05c8fcc3dd` after the export. An AOT export of `7609ab3` exists and replaces the `ec8e1a5` export as the latest; its cache publication was not established here. Untested: why AudioManager appeared only in the 1 ms AOT run, what the remaining HostTiming time consists of, whether other periodic events can be coalesced, `tests/exclusive_access/run.py`, and the listed overlay/backend windows.
 
 ## What was done so far
 
 - Dev19-dev29 delivered the recompiler, diagnostics, index, chain/default-option work, TTAS, overlay, Android/iOS removal, style/font, HUD, F12 fixes, embedded font, and Bad Image suppression; `cf07cb2`/`941a465` set 150% embedded Roboto Bold ([CHANGELOG.md](../../CHANGELOG.md)).
 - Session 36 changed the goal, removed B2-D11 (`1b29c7d`; old text at `d0e8d1d`), added `SUYU_CPU_BUDGET` (`ec8e1a5`, no CHANGELOG entry), measured JIT/AOT, found HostTiming's root cause, and decided B1.
-- B1's A/B showed no HostTiming effect: both modes stayed at about 33.17-33.18 ms/frame (99.51-99.55%); waits were already under 1 ms with `os_blocked=0`, so the unexplained process-CPU difference may be noise.
-- Event stats showed about 2600 callbacks/s, each averaging 0-5 us, while HostTiming was almost entirely waiting; the 1 ms pad period was a deliberate pre-existing overclock (hardware is 4 ms). The user therefore chose the real-hardware 4 ms Npad period as default; a single run reduced HostTiming to 21.12 ms/frame (63.38%) without perceived input latency or a visible moderate-action bug, and `SUYU_HID_NPAD_UPDATE_MS=1-8` remains an override.
+- B1 wait split shipped but was ineffective alone: waits were overwhelmingly short, with no OS blocking in either mode; event stats showed about 2600 callbacks/s averaging 0-5 us while HostTiming was almost entirely waiting.
+- By user decision (2026-10-20), the Npad default is 4 ms. Same-session JIT and AOT X-Y-X runs showed HostTiming at about 60-64% versus 99%, and process CPU lower by about 12-13 ms/frame (JIT) and 21-24 ms/frame (AOT), with no measurable FPS change; `SUYU_HID_NPAD_UPDATE_MS=1-8` remains an override.
 
 ## Immediate next action
 
 1. Read `CLAUDE.md`, this plan, and `CODEBASE_INDEX.md`; check `git status`/`git log`; confirm no `suyu.exe`, `ninja`, or `cl` process holds the build tree. A running host `suyu.exe` locks `bin\suyu.exe` and causes `LNK1104`; ask the user before ending a process they may be using.
-2. User commits the working-tree change in a normal commit (no CHANGELOG/devN).
-3. After the commit, run `rebuild-suyu.bat` and verify `GIT_REV`; repeat JIT at the same position with the default 4 ms and `SUYU_HID_NPAD_UPDATE_MS=1`, then run the full export and AOT check.
-4. Record those results, then consider coalescing other periodic events or pursuing B2.
-5. Optional cheap items: tracked `__pycache__`/`.bak` cleanup, `configure_audio` combo-index fix, `controller_assign.h` unit test, and optional `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with test.
+2. B2: compare the AOT guest-core gap versus JIT without a code change first, at the same position, using `SUYU_GUEST_TIME` and RIP sampling per the procedures section.
+3. Optional follow-ups: investigate why AudioManager appeared only in the 1 ms AOT run, and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), and other periodic events can be coalesced.
+4. Optional cheap items: tracked `__pycache__`/`.bak` cleanup, `configure_audio` combo-index fix, `controller_assign.h` unit test, and optional `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with test.
 
 ## Open items
 
@@ -31,6 +30,8 @@ HEAD is `5ccacde` (B1 wait split). The working tree holds the HID 4 ms default a
 - `research/tests` has 7 failures/1 error pre-existing. Tracked artifacts: six `__pycache__` `.pyc` files (`tests/exclusive_access`, `tests/export_build_kit`, `tests/export_regression`, `tests/recompiler_smoke`, `tools/export_build_kit`) and `src/suyu/game_card.cpp.bak`; `tools/cpp-lint.sh:37-38` tab indentation is flagged by `git diff --check`.
 - Bad Image dialog cause on this Windows build is undetermined.
 - `recomp_bundle.cpp:305` `LoadLibraryExW` has no error-mode handling; optional runtime change not made.
+- The 1 ms AOT run alone showed an AudioManager thread at 3.78 ms/frame (9.4% of a core); whether this is an event-rate effect or scene difference is unverified.
+- The remaining roughly 60% of HostTiming is unresolved: umwait wait time versus OS wake cost has not been separated.
 - The HUD checks listed as not reported in [CHANGELOG.md](../../CHANGELOG.md) remain untested: `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
 
 ## Measurement setup and baseline
@@ -51,14 +52,18 @@ Target: i5-12400F (6C/12T, all P-cores), RTX 2060 SUPER, 16 GB; 30 FPS cap. Conf
 
 Baseline: `ec8e1a5`, `SUYU_CPU_BUDGET=1`, 10-second windows, user logs; JIT 13 steady windows (≥300 frames), AOT 12 (≥245). AOT is below cap, so its per-frame values include slower frames. Logs: `D:\HisuiWakeBuild\diag\cpu_budget\jit_ec8e1a5_suyu_log.txt`, `D:\HisuiWakeBuild\diag\cpu_budget\aot_ec8e1a5_suyu_log.txt`; summarizer: `D:\HisuiWakeBuild\diag\cpu_budget\summarize_cpu_budget.py`.
 
-Single-run indication for the 4 ms experiment (separate launch from the 1 ms baseline):
+Same-session X-Y-X comparison: 4 ms / 1 ms / 4 ms, with `SUYU_CPU_BUDGET=1`. JIT windows had at least 300 frames; AOT windows had at least 240 frames and 100-170 process ms/frame. JIT C's first 13 windows were a different scene (title/loading plus a load stall), so only windows with 90-110 process ms/frame were retained (15 windows, filtered copy `jit_97cad8f_C_game.txt`). Filtered window counts were JIT 12/12/15 and AOT 17/16/13.
 
-| Npad period | HostTiming ms/frame (core %) | process CPU ms/frame | CPUCore_0/1/2 ms/frame | frame p50/p99 ms |
-| --- | ---: | ---: | ---: | ---: |
-| 1 ms baseline | 33.17 (99.51%) | 114.9 | 20.7 / 20.6 / 20.4 | 33.33 / 34.09 |
-| 4 ms, single run | 21.12 (63.38%) | 101.25 | 20.3 / 20.4 / 20.4 | 33.33 / 33.83 |
+| Backend / Npad period | FPS | HostTiming ms/frame (core %) | process CPU ms/frame | CPUCore_0/1/2 ms/frame | frame p50/p99 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| JIT 4 ms (X1) | 30 cap | 21.27 (63.8%) | 101.4 | 20.7 / 20.9 / 20.6 | 33.33 / 33.82 |
+| JIT 1 ms (Y) | 30 cap | 32.95 (98.9%) | 113.9 | 20.6 / 21.6 / 21.3 | 33.33 / 33.79 |
+| JIT 4 ms (X2) | 30 cap | 20.15 (60.5%) | 100.3 | 20.6 / 21.2 / 21.0 | 33.33 / 33.94 |
+| AOT 4 ms (X1) | 25.6 (24.1-26.1) | 23.54 (60.3%) | 132.3 | 29.9 / 31.5 / 31.2 | 37.5 / 56.4 |
+| AOT 1 ms (Y) | 24.9 (24.6-25.2) | 39.84 (99.2%) | 156.0 | 30.8 / 32.6 / 32.1 | 39.6 / 49.8 |
+| AOT 4 ms (X2) | 25.4 (25.1-25.7) | 25.16 (63.9%) | 135.4 | 30.0 / 32.1 / 31.5 | 38.4 / 51.0 |
 
-The 4 ms run had `os_blocked=4569` of about 52,000 waits and wake-lateness p99 at most 20 us; user reported no perceived input latency or visible bug in moderate-action play. Logs: `D:\HisuiWakeBuild\diag\cpu_budget\jit_npad4_suyu_log.txt` and `D:\HisuiWakeBuild\diag\cpu_budget\jit_5ccacde_block0_suyu_log.txt`.
+JIT logs: `D:\HisuiWakeBuild\diag\cpu_budget\jit_97cad8f_A.txt`, `_B.txt`, `_C.txt`; filtered JIT C: `jit_97cad8f_C_game.txt`. AOT logs: `aot_97cad8f_A.txt`, `_B.txt`, `_C.txt`; filtered copies: `aot_97cad8f_A_game.txt`, `_B_game.txt`, `_C_game.txt` in the same folder. In the JIT 4 ms conditions, `os_blocked` was about 3700-4800 of roughly 42000-52000 waits per 10 s, with wake-lateness p99 at most 100 us in A and 500 us in C (maximum about 1-3 ms); AOT 4 ms wake-lateness p99 was at most 100 us (maximum about 0.7-1 ms). The 1 ms conditions had `os_blocked=0`. The AOT 4 ms X1 p99 includes one 166 ms window; AudioManager appeared only in the 1 ms AOT condition at 3.78 ms/frame (9.4% of a core).
 
 | Item | Scope | Measured basis |
 | --- | --- | --- |
