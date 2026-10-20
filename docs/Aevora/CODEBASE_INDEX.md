@@ -129,6 +129,10 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `src/core/cpu_budget_sampler.{h,cpp}` | Windows process/thread CPU sampler using Toolhelp32, `GetThreadTimes`, `GetThreadDescription`, and `GetProcessTimes`; owns the `CpuBudget` sampler thread. (v, 2026-10-19) |
 | `src/core/perf_stats.{h,cpp}` | `PerfStats` game-frame recording hook (`EnableGameFrameRecording`/`TakeGameFrameWindow`) used by CPU-budget diagnostics. (v, 2026-10-19) |
 | `tests/recompiler_smoke/cpu_budget_unit.cpp` | Standalone CPU-budget math and formatting unit, registered as `smoke_cpu_budget_unit`. (v, 2026-10-19) |
+| `src/core/host_timing_wait.h:17-105` **(v, 2026-10-20)** | `PlanHostTimingWait` splits long waits into an OS-blocked portion and a two-resolution fine-grained tail; `HostTimingWaitStats` reports wait lengths, wake lateness, OS-blocked, and signalled counts. |
+| `src/core/core_timing.cpp:330-360` **(v, 2026-10-20)** | `CoreTiming::WaitForNextEvent` applies the HostTiming plan, using `WaitUntil` for the OS portion and `WaitFor` for the tail. |
+| `src/common/thread.cpp:177-259` **(v, 2026-10-20)** | `Event::WaitFor` returns false on timeout and true only after consuming a signal across WAITPKG/MONITORX and fallback paths. |
+| `tests/recompiler_smoke/host_timing_wait_unit.cpp:24-99` **(v, 2026-10-20)** | Standalone HostTiming wait-split/statistics unit with negative controls; registered as `smoke_host_timing_wait_unit`. |
 | `src/core/hle/kernel/physical_core.cpp` | `kGuestTime`, `SteadyNowNs`, `BeginRun` + report around `interface->RunThread` in `PhysicalCore::RunThread`, `EndRun` after the halt reason is known, `AddIdle` in `PhysicalCore::Idle`; verify current lines (about :138-143, :250-262, :283, :396-402). (v, 2026-10-11) |
 | `src/core/hle/kernel/physical_core.h` | Member `m_guest_time`. (v, 2026-10-11) |
 | `src/core/arm/recomp/recomp_sharded_counters.h:17` **(v, 2026-10-10)** | `RecompShardedCounters` provides per-thread cache-line-aligned slots, single-writer increments, and aggregate counter reads for dispatch-path diagnostics. |

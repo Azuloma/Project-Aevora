@@ -20,6 +20,7 @@
 #include "common/common_types.h"
 #include "common/thread.h"
 #include "common/cpu_features.h"
+#include "core/host_timing_wait.h"
 
 namespace Core::Timing {
 
@@ -46,18 +47,8 @@ enum class UnscheduleEventType {
     NoWait,
 };
 
-/**
- * This is a system to schedule events into the emulated machine's future. Time is measured
- * in main CPU clock cycles.
- *
- * To schedule an event, you first have to register its type. This is where you pass in the
- * callback. You then schedule events using the type ID you get back.
- *
- * The s64 ns_late that the callbacks get is how many ns late it was.
- * So to schedule a new event on a regular basis:
- * inside callback:
- *   ScheduleEvent(period_in_ns - ns_late, callback, "whatever")
- */
+/// Schedules events into the emulated machine's future, measured in main CPU clock cycles.
+/// Callbacks receive ns_late; reschedule with period_in_ns - ns_late for a regular cadence.
 class CoreTiming {
 public:
     CoreTiming();
@@ -138,6 +129,9 @@ public:
     void SetTimerResolutionNs(std::chrono::nanoseconds ns);
 #endif
 
+    /// HostTiming thread only: waits for the next event or a signal (see host_timing_wait.h).
+    void WaitForNextEvent(std::chrono::nanoseconds wait_ns);
+
     struct Event;
 
     void Reset();
@@ -146,7 +140,7 @@ public:
     heap_t event_queue;
     s64 global_timer = 0;
 #ifdef _WIN32
-    s64 timer_resolution_ns;
+    s64 timer_resolution_ns{};
 #endif
     u64 event_fifo_id = 0;
     s64 pause_end_time{};
@@ -155,6 +149,8 @@ public:
     s64 downcount{};
     Common::Event event{};
     Common::Event pause_event{};
+    HostTimingWaitStats host_wait_stats{};
+    std::chrono::steady_clock::time_point host_wait_report_at{};
     std::function<void()> on_thread_init{};
     std::jthread timer_thread;
     mutable std::mutex basic_lock;
@@ -167,12 +163,6 @@ public:
 };
 
 /// Creates a core timing event with the given name and callback.
-///
-/// @param name     The name of the core timing event to create.
-/// @param callback The callback to execute for the event.
-///
-/// @returns An EventType instance representing the created event.
-///
 std::shared_ptr<EventType> CreateEvent(std::string name, TimedCallback&& callback);
 
 } // namespace Core::Timing

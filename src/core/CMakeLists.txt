@@ -229,6 +229,7 @@ add_library(core STATIC
     frontend/framebuffer_layout.cpp
     frontend/framebuffer_layout.h
     frontend/graphics_context.h
+    host_timing_wait.h
     hle/api_version.h
     hle/ipc.h
     hle/kernel/board/nintendo/nx/k_memory_layout.cpp

@@ -8,17 +8,18 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `ec8e1a5` (`SUYU_CPU_BUDGET`, normal commit), plus this handoff's docs commit. Host `GIT_REV` is `ec8e1a5f150d05b08102ad09c8da7e974b5b1191`, reconfigured via `rebuild-suyu.bat` (full 1751-step rebuild); `run.py` has 33 passing smoke checks. An AOT export of `ec8e1a5` exists, its cache is published, and it supplied the AOT baseline. B1 is approved but not implemented. The one-line `README.md` working-tree change is the user's own. Untested: `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
+HEAD is `bd7521c` (session 36 handoff docs; code last changed in `ec8e1a5`, `SUYU_CPU_BUDGET`). B1 is implemented and built in the working tree but uncommitted and unmeasured; host `GIT_REV` is still `ec8e1a5f150d05b08102ad09c8da7e974b5b1191`. An AOT export of `ec8e1a5` exists, its cache is published, and it supplied the AOT baseline. Untested: the B1 JIT A/B and acceptance numbers, full export/AOT A/B, `run.py` after the thread timeout fix, `SUYU_DEBUG_OVERLAY=0` F12 routing, OpenGL/Null windows, FPS/overhead, and `tests/exclusive_access/run.py`.
 
 ## What was done so far
 
 - Dev19-dev29 delivered the recompiler, diagnostics, index, chain/default-option work, TTAS, overlay, Android/iOS removal, style/font, HUD, F12 fixes, embedded font, and Bad Image suppression; `cf07cb2`/`941a465` set 150% embedded Roboto Bold ([CHANGELOG.md](../../CHANGELOG.md)).
 - Session 36 changed the goal, removed B2-D11 (`1b29c7d`; old text at `d0e8d1d`), added `SUYU_CPU_BUDGET` (`ec8e1a5`, no CHANGELOG entry), measured JIT/AOT, found HostTiming's root cause, and decided B1.
+- B1 implemented the OS-blocked HostTiming wait split, single-writer stats, timeout contract fix, comments, and smoke unit; the host was rebuilt successfully, but user A/B measurements are pending.
 
 ## Immediate next action
 
 1. Read `CLAUDE.md`, this plan, and `CODEBASE_INDEX.md`; check `git status`/`git log`; confirm no `suyu.exe`, `ninja`, or `cl` process holds the build tree. A running host `suyu.exe` locks `bin\suyu.exe` and causes `LNK1104`; ask the user before ending a process they may be using.
-2. Confirm with the user, then implement B1 exactly per the B1 plan.
+2. User commits the B1 change in a normal commit (no CHANGELOG/devN; files: `src/common/thread.cpp`, `src/core/{CMakeLists.txt,core_timing.h,core_timing.cpp,host_timing_wait.h}`, `tests/recompiler_smoke/{CMakeLists.txt,run.py,host_timing_wait_unit.cpp}`, and the two docs), then runs the JIT A/B at the same position with `SUYU_HOST_TIMING_BLOCK=0` versus default, both with `SUYU_CPU_BUDGET=1` and `SUYU_HOST_TIMING_STATS=1`, and reports the host-timing lines, CPU budget, and audio/feel check.
 3. After the user's commit: run `rebuild-suyu.bat`, verify `GIT_REV`, user JIT A/B, full export, AOT A/B; record results.
 4. Then B2.
 5. Optional cheap items: tracked `__pycache__`/`.bak` cleanup, `configure_audio` combo-index fix, `controller_assign.h` unit test, and optional `recomp_bundle.cpp` `LoadLibraryExW` error-mode change with test.
@@ -89,6 +90,7 @@ Overlay contracts are documented in [IMGUI_OVERLAY.md](IMGUI_OVERLAY.md): the ac
 - Orca `check --wait` can replay an earlier worker's `worker_done`; verify the diff, ack, and wait again.
 - Shell-written Markdown turned newlines into backslash-n and PowerShell backtick escapes destroyed text; use the file edit tool, and check real LF counts after each batch.
 - From session 35: mixed LF/CRLF in `tests/recompiler_smoke/CMakeLists.txt`/`run.py`; `worker-start --worktree current` rejects `--name`; bad-DLL tests call `SetErrorMode`; `rebuild-suyu.bat` relinks both executables and a running `suyu.exe` blocks it.
+- Starting `rebuild-suyu.bat` from a Bash-quoted `powershell -Command` silently did not start; start it with `Start-Process` from the PowerShell tool and confirm `cl`/`ninja` are running.
 
 ## How to proceed
 

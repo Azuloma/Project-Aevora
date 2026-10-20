@@ -226,8 +226,9 @@ bool Event::WaitFor(const std::chrono::nanoseconds time) {
         while (!is_set.load() && end > _rdtsc())
             Common::Windows::SleepForOneTick();
 #endif
-        if (is_set.load())
-            Reset();
+        if (!is_set.load())
+            return false;
+        Reset();
         return true;
     }
 #else
@@ -244,8 +245,9 @@ bool Event::WaitFor(const std::chrono::nanoseconds time) {
     auto const end = Common::g_wall_clock.GetTimeNS() + time;
     while (!is_set.load() && end > Common::g_wall_clock.GetTimeNS())
         Common::Windows::SleepForOneTick();
-    if (is_set.load())
-        Reset();
+    if (!is_set.load())
+        return false;
+    Reset();
     return true;
 #else
     std::unique_lock lk{mutex};

@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <tuple>
@@ -15,6 +16,8 @@
 #include "common/windows/timer_resolution.h"
 #endif
 
+#include "common/env_option.h"
+#include "common/logging.h"
 #include "common/settings.h"
 #include "core/core_timing.h"
 #include "core/hardware_properties.h"
@@ -22,6 +25,18 @@
 namespace Core::Timing {
 
 constexpr s64 MAX_SLICE_LENGTH = 10000;
+constexpr std::chrono::seconds kHostTimingStatsWindow{10};
+
+namespace {
+const bool kHostTimingBlock = [] {
+    const char* value = std::getenv("SUYU_HOST_TIMING_BLOCK");
+    return Common::EnvFlagDefaultOn(value ? value : "");
+}();
+const bool kHostTimingStats = [] {
+    const char* value = std::getenv("SUYU_HOST_TIMING_STATS");
+    return Common::EnvFlagDefaultOff(value ? value : "");
+}();
+} // namespace
 
 std::shared_ptr<EventType> CreateEvent(std::string name, TimedCallback&& callback) {
     return std::make_shared<EventType>(std::move(callback), std::move(name));
@@ -70,7 +85,7 @@ void CoreTiming::Initialize(std::function<void()>&& on_thread_init_) {
                         // There are more events left in the queue, wait until the next event.
                         auto const wait_time = *next_time - GetGlobalTimeNs().count();
                         if (wait_time > 0) {
-                            event.WaitFor(std::chrono::nanoseconds(wait_time));
+                            WaitForNextEvent(std::chrono::nanoseconds(wait_time));
                         }
                     } else {
                         // Queue is empty, wait until another event is scheduled and signals us to
@@ -310,6 +325,41 @@ std::chrono::microseconds CoreTiming::GetGlobalTimeUs() const noexcept {
     return is_multicore
         ? Common::g_wall_clock.GetTimeUS()
         : std::chrono::microseconds{Common::WallClock::CPUTickToUS(cpu_ticks)};
+}
+
+void CoreTiming::WaitForNextEvent(std::chrono::nanoseconds wait_ns) {
+    using Clock = std::chrono::steady_clock;
+#ifdef _WIN32
+    const std::chrono::nanoseconds resolution_ns{timer_resolution_ns};
+#else
+    const std::chrono::nanoseconds resolution_ns{0};
+#endif
+    const auto plan = PlanHostTimingWait(wait_ns, resolution_ns, kHostTimingBlock);
+    const auto start = Clock::now();
+    const auto target = start + wait_ns;
+
+    bool signalled = false;
+    if (plan.os_block_ns.count() > 0) {
+        signalled = event.WaitUntil(start + plan.os_block_ns);
+    }
+    if (!signalled) {
+        const auto remaining = target - Clock::now();
+        if (remaining.count() > 0) {
+            signalled = event.WaitFor(std::chrono::duration_cast<std::chrono::nanoseconds>(remaining));
+        }
+    }
+    if (!kHostTimingStats) {
+        return;
+    }
+    const auto now = Clock::now();
+    host_wait_stats.Record(wait_ns, plan.os_block_ns.count() > 0, signalled,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(now - target));
+    if (host_wait_report_at == Clock::time_point{}) {
+        host_wait_report_at = now + kHostTimingStatsWindow;
+    } else if (now >= host_wait_report_at) {
+        LOG_INFO(Core, "{}", host_wait_stats.TakeReport());
+        host_wait_report_at = now + kHostTimingStatsWindow;
+    }
 }
 
 #ifdef _WIN32
