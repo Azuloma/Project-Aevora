@@ -14,7 +14,6 @@ A copy of the public documentation is available from the [suyu docs site](https:
 - **[Audio](Audio.md)**
 - **[Graphics](Graphics.md)**
 - **[Installing Mods](./Mods.md)**
-- **[Run On macOS](./RunOnMacOS.md)**
 - **[Data, Savefiles and Storage](Storage.md)**
 - **[Orphaned Profiles](Orphaned.md)**
 - **[Troubleshooting](./Troubleshoot.md)**

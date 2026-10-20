@@ -477,7 +477,7 @@ QWidget* HackerEnvironment::CreateRecompileTab() {
 
     auto* desc = new QLabel(QStringLiteral(
         "Export the loaded game's code as portable C source that compiles to a native "
-        "executable (Windows .exe, Linux ELF, macOS Mach-O) or as raw source for inspection."));
+        "executable (Windows .exe, Linux ELF) or as raw source for inspection."));
     desc->setWordWrap(true);
     desc->setStyleSheet(QStringLiteral("color: #aaa; font-size:11px; margin-bottom: 6px;"));
     layout->addWidget(desc);
@@ -508,7 +508,6 @@ QWidget* HackerEnvironment::CreateRecompileTab() {
     recomp_platform_ = new QComboBox();
     recomp_platform_->addItems({QStringLiteral("Windows (.exe)"),
                                  QStringLiteral("Linux/BSD (ELF)"),
-                                 QStringLiteral("macOS (Mach-O)"),
                                  QStringLiteral("All Platforms")});
     form->addWidget(recomp_platform_);
 

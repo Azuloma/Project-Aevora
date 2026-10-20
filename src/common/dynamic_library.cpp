@@ -48,8 +48,6 @@ DynamicLibrary::~DynamicLibrary() {
 std::string DynamicLibrary::GetUnprefixedFilename(const char* filename) {
 #if defined(_WIN32)
     return std::string(filename) + ".dll";
-#elif defined(__APPLE__)
-    return std::string(filename) + ".dylib";
 #else
     return std::string(filename) + ".so";
 #endif
@@ -63,14 +61,6 @@ std::string DynamicLibrary::GetVersionedFilename(const char* libname, int major,
         return fmt::format("{}-{}.dll", libname, major);
     else
         return fmt::format("{}.dll", libname);
-#elif defined(__APPLE__)
-    const char* prefix = std::strncmp(libname, "lib", 3) ? "lib" : "";
-    if (major >= 0 && minor >= 0)
-        return fmt::format("{}{}.{}.{}.dylib", prefix, libname, major, minor);
-    else if (major >= 0)
-        return fmt::format("{}{}.{}.dylib", prefix, libname, major);
-    else
-        return fmt::format("{}{}.dylib", prefix, libname);
 #else
     const char* prefix = std::strncmp(libname, "lib", 3) ? "lib" : "";
     if (major >= 0 && minor >= 0)

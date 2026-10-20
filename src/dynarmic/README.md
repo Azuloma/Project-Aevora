@@ -11,7 +11,7 @@ Highlight features:
 - Hooks exposed for easy code instrumentation
 - Code injection support for very fine-grained instrumentation
 - Support for unusual address space setups (bring-your-own memory system)
-- Native support for most popular operating systems (Windows, macOS, Linux, FreeBSD, OpenBSD, NetBSD, Android)
+- Native support for most popular operating systems (Windows, Linux, FreeBSD, OpenBSD, NetBSD, Android)
 
 *Please note that an adversarial guest program [can determine if it is being run under dynarmic](#disadvantages-of-dynarmic). Preventing this is not a goal of this project.*
 

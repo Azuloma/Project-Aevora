@@ -302,7 +302,7 @@ struct Values {
                                               Category::CpuDebug};
 
     SwitchableSetting<bool> cpuopt_unsafe_host_mmu{linkage,
-#if !defined(__APPLE__) && !defined(__linux__) && !defined(_WIN32)
+#if !defined(__linux__) && !defined(_WIN32)
                                         false,
 #else
                                         true,
@@ -576,11 +576,7 @@ struct Values {
                                                   Category::RendererHacks};
 
     SwitchableSetting<ExtendedDynamicState> dyna_state{linkage,
-#if defined(__APPLE__)
-                                           ExtendedDynamicState::Disabled,
-#else
                                            ExtendedDynamicState::EDS2,
-#endif
                                            "dyna_state",
                                            Category::RendererExtensions};
 

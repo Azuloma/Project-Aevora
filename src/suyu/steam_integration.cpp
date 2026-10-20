@@ -54,8 +54,6 @@ QString SteamIntegration::FindSteamPath() const {
         return QDir::toNativeSeparators(registry_path);
     }
     return QStringLiteral("C:/Program Files (x86)/Steam");
-#elif defined(__APPLE__)
-    return QDir::homePath() + QStringLiteral("/Library/Application Support/Steam");
 #else
     const QString home = QDir::homePath();
     const QString steam_root = home + QStringLiteral("/.steam/steam");

@@ -108,8 +108,7 @@
         "find_args": "MODULE GLOBAL",
         "hash": "159ed94965018f2a371d45a3bfc1961e5fb1549e501ded70a6b4532d7fe99d0579c18b5195aff6e35f96f399b426cea2650ec9fb75ef80d4c9edeccb51f2e6c9",
         "options": [
-            "HTTPLIB_REQUIRE_OPENSSL ON",
-            "HTTPLIB_DISABLE_MACOSX_AUTOMATIC_ROOT_CERTIFICATES ON"
+            "HTTPLIB_REQUIRE_OPENSSL ON"
         ],
         "patches": [
             "0001-mingw.patch"
@@ -155,13 +154,6 @@
         "repo": "lz4/lz4",
         "source_subdir": "build/cmake",
         "version": "ebb370ca83"
-    },
-    "moltenvk": {
-        "artifact": "MoltenVK-macOS.tar",
-        "bundled": true,
-        "hash": "5695b36ca5775819a71791557fcb40a4a5ee4495be6b8442e0b666d0c436bec02aae68cc6210183f7a5c986bdbec0e117aecfad5396e496e9c2fd5c89133a347",
-        "repo": "V380-Ori/Ryujinx.MoltenVK",
-        "version": "v1.4.1-ryujinx"
     },
     "nlohmann": {
         "hash": "6cc1e86261f8fac21cc17a33da3b6b3c3cd5c116755651642af3c9e99bb3538fd42c1bd50397a77c8fb6821bc62d90e6b91bcdde77a78f58f2416c62fc53b97d",

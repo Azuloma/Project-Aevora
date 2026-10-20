@@ -27,7 +27,6 @@ These options control dependencies.
 - `YUZU_DOWNLOAD_TIME_ZONE_DATA` (ON) Always download time zone binaries
   - Currently, build fails without this
 - `YUZU_TZDB_PATH` (string) Path to a pre-downloaded timezone database (useful for nixOS and Gentoo)
-- `YUZU_USE_BUNDLED_MOLTENVK` (ON, macOS only) Download bundled MoltenVK lib
 - `YUZU_USE_BUNDLED_OPENSSL` (ON for MSVC, Android, Solaris, and OpenBSD) Download bundled OpenSSL build
 - `YUZU_USE_BUNDLED_SDL3` (ON for MSVC) Download a prebuilt SDL3
 

@@ -31,11 +31,6 @@ public:
     /// Null only when the overlay is switched off with SUYU_DEBUG_OVERLAY=0.
     Core::Frontend::VulkanOverlay* GetVulkanOverlay() override;
 
-#if defined(__APPLE__)
-    /// Owns the CAMetalLayer in render_surface. SDL_MetalView is a void*.
-    void* metal_view{};
-#endif
-
 protected:
     bool RouteOverlayEvent(const SDL_Event& event) override;
     void SyncOverlayTextInput() override;

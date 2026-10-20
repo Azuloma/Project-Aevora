@@ -8,7 +8,7 @@
 
 namespace Dynarmic {
 
-/// @brief Smallest valid page (may change for Apple?)
+/// @brief Smallest valid page
 constexpr inline uint64_t CODE_PAGE_SIZE = 4096;
 struct CodePage {
     uint32_t inst[CODE_PAGE_SIZE / sizeof(uint32_t)];

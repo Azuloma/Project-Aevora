@@ -174,8 +174,7 @@ else
 		"Valid platforms:
 windows-amd64 windows-arm64
 mingw-amd64 mingw-arm64
-linux-amd64 linux-aarch64
-macos-universal"
+linux-amd64 linux-aarch64"
 
 	DISABLED_PLATFORMS="$reply"
 fi

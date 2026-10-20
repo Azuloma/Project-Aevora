@@ -8,7 +8,7 @@
 // clang-format on
 #else
 #include <sys/types.h>
-#if defined(__APPLE__) || defined(__FreeBSD__)
+#if defined(__FreeBSD__)
 #include <sys/sysctl.h>
 #elif defined(__linux__)
 #include <sys/sysinfo.h>
@@ -31,18 +31,6 @@ static MemoryInfo Detect() {
     GlobalMemoryStatusEx(&memorystatus);
     mem_info.TotalPhysicalMemory = memorystatus.ullTotalPhys;
     mem_info.TotalSwapMemory = memorystatus.ullTotalPageFile - mem_info.TotalPhysicalMemory;
-#elif defined(__APPLE__)
-    u64 ramsize;
-    struct xsw_usage vmusage;
-    std::size_t sizeof_ramsize = sizeof(ramsize);
-    std::size_t sizeof_vmusage = sizeof(vmusage);
-    // hw and vm are defined in sysctl.h
-    // https://github.com/apple/darwin-xnu/blob/master/bsd/sys/sysctl.h#L471
-    // sysctlbyname(const char *, void *, size_t *, void *, size_t);
-    sysctlbyname("hw.memsize", &ramsize, &sizeof_ramsize, nullptr, 0);
-    sysctlbyname("vm.swapusage", &vmusage, &sizeof_vmusage, nullptr, 0);
-    mem_info.TotalPhysicalMemory = ramsize;
-    mem_info.TotalSwapMemory = vmusage.xsu_total;
 #elif defined(__FreeBSD__)
     u_long physmem, swap_total;
     std::size_t sizeof_u_long = sizeof(u_long);

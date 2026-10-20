@@ -285,12 +285,8 @@ GraphicsPipeline::GraphicsPipeline(
         const bool time_pipeline = PipelineTimingEnabled(key.Hash());
         const auto setup_start = time_pipeline ? std::chrono::steady_clock::now()
                                                : std::chrono::steady_clock::time_point{};
-        // Publish the build result on every exit path. Anything that escapes
-        // this lambda used to leave is_built false forever, and ConfigureDraw
-        // waits on it from the scheduler thread with no timeout, so a single
-        // rejected pipeline deadlocked the whole renderer instead of dropping
-        // one draw. MoltenVK rejects pipelines desktop drivers accept, which
-        // is why this surfaces on Apple first.
+        // Publish the build result on every exit path: ConfigureDraw waits on is_built with no
+        // timeout, so an escaped exception must not leave it false.
         const auto publish{[this, shader_notify] {
             {
                 std::scoped_lock lock{build_mutex};
@@ -676,14 +672,8 @@ void GraphicsPipeline::MakePipeline(VkRenderPass render_pass) {
     if (!key.state.dynamic_vertex_input) {
         const size_t num_vertex_arrays = (std::min)(
             Maxwell::NumVertexArrays, static_cast<size_t>(device.GetMaxVertexInputBindings()));
-        // Declare only the bindings an enabled attribute actually reads. A
-        // binding no attribute references does nothing, and declaring all 32
-        // leaves most of them with no buffer bound, which every draw then
-        // reports as VUID-vkCmdDraw*-None-04007. It also costs real resources
-        // on Metal, where each declared binding consumes one of the vertex
-        // stage's limited buffer argument slots and MoltenVK reserves several
-        // of those for itself. Binding numbers are indices, not positions, so
-        // a sparse set stays consistent with vkCmdBindVertexBuffers.
+        // Declare only bindings an enabled attribute reads; unbound ones trip VUID-vkCmdDraw*-None-04007.
+        // Binding numbers are indices, so a sparse set stays consistent with vkCmdBindVertexBuffers.
         u32 used_bindings{};
         for (size_t index = 0; index < key.state.attributes.size(); ++index) {
             const auto& attribute = key.state.attributes[index];
@@ -768,8 +758,6 @@ void GraphicsPipeline::MakePipeline(VkRenderPass render_pass) {
         .flags = 0,
         .topology = input_assembly_topology,
         .primitiveRestartEnable =
-        // MoltenVK/Metal always has primitive restart enabled and cannot disable it
-        device.IsMoltenVK() ? VK_TRUE :
         (dynamic.primitive_restart_enable != 0 &&
                 ((input_assembly_topology != VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
                   device.IsTopologyListPrimitiveRestartSupported()) ||

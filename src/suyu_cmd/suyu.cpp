@@ -79,9 +79,6 @@
 #include "suyu_cmd/explicit_update.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2_gl.h"
-#ifdef __APPLE__
-#include "suyu_cmd/emu_window/emu_window_sdl2_mtl.h"
-#endif
 #include "suyu_cmd/emu_window/emu_window_sdl2_null.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2_vk.h"
 #include "video_core/renderer_base.h"
@@ -104,11 +101,6 @@
 #ifndef _MSC_VER
 #include <unistd.h>
 #endif
-#ifdef __APPLE__
-#include <climits>
-#include <mach-o/dyld.h>
-#endif
-
 #ifdef _WIN32
 extern "C" {
 // tells Nvidia and AMD drivers to use the dedicated GPU by default on laptops with switchable
@@ -925,7 +917,7 @@ static bool ReportExportProblem(const char* title, const std::string& message,
 #ifdef _WIN32
         ShellExecuteW(nullptr, L"open", folder.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 #else
-        // SDL hands a file URL to `open` on macOS and to `xdg-open` elsewhere.
+        // SDL hands a file URL to `xdg-open`.
         std::string url = "file://";
         for (const unsigned char c : folder.string()) {
             if (std::isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.' || c == '~') {
@@ -1398,14 +1390,6 @@ int main(int argc, char** argv) {
         wchar_t exe_w[MAX_PATH]{};
         GetModuleFileNameW(nullptr, exe_w, MAX_PATH);
         const std::filesystem::path exe_dir = std::filesystem::path(exe_w).parent_path();
-#elif defined(__APPLE__)
-        // argv[0] has no directory when started through PATH, which would make
-        // the checks below look in the working directory instead.
-        char exe_buf[PATH_MAX]{};
-        std::uint32_t exe_size = sizeof(exe_buf);
-        const std::filesystem::path exe_dir = _NSGetExecutablePath(exe_buf, &exe_size) == 0
-                                                  ? std::filesystem::path(exe_buf).parent_path()
-                                                  : std::filesystem::path{};
 #else
         std::error_code exe_ec;
         const std::filesystem::path exe_dir =

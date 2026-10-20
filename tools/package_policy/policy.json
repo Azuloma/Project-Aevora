@@ -131,13 +131,6 @@
       "LICENSES/[^/]+\\.txt",
       "THIRD-PARTY-NOTICES\\.txt"
     ],
-    "macos": [
-      "suyu\\.app/.+",
-      "LICENSE\\.txt",
-      "LICENSES/[^/]+\\.txt",
-      "THIRD-PARTY-NOTICES\\.txt",
-      "__MACOSX/.+"
-    ],
     "libretro-linux": [
       "suyu_libretro\\.so",
       "LICENSE\\.txt",
@@ -146,13 +139,6 @@
     ],
     "libretro-windows": [
       "suyu_libretro\\.dll",
-      "LICENSE\\.txt",
-      "LICENSES/[^/]+\\.txt",
-      "THIRD-PARTY-NOTICES\\.txt"
-    ],
-    "libretro-macos": [
-      "suyu_libretro\\.dylib",
-      "suyu_libretro_libs/[^/]+\\.dylib",
       "LICENSE\\.txt",
       "LICENSES/[^/]+\\.txt",
       "THIRD-PARTY-NOTICES\\.txt"
@@ -208,17 +194,6 @@
       ],
       "reason": "Upstream documentation symlink README.md -> index.md in the same directory.",
       "provenance": "submodule externals/nxapi"
-    },
-    {
-      "kinds": [
-        "dependency-sources"
-      ],
-      "path_regex": "suyu-[^/]+-dependency-sources/V380\\-Ori\\-Ryujinx\\.MoltenVK\\-v1\\.4\\.1\\-ryujinx\\.tar\\.gz!Ryujinx\\.MoltenVK\\-1\\.4\\.1\\-ryujinx/(Demos/Cube/include/cube|Demos/Cube/include/volk|MoltenVK/include/MoltenVK|MoltenVK/include/vk_video|MoltenVK/include/vulkan|MoltenVKShaderConverter/SPIRV\\-Cross|MoltenVKShaderConverter/SPIRV\\-Tools|MoltenVKShaderConverter/Tools|MoltenVKShaderConverter/include/MoltenVKShaderConverter/SPIRVConversion\\.h|MoltenVKShaderConverter/include/MoltenVKShaderConverter/SPIRVToMSLConverter\\.h)",
-      "rules": [
-        "link"
-      ],
-      "reason": "Upstream MoltenVK repository symlinks to its own External/ submodule and source directories, all relative and inside the tree.",
-      "provenance": "V380-Ori/Ryujinx.MoltenVK v1.4.1-ryujinx (cpmfile.json moltenvk)"
     },
     {
       "kinds": [

@@ -10,7 +10,16 @@ The long-term end goal and its milestones (N0-N10 runtime, G1-G4 tools and GUI) 
 
 ## Status
 
-HEAD is `373bcc5` (documentation-only commits on top of `7609ab3`, which is README on top of `97cad8f`); host `GIT_REV` is `7609ab3a14992551ba578a14d4f5df05c8fcc3dd`, code-identical to HEAD because `7609ab3..373bcc5` changes only Markdown. The export at `7609ab3` is done; cache publication was not established here. B1 wait splitting is present but ineffective alone because waits are under 1 ms, with about 2600 timer events/s and HID pad update at 1 kHz the largest source. Commit `97cad8f` made the Npad default 4 ms; X-Y-X results show HostTiming about 60-64% versus 99% and lower process CPU with no measurable FPS change. Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, exclusive-access and overlay/backend checks.
+HEAD is `19ed191` (documentation commits on top of `7609ab3`); the working tree holds the uncommitted macOS removal (see `## Recent work (session 38)`). Host `GIT_REV` is `19ed1919a56bd91044bba87e8cf3ceeec4ce0f5f` (equal to HEAD) and the host binaries were rebuilt from the working tree after the removal. The export at `7609ab3` is done; cache publication was not established here. B1 wait splitting is present but ineffective alone because waits are under 1 ms, with about 2600 timer events/s and HID pad update at 1 kHz the largest source. Commit `97cad8f` made the Npad default 4 ms; X-Y-X results show HostTiming about 60-64% versus 99% and lower process CPU with no measurable FPS change. Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, exclusive-access and overlay/backend checks.
+
+## Recent work (session 38)
+
+- The user chose to drop macOS support completely before more optimization work; the removal is uncommitted (see the v0.0.1-devFINAL entry in [CHANGELOG.md](../../CHANGELOG.md)).
+- Plan P0-P4: Code Explorer inventory; CMake and dependency edits (reconfigure left `build.ninja` and `compile_commands.json` byte-identical); source edits verified with a before/after `/EP` preprocess comparison of all 1718 Windows translation units (1594 identical, 6 line-shift only, 116 intended removals); package-policy, smoke and exclusive_access tests; one Code reviewer round (four P3 items, fixed).
+- The three smoke golden hashes were recomputed because macOS wording left the generated CMake and runtime-header comments; the old generator reproduced the old hashes exactly and only `CMakeLists.txt` and `recomp_runtime.h` moved.
+- Left on purpose: third-party macOS branches under `externals/`, `dist/languages`, `GPUVendor::Apple`, `.gitignore` Finder entries, and the archived `docs/Suyu` pages (macOS build and support text there is upstream history; clean up with the Qt GUI removal G4).
+- Open: Linux/FreeBSD configure and build were not run; `research/tests` was not run; `NATIVE_ROADMAP.md` decisions were recorded earlier in this session (gameplay path confirmed, Tauri for the GUIs).
+- The user labelled this commit `v0.0.1-devFINAL`; README defines `devN` as a development commit count, so the label is a deliberate exception and the counting rule is not changed.
 
 ## Recent work (session 37)
 
@@ -25,6 +34,7 @@ HEAD is `373bcc5` (documentation-only commits on top of `7609ab3`, which is READ
 
 ## Immediate next action
 
+0. The user commits the macOS removal (suggested files and message are in the session report). After the commit, reconfigure and rebuild the host and check `GIT_REV` in `msvc-release\src\common\scm_rev.cpp`; a full export is needed before the next measurement because the producer revision changes.
 1. Read `CLAUDE.md`, this plan, and `CODEBASE_INDEX.md`; check status/logs and confirm no `suyu.exe`, `ninja`, or `cl` holds the build tree. Ask before ending a user process.
 2. The user is choosing between B2 and [NATIVE_ROADMAP](NATIVE_ROADMAP.md) N0 (2026-10-20). B2: compare the AOT guest-core gap versus JIT at the same position with `SUYU_GUEST_TIME` and RIP sampling; make no code change first.
 3. Optional: investigate AudioManager and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), or other periodic events can be coalesced.
@@ -81,3 +91,4 @@ Follow the start checklist, verify evidence before changing code, use one worker
 - Opt-in stats: `SUYU_HOST_TIMING_STATS=1` logs `host-timing` wait and event lines every 10 s. Analysis helpers: `D:\HisuiWakeBuild\tmp_gt`, `D:\HisuiWakeBuild\diag\hotrva`.
 - Replay overlay input with the real router and ImGui sources; follow the standing export procedure in CLAUDE.md and clean scratch output.
 - Orca: one worker at a time, acknowledge deliveries, release workers, and check again after heartbeat-only messages.
+- Source-change equivalence check: `D:\HisuiWakeBuild\diag\pp_compare` holds `pp.py` (preprocess every translation unit of `compile_commands.json` with `/EP` into gzip files; run it from PowerShell with the repository untouched while it runs), `cmp.py` (accepts only `__LINE__` shifts derived from `git diff` and groups every other hunk by signature; `cmp.py --selftest` runs the negative controls), `after_only.py`/`before_only.py` (list added/removed lines that are not line shifts), `gen_variants.py` (build `smoke_export` from a source tree and write every smoke variant), `ed.py` (exact-match, line-ending-preserving edit helper) and `vcenv.bat`. Run them with `CPM_SOURCE_CACHE=D:\HisuiWakeBuild\cpm` where cmake is involved.

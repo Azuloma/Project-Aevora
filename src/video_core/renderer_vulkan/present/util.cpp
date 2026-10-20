@@ -406,7 +406,7 @@ static vk::Pipeline CreateWrappedPipelineImpl(
         .pNext = nullptr,
         .flags = 0,
         .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP,
-        .primitiveRestartEnable = device.IsMoltenVK() ? VK_TRUE : VK_FALSE,
+        .primitiveRestartEnable = VK_FALSE,
     };
 
     constexpr VkPipelineViewportStateCreateInfo viewport_state_ci{

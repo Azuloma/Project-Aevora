@@ -1,14 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 suyu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// Header-only AArch64 -> portable C static recompiler engine, shared by the standalone
-// tools/static_recompiler CLI and the in-app game export feature.
-//
-// It decodes a subset of user-mode AArch64 and emits C against a GuestContext (N64Recomp-style).
-// Every instruction either translates to native C or emits a runtime fallback, so the generated
-// project ALWAYS builds into a native binary (Windows .exe / Linux+BSD ELF / macOS Mach-O) or can
-// be emitted as plain C source. A full game additionally needs suyu's HLE/GPU runtime, wired in via
-// the generated runtime's recomp_svc()/MMIO hooks.
+// Header-only AArch64 -> portable C static recompiler engine (N64Recomp-style), shared by the
+// tools/static_recompiler CLI and the in-app game export. Output builds to a native binary or plain C.
 
 #pragma once
 
@@ -5972,12 +5966,8 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
         cm << "\n    src/recompiled_" << mod << "_" << u << ".c";
     }
     cm << ")\n\n"
-       << "# Generated block bodies are huge flat switch/if chains translated\n"
-       << "# straight from machine code. They were compiled at -O1 on the belief\n"
-       << "# that -O2 gains nothing here; measured on MK8D, -O2 (/O2 with MSVC)\n"
-       << "# races ~13% faster on x64 Windows and ~11% on arm64 macOS for ~25%\n"
-       << "# longer compiles. MSVC needs /bigobj at /O2: the units exceed the\n"
-       << "# default COFF section limit (C1128).\n"
+       << "# -O2 (/O2 with MSVC) measured ~13% faster than -O1 on MK8D for ~25% longer compiles.\n"
+       << "# MSVC needs /bigobj at /O2: the units exceed the default COFF section limit (C1128).\n"
        << "if(MSVC)\n"
        // /MP is what actually decides wall-clock time here. The Visual Studio
        // generator compiles the files of a single project strictly in
@@ -6006,10 +5996,8 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
        << "  set_source_files_properties(${RECOMP_SOURCES} PROPERTIES COMPILE_OPTIONS "
           "\"${_recomp_msvc_opts}\")\n"
        << "else()\n"
-       // Overridable. -O2 by default: it measured ~11% faster than -O1 on arm64
-       // macOS, and GCC does not vectorise at all below -O2. The cache entry is
-       // versioned: a tree configured before the -O2 default keeps its cached -O1
-       // under the old name, and would otherwise never pick up the new default.
+       // Overridable; -O2 because GCC does not vectorise below it. The cache name is
+       // versioned so trees configured with the old -O1 default pick up the new one.
        << "  set(RECOMP_OPT_FLAGS_V2 \"-O2 -foptimize-sibling-calls\" CACHE STRING\n"
           "      \"optimisation flags for the generated block bodies\")\n"
        << "  separate_arguments(_recomp_opt NATIVE_COMMAND \"${RECOMP_OPT_FLAGS_V2}\")\n"
@@ -6037,7 +6025,7 @@ inline RecompileStats EmitProject(const std::string& mod, const u8* text, size_t
        << "else()\n"
        << "  message(STATUS \"SDL2 not found — running headless (no window)\")\n"
        << "endif()\n"
-       << "# Portable C11: Windows->.exe, Linux/FreeBSD/OpenBSD->ELF, macOS->Mach-O\n"
+       << "# Portable C11: Windows->.exe, Linux/FreeBSD/OpenBSD->ELF\n"
        << "endif()\n\n";
 
     // A second target builds the same code as a shared library exporting the
@@ -6861,12 +6849,8 @@ inline const char* GuardGenH() {
 #else
 #error "GG1 needs 32-bit atomic loads, stores and fences"
 #endif
-/* Hidden where that exists: the word is only ever reached from inside its own
-   image (the host gets its address from the handshake), so blocks address it
-   directly instead of through the GOT. Not __attribute__((cold)) on the miss
-   path: Apple clang then splits a cold fragment out of every block, one
-   symbol and unwind entry each; an unlikely branch keeps the call at the end
-   of the block instead. */
+/* Hidden where that exists: only reached from inside its own image, so blocks address it
+   directly, not through the GOT. No cold attribute on the miss path: that splits a fragment per block. */
 #if defined(__GNUC__) || defined(__clang__)
 #define RECOMP_GG_STATIC static inline
 #define RECOMP_GG_UNLIKELY(x) __builtin_expect(!!(x),0)

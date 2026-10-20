@@ -2,6 +2,38 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.1-devFINAL - Unreleased
+
+*Final development entry toward v0.0.1 (labelled devFINAL by the user's decision, not a counted devN). Not a release; no build artifacts are published.*
+
+### Removed
+- Removed macOS support and the Apple GPU backend: the Metal renderer (`src/video_core/renderer_metal`), the SDL Metal window (`emu_window_sdl2_mtl`), `externals/metal-cpp`, MoltenVK acquisition (`cpmfile.json`, `CPMUtil.cmake`, `DownloadExternals.cmake`, `externals/CMakeLists.txt`, `YUZU_USE_BUNDLED_MOLTENVK`) and the MoltenVK Vulkan workarounds (`Device::IsMoltenVK`, portability enumeration, Cocoa surface, the 16-binding limit, the primitive-restart override, the render-target type override and the texture-copy fallback), the dynarmic macOS exception handler and Rosetta check, the Mach/CoreFoundation/IOKit branches in `src/common`, the macOS bundle assets (`src/suyu/Info.plist`, `dist/suyu.icns`, `dist/Assets.car`, `dist/icns_generator.sh`) and `docs/Suyu/user/RunOnMacOS.md`.
+- Removed the macOS export target (`GameExportDialog::TargetPlatform::MacOS`, `PackagePolicy::Platform::MacOS`), the `macos` and `libretro-macos` package-policy kinds with the framework-symlink allowance, and the MoltenVK dependency-source symlink exemption.
+- Removed `WindowSystemType::Cocoa`, `GameSettings::OS::MacOS`, `Common::FS::GetBundleDirectory`, `GRenderWindow::InitializeMetal`, the `CXX_APPLE` and `CMAKE_OSX_ARCHITECTURES` multiarch handling, and the macOS-specific CMake conditions (`UNIX AND NOT APPLE` became `UNIX`).
+
+### Changed
+- Removed macOS wording from the generated CMake comments and from the generated runtime-header comment in `src/core/recompiler/arm64_to_c.h`; the three smoke golden hashes in `tests/recompiler_smoke/run.py` were recomputed. Only `CMakeLists.txt` (all 18 variants, both modules) and `recomp_runtime.h` (the 14 GG1 variants) moved; no block source moved.
+- Shortened the comments this change touched to two lines.
+
+### Kept
+- Linux and FreeBSD support, third-party sources under `externals/` (glad, sse2neon, microprofile, libusb sources), the `dist/languages` translation data (removed with the Qt GUI later), `GPUVendor::Apple` (Asahi Linux reports an Apple GPU), the `.gitignore` Finder entries, and the archived upstream pages under `docs/Suyu`, which still describe macOS as upstream history.
+
+### Compatibility
+- No persisted setting or config key was removed; `RendererBackend` values are unchanged. The removed enumerators shift the numeric values of later `WindowSystemType`, `GameSettings::OS` and log-class entries; they are only used symbolically or in log lines. The CMake option `YUZU_USE_BUNDLED_MOLTENVK` no longer exists.
+
+### Verified
+- A Windows reconfigure left `build.ninja` and `compile_commands.json` byte-identical to the pre-change files (1726 records).
+- All 1718 Windows translation units were preprocessed (`/EP`) before and after the source edits: 1594 identical, 6 differing only by `__LINE__` shifts derived from `git diff`, 116 differing only by the intended removals (every added and removed line was listed and checked); two moc autogen units could not be preprocessed in either run. Self-test negative controls (changed constant, string, hex value, wrong shift, removed line) were all rejected.
+- The host rebuild (`rebuild-suyu.bat`) ran twice (before and after the review fixes); both logs had 0 compiler errors and linked `suyu.exe` and `suyu-cmd.exe`.
+- Full `tests/recompiler_smoke/run.py` exited 0 with the recomputed golden hashes; the old generator reproduced the old hashes exactly, which validated the comparison harness. `tests/exclusive_access/run.py` exited 0 against the rebuilt host.
+- `tests/package_policy`: 55 Python tests passed and the C++ `policy_unit` reported 193 checks, 0 failures. The new `test_zip_symlinks_are_rejected` was shown to fail when `Scanner.check_links` is disabled (reviewer probe).
+- Code reviewer found no P1 or P2 issue and four P3 items (leftover `CMAKE_OSX_ARCHITECTURES` handling, the `CPPHTTPLIB_DISABLE_MACOSX_AUTOMATIC_ROOT_CERTIFICATES` define, the `macos-universal` helper text, the minicoro platform table, the broken `RunOnMacOS.md` link, the stale index entries, and touched comments over two lines); the code-side items were fixed and the documentation items are covered by this batch.
+
+### Not verified
+- Linux and FreeBSD configure, build and execution (not available on this machine); the changed Linux-only branches were checked by review only.
+- Windows gameplay, rendering and the PLA export were not run. An export made before the next commit still carries the previous producer revision; commit, reconfigure and a full export are needed before the next measurement.
+- `research/tests` was not run (7 failures and 1 error are recorded as pre-existing).
+
 ## v0.0.1-dev29 - Unreleased
 
 *Development entry 29 toward v0.0.1. Not a release; no build artifacts are published.*

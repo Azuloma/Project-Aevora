@@ -15,12 +15,6 @@
 #    include <sys/mman.h>
 #endif
 
-#ifdef __APPLE__
-#    include <errno.h>
-#    include <fmt/format.h>
-#    include <sys/sysctl.h>
-#endif
-
 #include <array>
 #include <cstring>
 
@@ -217,19 +211,6 @@ HostFeature GetHostFeatures() {
 
     return features;
 }
-
-#ifdef __APPLE__
-bool IsUnderRosetta() {
-    int result = 0;
-    size_t result_size = sizeof(result);
-    if (sysctlbyname("sysctl.proc_translated", &result, &result_size, nullptr, 0) == -1) {
-        if (errno != ENOENT)
-            fmt::print("IsUnderRosetta: Failed to detect Rosetta state, assuming not under Rosetta");
-        return false;
-    }
-    return result != 0;
-}
-#endif
 
 }  // anonymous namespace
 
@@ -470,10 +451,6 @@ void BlockOfCode::LookupBlock() {
 }
 
 void BlockOfCode::LoadRequiredFlagsForCondFromRax(IR::Cond cond) {
-#ifdef __APPLE__
-    static const bool is_rosetta = IsUnderRosetta();
-#endif
-
     // sahf restores SF, ZF, CF
     // add al, 0x7F restores OF
 
@@ -499,15 +476,6 @@ void BlockOfCode::LoadRequiredFlagsForCondFromRax(IR::Cond cond) {
     case IR::Cond::LT:  // n != v
     case IR::Cond::GT:  // !z & (n == v)
     case IR::Cond::LE:  // z | (n != v)
-#ifdef __APPLE__
-        if (is_rosetta) {
-            shl(al, 3);
-            xchg(al, ah);
-            push(rax);
-            popf();
-            break;
-        }
-#endif
         cmp(al, 0x81);
         sahf();
         break;

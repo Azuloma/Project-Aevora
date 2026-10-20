@@ -12,13 +12,8 @@
 #include "common/error.h"
 #include "common/logging.h"
 #include "common/assert.h"
-#ifdef __APPLE__
-#include <pthread/qos.h>
-#endif
 #include "common/thread.h"
-#ifdef __APPLE__
-#include <mach/mach.h>
-#elif defined(__HAIKU__)
+#if defined(__HAIKU__)
 #include <kernel/OS.h>
 #elif defined(_WIN32)
 #include <windows.h>
@@ -81,18 +76,6 @@ void SetCurrentThreadPriority(ThreadPriority new_priority) {
         }
     }();
     set_thread_priority(find_thread(NULL), priority);
-#elif defined(__APPLE__)
-    qos_class_t qos = [&]() {
-        switch (new_priority) {
-        case ThreadPriority::Low: return QOS_CLASS_UTILITY;
-        case ThreadPriority::Normal: return QOS_CLASS_DEFAULT;
-        case ThreadPriority::High: return QOS_CLASS_USER_INITIATED;
-        case ThreadPriority::VeryHigh:
-        case ThreadPriority::Critical: return QOS_CLASS_USER_INTERACTIVE;
-        default: return QOS_CLASS_DEFAULT;
-        }
-    }();
-    pthread_set_qos_class_self_np(qos, 0);
 #else
     pthread_t this_thread = pthread_self();
     const auto scheduling_type = SCHED_OTHER;
@@ -118,8 +101,6 @@ void SetCurrentThreadName(const char* name) {
         pf(GetCurrentThread(), UTF8ToUTF16W(name).data()); // Windows 10+
     else
         ; // No-op
-#elif  defined(__APPLE__)
-    pthread_setname_np(name);
 #elif defined(__HAIKU__)
     rename_thread(find_thread(NULL), name);
 #elif defined(__Bitrig__) || defined(__DragonFly__) || defined(__FreeBSD__) || defined(__OpenBSD__)

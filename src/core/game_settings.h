@@ -14,7 +14,6 @@ namespace Core::GameSettings {
 enum class OS {
     Windows,
     Linux,
-    MacOS,
     FreeBSD,
     DragonFlyBSD,
     NetBSD,

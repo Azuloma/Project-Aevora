@@ -241,31 +241,10 @@ class OtherKindTests(ScanCase):
             result = self.scan('l.tar.gz', data, 'linux')
             self.assertIn('link', self.rules_of(result, 'sneaky'))
 
-    def macos_members(self):
-        fw = 'suyu.app/Contents/Frameworks/QtCore.framework/'
-        return ({'suyu.app/Contents/MacOS/suyu': b'MACHO', 'LICENSE.txt': b'GPL',
-                 fw + 'Versions/A/QtCore': b'MACHO', fw + 'Versions/A/Resources/Info.plist': b'plist'},
-                {fw + 'Versions/Current': 'A', fw + 'QtCore': 'Versions/Current/QtCore',
-                 fw + 'Resources': 'Versions/Current/Resources'})
-
-    def test_macos_framework_symlinks(self):
-        members, links = self.macos_members()
-        self.assertClean(self.scan('suyu-macos-arm64.zip', zip_bytes(members, links), 'macos'))
-        fw = 'suyu.app/Contents/Frameworks/QtCore.framework/'
-        bad_links = {
-            'escape': {fw + 'evil': '../../../MacOS/suyu'},
-            'absolute': {fw + 'evil': '/etc/hosts'},
-            'outside framework': {'suyu.app/Contents/MacOS/link': 'suyu'},
-            'other framework': {fw + 'evil': '../QtGui.framework/QtGui'},
-            'missing target': {fw + 'evil': 'Versions/A/Nope'},
-        }
-        for name, extra in bad_links.items():
-            with self.subTest(name):
-                result = self.scan('bad.zip', zip_bytes(members, dict(links, **extra)), 'macos')
-                self.assertIn('link', self.rules_of(result), result['findings'])
-        result = self.scan('linux-link.zip', zip_bytes(members, links), 'windows')
-        self.assertIn('link', self.rules_of(result))
-
+    def test_zip_symlinks_are_rejected(self):
+        links = {'sneaky': 'suyu.exe'}
+        result = self.scan('link.zip', zip_bytes(windows_members(), links), 'windows')
+        self.assertIn('link', self.rules_of(result), result['findings'])
 
     def test_case_insensitive_archive_names(self):
         # Archives that get unpacked still reject names that collide ignoring case.
@@ -275,8 +254,6 @@ class OtherKindTests(ScanCase):
     def test_libretro_and_source_layouts(self):
         self.assertClean(self.scan('l.tar.gz', tar_bytes({'./suyu_libretro.so': b'ELF', './LICENSE.txt': b'x'}), 'libretro-linux'))
         self.assertClean(self.scan('w.zip', zip_bytes({'suyu_libretro.dll': b'MZ', 'LICENSE.txt': b'x'}), 'libretro-windows'))
-        self.assertClean(self.scan('m.zip', zip_bytes({'suyu_libretro.dylib': b'M', 'LICENSE.txt': b'x',
-                                                       'suyu_libretro_libs/libx.dylib': b'M'}), 'libretro-macos'))
         source = tar_bytes({'suyu-v1.2.3-source/src/main.cpp': b'int main(){}', 'suyu-v1.2.3-source/README.md': b'hi'}, dirs=())
         self.assertClean(self.scan('suyu-v1.2.3-source.tar.gz', source, 'source'))
         two = tar_bytes({'suyu-v1.2.3-source/a.cpp': b'x', 'other/b.cpp': b'y'}, dirs=())
@@ -288,9 +265,7 @@ class OtherKindTests(ScanCase):
         extra = {'LICENSE.txt': b'x', 'LICENSES/MIT.txt': b'MIT', 'THIRD-PARTY-NOTICES.txt': b'notices'}
         self.assertClean(self.scan('l.tar.gz', tar_bytes({'./suyu': b'ELF', './suyu-cmd': b'ELF', **{'./' + k: v for k, v in extra.items()}}), 'linux'))
         self.assertClean(self.scan('w.zip', zip_bytes(windows_members(**extra)), 'windows'))
-        self.assertClean(self.scan('m.zip', zip_bytes({'suyu.app/Contents/Info.plist': b'x', **extra}), 'macos'))
-        for kind, core in (('libretro-linux', 'suyu_libretro.so'), ('libretro-windows', 'suyu_libretro.dll'),
-                           ('libretro-macos', 'suyu_libretro.dylib')):
+        for kind, core in (('libretro-linux', 'suyu_libretro.so'), ('libretro-windows', 'suyu_libretro.dll')):
             self.assertClean(self.scan(kind + '.zip', zip_bytes({core: b'bin', **extra}), kind))
         result = self.scan('bad.zip', zip_bytes({'suyu_libretro.so': b'bin', 'LICENSES/sub/MIT.txt': b'x',
                                                  'LICENSES/run.exe': b'x'}), 'libretro-linux')

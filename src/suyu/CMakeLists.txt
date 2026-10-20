@@ -13,7 +13,6 @@ if (SUYU_USE_BUNDLED_QT AND (${CMAKE_SYSTEM_NAME} STREQUAL "Linux"))
 endif()
 
 add_executable(suyu
-    Info.plist
     about_dialog.cpp
     about_dialog.h
     aboutdialog.ui
@@ -409,24 +408,7 @@ target_sources(suyu
         ${THEMES}
 )
 
-if (APPLE)
-    set(MACOSX_ICON "../../dist/suyu.icns")
-    set_source_files_properties(${MACOSX_ICON} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-    target_sources(suyu PRIVATE ${MACOSX_ICON})
-    set_target_properties(suyu PROPERTIES MACOSX_BUNDLE TRUE)
-    set_target_properties(suyu PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist)
-
-    # MOLTENVK_LIBRARY is resolved in externals/CMakeLists.txt, either from the
-    # bundled CPM package (YUZU_USE_BUNDLED_MOLTENVK) or an installed MoltenVK.
-    if (NOT MOLTENVK_LIBRARY)
-        find_library(MOLTENVK_LIBRARY MoltenVK REQUIRED)
-    endif()
-    message(STATUS "Using MoltenVK at ${MOLTENVK_LIBRARY}.")
-    set_source_files_properties(${MOLTENVK_LIBRARY} PROPERTIES MACOSX_PACKAGE_LOCATION Frameworks
-                                    XCODE_FILE_ATTRIBUTES "CodeSignOnCopy")
-    target_sources(suyu PRIVATE ${MOLTENVK_LIBRARY})
-
-elseif(WIN32)
+if(WIN32)
     # compile as a win32 gui application instead of a console application
     if (QT_MAJOR_VERSION GREATER_EQUAL 6)
         target_link_libraries(suyu PRIVATE Qt6::EntryPointPrivate)
@@ -443,11 +425,10 @@ endif()
 
 target_link_libraries(suyu PRIVATE common core input_common frontend_common network video_core frozen::frozen-headers)
 
-# A static Qt (except on Apple, where it has no Vulkan) already contains VMA in qrhivulkan;
-# compiling ours too causes duplicate symbols. Qt's copy uses the same function-loading
-# configuration as video_core/vulkan_common/vma.h.
+# A static Qt already contains VMA in qrhivulkan (same loading configuration as vma.h);
+# compiling ours too causes duplicate symbols.
 get_target_property(qt_core_type Qt${QT_MAJOR_VERSION}::Core TYPE)
-if (APPLE OR NOT qt_core_type STREQUAL "STATIC_LIBRARY")
+if (NOT qt_core_type STREQUAL "STATIC_LIBRARY")
     target_sources(suyu PRIVATE ../video_core/vulkan_common/vma.cpp)
 endif()
 target_link_libraries(suyu PRIVATE Boost::headers glad Qt${QT_MAJOR_VERSION}::Widgets)
@@ -458,7 +439,7 @@ target_link_libraries(suyu PRIVATE Vulkan::Headers)
 if (NOT WIN32)
     target_include_directories(suyu PRIVATE ${Qt${QT_MAJOR_VERSION}Gui_PRIVATE_INCLUDE_DIRS})
 endif()
-if (UNIX AND NOT APPLE)
+if (UNIX)
     target_link_libraries(suyu PRIVATE Qt${QT_MAJOR_VERSION}::DBus)
 endif()
 
@@ -509,7 +490,7 @@ if (YUZU_USE_QT_WEB_ENGINE)
     target_compile_definitions(suyu PRIVATE -DSUYU_USE_QT_WEB_ENGINE)
 endif ()
 
-if(UNIX AND NOT APPLE)
+if(UNIX)
     install(TARGETS suyu)
 endif()
 
@@ -620,7 +601,7 @@ if (MSVC)
     endif()
 endif()
 
-if (NOT APPLE AND ENABLE_OPENGL)
+if (ENABLE_OPENGL)
     target_compile_definitions(suyu PRIVATE HAS_OPENGL)
 endif()
 

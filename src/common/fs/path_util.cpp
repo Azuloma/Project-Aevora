@@ -25,20 +25,6 @@
 #include <unistd.h>    // Used in GetDataDirectory()
 #endif
 
-#ifdef __APPLE__
-#include <sys/param.h> // Used in GetBundleDirectory()
-
-#ifndef __clang__
-#define availability(...)
-#endif
-#include <CoreFoundation/CFBundle.h> // Used in GetBundleDirectory()
-#include <CoreFoundation/CFString.h> // Used in GetBundleDirectory()
-#include <CoreFoundation/CFURL.h>    // Used in GetBundleDirectory()
-#ifdef availability
-#undef availability
-#endif
-#endif
-
 #ifndef MAX_PATH
 #ifdef _WIN32
 // This is the maximum number of UTF-16 code units permissible in Windows file paths
@@ -364,25 +350,6 @@ fs::path GetDataDirectory(const std::string& env_name) {
     }
 
     return {};
-}
-
-#endif
-
-#ifdef __APPLE__
-
-fs::path GetBundleDirectory() {
-    char app_bundle_path[MAXPATHLEN];
-
-    // Get the main bundle for the app
-    CFURLRef bundle_ref = CFBundleCopyBundleURL(CFBundleGetMainBundle());
-    CFStringRef bundle_path = CFURLCopyFileSystemPath(bundle_ref, kCFURLPOSIXPathStyle);
-
-    CFStringGetFileSystemRepresentation(bundle_path, app_bundle_path, sizeof(app_bundle_path));
-
-    CFRelease(bundle_ref);
-    CFRelease(bundle_path);
-
-    return fs::path{app_bundle_path};
 }
 
 #endif

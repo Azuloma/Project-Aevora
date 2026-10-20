@@ -6,13 +6,6 @@
 #if defined(_WIN32)
 #include <windows.h>
 
-#elif defined(__APPLE__)
-#include <TargetConditionals.h>
-#if TARGET_OS_OSX
-#include <IOKit/ps/IOPSKeys.h>
-#include <IOKit/ps/IOPowerSources.h>
-#endif
-
 #elif defined(__linux__)
 #include <fstream>
 #include <string>
@@ -37,33 +30,6 @@ namespace Common {
         } else {
             info.has_battery = false;
         }
-
-#elif defined(__APPLE__) && TARGET_OS_OSX
-        CFTypeRef info_ref = IOPSCopyPowerSourcesInfo();
-        CFArrayRef sources = IOPSCopyPowerSourcesList(info_ref);
-        if (CFArrayGetCount(sources) > 0) {
-            CFDictionaryRef battery =
-                IOPSGetPowerSourceDescription(info_ref, CFArrayGetValueAtIndex(sources, 0));
-
-            CFNumberRef curNum =
-                (CFNumberRef)CFDictionaryGetValue(battery, CFSTR(kIOPSCurrentCapacityKey));
-            CFNumberRef maxNum =
-                (CFNumberRef)CFDictionaryGetValue(battery, CFSTR(kIOPSMaxCapacityKey));
-            int cur = 0, max = 0;
-            CFNumberGetValue(curNum, kCFNumberIntType, &cur);
-            CFNumberGetValue(maxNum, kCFNumberIntType, &max);
-
-            if (max > 0)
-                info.percentage = (cur * 100) / max;
-
-            CFBooleanRef isCharging =
-                (CFBooleanRef)CFDictionaryGetValue(battery, CFSTR(kIOPSIsChargingKey));
-            info.charging = CFBooleanGetValue(isCharging);
-        } else {
-            info.has_battery = false;
-        }
-        CFRelease(sources);
-        CFRelease(info_ref);
 
 #elif defined(__linux__)
         const char* battery_path = "/sys/class/power_supply/BAT0/";

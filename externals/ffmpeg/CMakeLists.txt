@@ -47,22 +47,20 @@ elseif (UNIX AND NOT DEFINED FFmpeg_IS_CROSS_COMPILING)
 
     find_package(X11)
     if(X11_FOUND)
-        if (NOT APPLE)
-            # In Solaris needs explicit linking for ffmpeg which links to /lib/amd64/libX11.so
-            if(PLATFORM_SUN)
-                list(APPEND FFmpeg_HWACCEL_LIBRARIES
-                    X11
-                    "${CMAKE_SYSROOT}/usr/lib/xorg/amd64/libdrm.so")
-            else()
-                pkg_check_modules(LIBDRM libdrm REQUIRED)
-                list(APPEND FFmpeg_HWACCEL_LIBRARIES
-                    ${LIBDRM_LIBRARIES})
-                list(APPEND FFmpeg_HWACCEL_INCLUDE_DIRS
-                    ${LIBDRM_INCLUDE_DIRS})
-            endif()
-            list(APPEND FFmpeg_HWACCEL_FLAGS
-                --enable-libdrm)
+        # In Solaris needs explicit linking for ffmpeg which links to /lib/amd64/libX11.so
+        if(PLATFORM_SUN)
+            list(APPEND FFmpeg_HWACCEL_LIBRARIES
+                X11
+                "${CMAKE_SYSROOT}/usr/lib/xorg/amd64/libdrm.so")
+        else()
+            pkg_check_modules(LIBDRM libdrm REQUIRED)
+            list(APPEND FFmpeg_HWACCEL_LIBRARIES
+                ${LIBDRM_LIBRARIES})
+            list(APPEND FFmpeg_HWACCEL_INCLUDE_DIRS
+                ${LIBDRM_INCLUDE_DIRS})
         endif()
+        list(APPEND FFmpeg_HWACCEL_FLAGS
+            --enable-libdrm)
         if(LIBVA_FOUND)
             pkg_check_modules(LIBVA-DRM libva-drm REQUIRED)
             pkg_check_modules(LIBVA-X11 libva-x11 REQUIRED)
@@ -116,7 +114,7 @@ elseif (UNIX AND NOT DEFINED FFmpeg_IS_CROSS_COMPILING)
         endif(CUDA_FOUND)
     endif()
 
-    if (VDPAU_FOUND AND NOT APPLE)
+    if (VDPAU_FOUND)
         list(APPEND FFmpeg_HWACCEL_FLAGS
             --enable-vdpau
             --enable-hwaccel=h264_vdpau
@@ -273,7 +271,7 @@ else()
     set(FFmpeg_BUILD_LIBRARIES ${FFmpeg_LIBRARIES})
 
     # BSD make or Solaris make don't support ffmpeg make-j8
-    if (PLATFORM_LINUX OR APPLE OR WIN32 OR PLATFORM_FREEBSD)
+    if (PLATFORM_LINUX OR WIN32 OR PLATFORM_FREEBSD)
         set(FFmpeg_MAKE_ARGS -j${SYSTEM_THREADS})
     else()
         set(FFmpeg_MAKE_ARGS "")

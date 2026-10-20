@@ -12,8 +12,6 @@
 #include <filesystem>
 #ifdef _WIN32
 #include <windows.h>
-#elif defined(__APPLE__)
-#include <mach-o/dyld.h>
 #endif
 #endif
 
@@ -48,16 +46,6 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
         wchar_t exe_w[MAX_PATH]{};
         GetModuleFileNameW(nullptr, exe_w, MAX_PATH);
         exe = exe_w;
-#elif defined(__APPLE__)
-        // Ask for the length first; the answer can exceed PATH_MAX once
-        // symlinks and bundle nesting are in play.
-        std::uint32_t size = 0;
-        _NSGetExecutablePath(nullptr, &size);
-        std::string buffer;
-        buffer.resize(size);
-        if (size != 0 && _NSGetExecutablePath(buffer.data(), &size) == 0) {
-            exe = buffer.c_str();
-        }
 #else
         std::error_code ec;
         exe = std::filesystem::read_symlink("/proc/self/exe", ec);
@@ -72,12 +60,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     const std::string window_title = fmt::format("suyu {} | {}-{} (Vulkan)", Common::g_build_name,
                                                  Common::g_scm_branch, Common::g_scm_desc);
 #endif
-    // Outside an .app bundle macOS treats the binary as a background app; request foreground
-    // before the window exists so the later raise works.
     const bool headless_capture = std::getenv("SUYU_CMD_CAPTURE_HEADLESS") != nullptr;
-    if (!headless_capture) {
-        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
-    }
 
     auto window_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (headless_capture) {
@@ -134,16 +117,6 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
             std::exit(EXIT_FAILURE);
         }
     }
-#elif defined(SDL_PLATFORM_MACOS)
-    window_info.type = Core::Frontend::WindowSystemType::Cocoa;
-    // VK_EXT_metal_surface takes a CAMetalLayer. The view SDL_Metal_CreateView returns is an
-    // NSView, and MoltenVK raises an Objective-C exception for anything that is not a layer.
-    metal_view = SDL_Metal_CreateView(render_window);
-    window_info.render_surface = metal_view ? SDL_Metal_GetLayer(metal_view) : nullptr;
-    if (window_info.render_surface == nullptr) {
-        LOG_CRITICAL(Frontend, "Failed to get the CAMetalLayer for the window: {}", SDL_GetError());
-        std::exit(EXIT_FAILURE);
-    }
 #else
     LOG_CRITICAL(Frontend, "Window manager subsystem not implemented for this platform");
     std::exit(EXIT_FAILURE);
@@ -154,7 +127,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
     // The Vulkan surface still exists and the renderer supplies frame captures.
     if (!headless_capture) {
         SDL_ShowWindow(render_window);
-        // Showing a window does not focus it; a non-frontmost macOS window is throttled.
+        // Showing a window does not focus it.
         SDL_RaiseWindow(render_window);
     }
     OnResize();
@@ -372,12 +345,6 @@ EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
         CancelControllerRebind();
         debug_overlay->GetActions().DetachEventThread();
     }
-#if defined(SDL_PLATFORM_MACOS)
-    if (metal_view) {
-        SDL_Metal_DestroyView(metal_view);
-        metal_view = nullptr;
-    }
-#endif
 }
 
 std::unique_ptr<Core::Frontend::GraphicsContext> EmuWindow_SDL2_VK::CreateSharedContext() const {

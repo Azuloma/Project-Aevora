@@ -31,7 +31,7 @@ LICENSE_HINTS = {
     'biscuit': ['MIT'], 'boost': ['BSL-1.0'], 'boost_headers': ['BSL-1.0'], 'catch2': ['BSL-1.0'],
     'cpp-jwt': ['MIT'], 'discord-rpc': ['MIT'], 'enet': ['MIT'], 'fmt': ['MIT'],
     'frozen': ['Apache-2.0'], 'httplib': ['MIT'],
-    'lz4': ['BSD-2-Clause'], 'mcl': ['MIT'], 'moltenvk': ['Apache-2.0'], 'nlohmann': ['MIT'],
+    'lz4': ['BSD-2-Clause'], 'mcl': ['MIT'], 'nlohmann': ['MIT'],
     'oaknut': ['MIT'], 'openssl': ['Apache-2.0'], 'openssl-cmake': ['MIT'],
     'opus': ['BSD-3-Clause'], 'sdl3': ['Zlib'], 'simpleini': ['MIT'], 'spirv-headers': ['MIT'],
     'unordered-dense': ['MIT'], 'vulkan-headers': ['Apache-2.0'],

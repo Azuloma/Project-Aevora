@@ -72,12 +72,7 @@ std::vector<Asset> Release::GetPlatformAssets() const {
     find_asset("Standard", {"arm64-clang-standard.exe", "arm64-clang-standard.zip"});
     find_asset("PGO", {"arm64-clang-pgo.exe", "arm64-clang-pgo.zip"});
 #endif // ARCHITECTURE_arm64
-#elif defined(__APPLE__)
-#ifdef ARCHITECTURE_arm64
-    find_asset("Standard", {"standard.dmg", "standard.tar.gz", ".dmg", ".tar.gz"});
-    find_asset("PGO", {"pgo.dmg", "pgo.tar.gz"});
-#endif // ARCHITECTURE_arm64
-#endif // __APPLE__
+#endif
     (void)find_asset;
     return found_assets;
 }

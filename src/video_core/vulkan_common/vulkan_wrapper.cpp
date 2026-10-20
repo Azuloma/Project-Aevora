@@ -443,11 +443,7 @@ VkResult Free(VkDevice device, VkCommandPool handle, Span<VkCommandBuffer> buffe
 
 Instance Instance::Create(u32 version, Span<const char*> layers, Span<const char*> extensions,
                           InstanceDispatch& dispatch) {
-#ifdef __APPLE__
-    constexpr VkFlags ci_flags{VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR};
-#else
     constexpr VkFlags ci_flags{};
-#endif
     // DO NOT TOUCH, breaks RNDA3!!
     // Don't know why, but gloom + yellow line glitch appears
     const VkApplicationInfo application_info{
@@ -1073,8 +1069,6 @@ std::string GetDriverName(VkPhysicalDeviceDriverProperties driver) {
         return "Broadcom";
     case VK_DRIVER_ID_MESA_LLVMPIPE:
         return "llvmpipe";
-    case VK_DRIVER_ID_MOLTENVK:
-        return "MoltenVK";
     case VK_DRIVER_ID_VERISILICON_PROPRIETARY:
         return "Vivante";
     case VK_DRIVER_ID_MESA_TURNIP:

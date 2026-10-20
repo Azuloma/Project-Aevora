@@ -134,11 +134,7 @@ else()
         add_compile_options(
             $<$<COMPILE_LANGUAGE:C,CXX>:-fwrapv>
             $<$<COMPILE_LANGUAGE:C,CXX>:-pipe>)
-        # Apple libc++ needs RTTI for a derived standard exception to match
-        # a base-class catch (for example invalid_argument -> logic_error).
-        if (NOT APPLE)
-            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
-        endif()
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
     endif()
 
     add_compile_options(
@@ -152,7 +148,7 @@ else()
         $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-unused-parameter>
         $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-missing-field-initializers>)
 
-    if (CXX_CLANG OR CXX_ICC OR CXX_APPLE) # Clang, AppleClang, or Intel C++
+    if (CXX_CLANG OR CXX_ICC) # Clang or Intel C++
         if (NOT MSVC)
             add_compile_options(
                 $<$<COMPILE_LANGUAGE:C,CXX>:-Werror=shadow-uncaptured-local>
@@ -172,10 +168,6 @@ else()
         endif()
     endif()
 
-    if (APPLE AND CXX_CLANG)
-        add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-stdlib=libc++>)
-    endif()
-
     # GCC bugs
     if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "11" AND CXX_GCC)
         # These diagnostics would be great if they worked, but are just completely broken
@@ -190,7 +182,7 @@ else()
         add_compile_definitions(_FILE_OFFSET_BITS=64)
     endif()
 
-    if (YUZU_STATIC_BUILD AND NOT APPLE AND NOT MSVC)
+    if (YUZU_STATIC_BUILD AND NOT MSVC)
         add_compile_options(-static)
 
         # yuzu-cmd requires us to explicitly link libpthread, libgcc, and libstdc++ as static

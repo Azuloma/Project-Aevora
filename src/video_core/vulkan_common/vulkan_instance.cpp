@@ -9,9 +9,6 @@
 #include <optional>
 #include <span>
 #include <vector>
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
 
 #include "common/common_types.h"
 #include "common/dynamic_library.h"
@@ -51,10 +48,6 @@ namespace {
     case Core::Frontend::WindowSystemType::Windows:
         extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
         break;
-#elif defined(__APPLE__)
-    case Core::Frontend::WindowSystemType::Cocoa:
-        extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
-        break;
 #elif defined(__HAIKU__)
     case Core::Frontend::WindowSystemType::Xcb:
         extensions.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
@@ -76,10 +69,6 @@ namespace {
     }
     // Probe optional extensions against the same snapshot the caller verifies against, so the
     // check here and the verification in CreateInstance can never disagree (see TOCTOU note below).
-#ifdef __APPLE__
-    if (AreExtensionsSupported(dld, properties, std::array{VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME}))
-        extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-#endif
     if (enable_validation && AreExtensionsSupported(dld, properties, std::array{VK_EXT_DEBUG_UTILS_EXTENSION_NAME}))
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     return extensions;

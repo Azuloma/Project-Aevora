@@ -450,11 +450,8 @@ void GameExportDialog::SetupUi() {
     platform_combo = new QComboBox(this);
     platform_combo->addItem(tr("Windows artifact bundle"), static_cast<int>(TargetPlatform::Windows));
     platform_combo->addItem(tr("Linux artifact bundle"), static_cast<int>(TargetPlatform::Linux));
-    platform_combo->addItem(tr("macOS artifact bundle"), static_cast<int>(TargetPlatform::MacOS));
 #ifdef _WIN32
     platform_combo->setCurrentIndex(0);
-#elif defined(__APPLE__)
-    platform_combo->setCurrentIndex(2);
 #else
     platform_combo->setCurrentIndex(1);
 #endif
@@ -722,7 +719,7 @@ void GameExportDialog::SetupUi() {
         if (!is_windows) {
             output_format_combo->setCurrentIndex(output_format_combo->findData(kFormatSource));
             output_format_combo->setToolTip(
-                tr("Build is available for Windows exports only. Linux and macOS exports "
+                tr("Build is available for Windows exports only. Linux exports "
                    "currently contain source artifacts and no bundled runtime."));
         } else {
             output_format_combo->setToolTip(
@@ -5274,10 +5271,8 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                           << "extern unsigned recomp_image_fastmem_v1_" << m
                           << "(uint32_t, uint32_t, uint64_t, uint32_t, uint32_t);\n";
                     }
-                    // GCC's -Werror=missing-declarations rejects a definition with no
-                    // earlier prototype (a real Linux FM1 export hit this; MSVC and
-                    // Apple clang do not warn). Every registry/handshake function
-                    // below needs one, immediately before its definition.
+                    // GCC's -Werror=missing-declarations rejects a definition with no earlier
+                    // prototype, so each registry/handshake function gets one just before it.
                     o << "int suyu_recomp_static_fastmem_v1(uint32_t, uint32_t, uint64_t, uint32_t, uint32_t);\n";
                     o << "int suyu_recomp_static_fastmem_v1(uint32_t page_bits, uint32_t stride_log2,\n"
                          "                                  uint64_t pointer_mask, uint32_t off_table,\n"
@@ -6491,8 +6486,6 @@ static QString AotCacheDirFor(const QString& package_root,
     switch (platform) {
     case GameExportDialog::TargetPlatform::Linux:
         return package_root + QStringLiteral("/usr/bin/aot_cache");
-    case GameExportDialog::TargetPlatform::MacOS:
-        return package_root + QStringLiteral("/Contents/Resources/aot_cache");
     case GameExportDialog::TargetPlatform::Windows:
     default:
         return package_root + QStringLiteral("/aot_cache");
@@ -6947,32 +6940,6 @@ bool GameExportDialog::PackageNativeExport(const QString& rom_path, const QStrin
 
         return true;
     }
-
-    case TargetPlatform::MacOS: {
-        const QString app_bundle = package_root;
-        const QString contents_dir = app_bundle + QStringLiteral("/Contents");
-        const QString res_dir = contents_dir + QStringLiteral("/Resources");
-        if (!QDir().mkpath(contents_dir) || !QDir().mkpath(res_dir)) {
-            return false;
-        }
-
-        write_source_reference(res_dir);
-        if (!cache_in_place(res_dir + QStringLiteral("/aot_cache"))) {
-            return fail(QStringLiteral("the AOT cache is not inside the staged package"));
-        }
-
-        QFile readme(contents_dir + QStringLiteral("/README_NATIVE_EXPORT.txt"));
-        if (readme.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream out(&readme);
-            out << "suyu local game export: recompiler artifacts\n\n";
-            out << "Compiler artifacts are under Contents/Resources/aot_cache.\n";
-            out << "No frontend runtime binary is bundled in this export.\n\n";
-            out << kExportContentNotice;
-            readme.close();
-        }
-
-        return true;
-    }
     }
 
     return false;
@@ -6986,9 +6953,8 @@ namespace {
 constexpr char kOutputRootsKey[] = "recompile/output_roots";
 } // namespace
 
-// suyu run from a source checkout (build/bin under the repo) exports into <repo>/exports, which
-// .gitignore keeps out of commits: exports hold generated game code and game data. Anywhere
-// else - an installed or unpacked release, or a macOS app bundle - keeps the Downloads default.
+// A source checkout exports into <repo>/exports (git-ignored: generated game code and data);
+// any other install keeps the Downloads default.
 static QString RepoExportRoot() {
     QDir dir(QCoreApplication::applicationDirPath());
     for (int level = 0; level < 6; ++level) {
@@ -7115,12 +7081,11 @@ QStringList GameExportDialog::FindRecompiledExecutables(const QString& game_name
     }
     names.removeDuplicates();
 
-    // A package can be laid out for any of the three target platforms, and the
+    // A package can be laid out for either target platform, and the
     // build directory is single- or multi-config depending on the generator.
     static const QStringList package_suffixes = {
         QStringLiteral("/aot_cache/recompiled"),
         QStringLiteral(".AppDir/usr/bin/aot_cache/recompiled"),
-        QStringLiteral(".app/Contents/Resources/aot_cache/recompiled"),
     };
     static const QStringList exe_candidates = {
         QStringLiteral("build/Release/recompiled.exe"),
@@ -7719,9 +7684,7 @@ void GameExportDialog::OnExport() {
             : game_name + (is_hybrid ? QStringLiteral(" - Hybrid AOT + JIT")
                                      : QStringLiteral(" - Dynarmic JIT"));
     const QString destination_name =
-        platform == TargetPlatform::Linux   ? export_name + QStringLiteral(".AppDir")
-        : platform == TargetPlatform::MacOS ? export_name + QStringLiteral(".app")
-                                            : export_name;
+        platform == TargetPlatform::Linux ? export_name + QStringLiteral(".AppDir") : export_name;
     const QString destination = output_dir + QLatin1Char('/') + destination_name;
 
     // Before anything runs: an export may compile for an hour, so what happens
@@ -8089,9 +8052,8 @@ void GameExportDialog::OnExport() {
     // before it is allowed to become the output.
     ReportStage(ExportStage::Package, 0.97, tr("Checking the package..."));
     PackagePolicy::LocalExportExpectation expect;
-    expect.platform = platform == TargetPlatform::Linux   ? PackagePolicy::Platform::Linux
-                      : platform == TargetPlatform::MacOS ? PackagePolicy::Platform::MacOS
-                                                          : PackagePolicy::Platform::Windows;
+    expect.platform = platform == TargetPlatform::Linux ? PackagePolicy::Platform::Linux
+                                                        : PackagePolicy::Platform::Windows;
     expect.package_name = export_name.toStdString();
     expect.title_id_hex =
         QStringLiteral("%1").arg(export_program_id, 16, 16, QLatin1Char('0')).toUpper().toStdString();

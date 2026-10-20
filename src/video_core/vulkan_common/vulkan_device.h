@@ -971,10 +971,6 @@ FN_MAX_LIMIT_LIST
         return properties.driver.driverID == VK_DRIVER_ID_NVIDIA_PROPRIETARY;
     }
 
-    bool IsMoltenVK() const noexcept {
-        return properties.driver.driverID == VK_DRIVER_ID_MOLTENVK;
-    }
-
     NvidiaArchitecture GetNvidiaArch() const noexcept {
         return nvidia_arch;
     }

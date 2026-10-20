@@ -53,8 +53,6 @@ SteadyClock::time_point SteadyClock::Now() noexcept {
     const auto whole = (counter / timer_freq) * period::den;
     const auto part = (counter % timer_freq) * period::den / timer_freq;
     return time_point{duration{whole + part}};
-#elif defined(__APPLE__)
-    return time_point{duration{clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)}};
 #else
     timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -65,8 +63,6 @@ SteadyClock::time_point SteadyClock::Now() noexcept {
 RealTimeClock::time_point RealTimeClock::Now() noexcept {
 #if defined(_WIN32)
     return time_point{duration{GetSystemTimeNS()}};
-#elif defined(__APPLE__)
-    return time_point{duration{clock_gettime_nsec_np(CLOCK_REALTIME)}};
 #else
     timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);

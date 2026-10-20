@@ -10,10 +10,6 @@
 #include "common/settings.h"
 #include "video_core/renderer_base.h"
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#endif
-
 namespace Core::GameSettings {
 
 static GPUVendor GetGPU(const std::string& gpu_vendor_string) {
@@ -38,7 +34,6 @@ static GPUVendor GetGPU(const std::string& gpu_vendor_string) {
         {"OpenSWR",   GPUVendor::Intel},
         // Apple
         {"Apple",     GPUVendor::Apple},
-        {"MoltenVK",  GPUVendor::Apple},
         // Qualcomm / Adreno
         {"Qualcomm",  GPUVendor::Qualcomm},
         {"Turnip",    GPUVendor::Qualcomm},
@@ -90,8 +85,6 @@ static OS DetectOS() {
     return OS::Managarm;
 #elif defined(__redox__)
     return OS::RedoxOS;
-#elif defined(__APPLE__)
-    return OS::MacOS;
 #elif defined(__FreeBSD__)
     return OS::FreeBSD;
 #elif defined(__sun) && defined(__SVR4)

@@ -18,12 +18,13 @@ import tempfile
 # now built with /utf-8 on MSVC, as suyu is, so these match clang-cl builds.
 # All three recomputed for the recomp_lookup rewrite and the 32-bit block index: only the index unit,
 # recomp_export.c and the CMake symbol renames moved.
-ABI5_GOLDEN = "23fe58d0e115018cc1f12545e100a33c940f9e306a10e16b3deaf70e801b373b"
+# Recomputed again when macOS wording left the generated CMake and runtime-header comments.
+ABI5_GOLDEN = "cc1e63f542d7b38360417aa91b47b81c4e90b6700f0aa432d5a2c526fbd2fd30"
 # The same for ABI 6 with FM1 alone (GG1, FPX1 off) and with FM1 and FPX1 on, tracked so any change is
 # deliberate; GG1's switch-off contract (DESIGN.md sec 0) guarantees it does not move these.
 # FPX_GOLDEN also covers the FZ-aware FPX1 helpers (v0.0.1-dev8).
-FM1_GOLDEN = "e820e2b5553f05861694754504eab06624cf3a07638bc0841d9c3db7fac17fb7"
-FPX_GOLDEN = "2c904d0a21d8176d92a5da8f20c0eb5329410c761548e0dc34d9459afff2c4bd"
+FM1_GOLDEN = "bd48d916e65341075d45a6592bd442edd32e4bb56a0518c1408308c825bcf78f"
+FPX_GOLDEN = "78e8ef1554974d72ea5629ed5859fdc5108d7528decf71ea962e13ab0680efa6"
 
 # ABI 6 changes only these files; the block sources must be identical.
 ABI6_CHANGED = {"CMakeLists.txt", "recomp_export.c", "recomp_runtime.c", "recomp_runtime.h"}
@@ -93,8 +94,7 @@ AB_SWITCHES = ("SUYU_RECOMP_AB_FASTMEM", "SUYU_RECOMP_AB_GUARD_GEN", "SUYU_RECOM
 IDENTITY_CHANGED = {"recomp_export.c"}
 # Shared-image names of the "second" module, per the generator's naming rule
 # (recomp_topology.h SharedImageTargetName): Windows DLL or Unix shared object.
-IDENTITY_IMAGE_NAMES = ("recompiled_second.dll", "librecompiled_second.so",
-                        "librecompiled_second.dylib")
+IDENTITY_IMAGE_NAMES = ("recompiled_second.dll", "librecompiled_second.so")
 # The bundle id (a SHA-256 digest as hex) the identity test images are built with.
 IDENTITY_BUNDLE_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 # A parent directory with non-ASCII characters, a space and brackets, for loading a

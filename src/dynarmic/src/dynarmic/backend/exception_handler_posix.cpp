@@ -60,7 +60,6 @@ class SigHandler {
     ankerl::unordered_dense::map<u64, CodeBlockInfo> code_block_infos;
     std::shared_mutex code_block_infos_mutex;
     struct sigaction old_sa_segv;
-    struct sigaction old_sa_bus;
     std::size_t signal_stack_size;
 public:
     SigHandler() noexcept {
@@ -87,13 +86,6 @@ public:
             supports_fast_mem = false;
             return;
         }
-#ifdef __APPLE__
-        if (sigaction(SIGBUS, &sa, &old_sa_bus) != 0) {
-            fmt::print(stderr, "dynarmic: POSIX SigHandler: could not set SIGBUS handler\n");
-            supports_fast_mem = false;
-            return;
-        }
-#endif
     }
 
     ~SigHandler() noexcept {
@@ -123,7 +115,7 @@ void RegisterHandler() {
 }
 
 void SigHandler::SigAction(int sig, siginfo_t* info, void* raw_context) {
-    DEBUG_ASSERT(sig == SIGSEGV || sig == SIGBUS);
+    DEBUG_ASSERT(sig == SIGSEGV);
     CTX_DECLARE(raw_context);
 #if defined(ARCHITECTURE_x86_64)
     {
@@ -136,7 +128,7 @@ void SigHandler::SigAction(int sig, siginfo_t* info, void* raw_context) {
             return;
         }
     }
-    fmt::print(stderr, "Unhandled {} at rip {:#018x}\n", sig == SIGSEGV ? "SIGSEGV" : "SIGBUS", CTX_PC);
+    fmt::print(stderr, "Unhandled {} at rip {:#018x}\n", "SIGSEGV", CTX_PC);
 #elif defined(ARCHITECTURE_arm64)
     {
         std::shared_lock guard(sig_handler->code_block_infos_mutex);
@@ -146,7 +138,7 @@ void SigHandler::SigAction(int sig, siginfo_t* info, void* raw_context) {
             return;
         }
     }
-    fmt::print(stderr, "Unhandled {} at pc {:#018x}\n", sig == SIGSEGV ? "SIGSEGV" : "SIGBUS", CTX_PC);
+    fmt::print(stderr, "Unhandled {} at pc {:#018x}\n", "SIGSEGV", CTX_PC);
 #elif defined(ARCHITECTURE_riscv64)
     {
         std::shared_lock guard(sig_handler->code_block_infos_mutex);
@@ -156,7 +148,7 @@ void SigHandler::SigAction(int sig, siginfo_t* info, void* raw_context) {
             return;
         }
     }
-    fmt::print(stderr, "Unhandled {} at pc {:#018x}\n", sig == SIGSEGV ? "SIGSEGV" : "SIGBUS", CTX_SEPC);
+    fmt::print(stderr, "Unhandled {} at pc {:#018x}\n", "SIGSEGV", CTX_SEPC);
 #elif defined(ARCHITECTURE_loongarch64)
     {
         std::shared_lock guard(sig_handler->code_block_infos_mutex);
@@ -166,12 +158,12 @@ void SigHandler::SigAction(int sig, siginfo_t* info, void* raw_context) {
             return;
         }
     }
-    fmt::print(stderr, "Unhandled {} at pc {:#018x}\n", sig == SIGSEGV ? "SIGSEGV" : "SIGBUS", CTX_PC);
+    fmt::print(stderr, "Unhandled {} at pc {:#018x}\n", "SIGSEGV", CTX_PC);
 #else
 #    error "Invalid architecture"
 #endif
 
-    struct sigaction* retry_sa = sig == SIGSEGV ? &sig_handler->old_sa_segv : &sig_handler->old_sa_bus;
+    struct sigaction* retry_sa = &sig_handler->old_sa_segv;
     if (retry_sa->sa_flags & SA_SIGINFO) {
         retry_sa->sa_sigaction(sig, info, raw_context);
         return;

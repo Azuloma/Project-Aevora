@@ -192,7 +192,6 @@ public:
     enum class TargetPlatform {
         Windows,
         Linux,
-        MacOS,
     };
 
     enum class RecompileBackend {

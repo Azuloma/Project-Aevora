@@ -41,8 +41,6 @@ constexpr std::array PreferredGpuDecoders = {
     AV_HWDEVICE_TYPE_VAAPI,
     AV_HWDEVICE_TYPE_VDPAU,
     AV_HWDEVICE_TYPE_DRM,
-#elif defined(__APPLE__)
-    AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
 #elif defined(__unix__)
     AV_HWDEVICE_TYPE_CUDA,
     AV_HWDEVICE_TYPE_VAAPI,

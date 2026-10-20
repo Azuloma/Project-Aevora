@@ -5,7 +5,7 @@ add_executable(maxwell-disas
 )
 target_link_libraries(maxwell-disas PRIVATE common shader_recompiler Threads::Threads)
 target_include_directories(maxwell-disas PRIVATE ${CMAKE_SOURCE_DIR}/src)
-if(UNIX AND NOT APPLE)
+if(UNIX)
     install(TARGETS maxwell-disas)
 endif()
 create_target_directory_groups(maxwell-disas)

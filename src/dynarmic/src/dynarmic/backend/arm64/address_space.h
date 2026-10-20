@@ -49,13 +49,13 @@ protected:
     virtual void RegisterNewBasicBlock(const IR::Block& block, const EmittedBlockInfo& block_info) = 0;
 
     void ProtectCodeMemory() {
-#if defined(DYNARMIC_ENABLE_NO_EXECUTE_SUPPORT) || defined(__APPLE__) || defined(__OpenBSD__)
+#if defined(DYNARMIC_ENABLE_NO_EXECUTE_SUPPORT) || defined(__OpenBSD__)
         mem.protect();
 #endif
     }
 
     void UnprotectCodeMemory() {
-#if defined(DYNARMIC_ENABLE_NO_EXECUTE_SUPPORT) || defined(__APPLE__) || defined(__OpenBSD__)
+#if defined(DYNARMIC_ENABLE_NO_EXECUTE_SUPPORT) || defined(__OpenBSD__)
         mem.unprotect();
 #endif
     }

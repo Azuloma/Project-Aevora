@@ -173,7 +173,7 @@ PromoteResult Promote(const Staging& staging, const std::filesystem::path& desti
 
 // ---- Local game export validation ----
 
-enum class Platform { Windows, Linux, MacOS };
+enum class Platform { Windows, Linux };
 
 struct LocalExportExpectation {
     Platform platform = Platform::Windows;

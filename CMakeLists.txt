@@ -88,7 +88,7 @@ cmake_dependent_option(YUZU_USE_BUNDLED_QT "Download bundled Qt binaries" "${MSV
 option(ENABLE_DEBUG_TOOLS "Enable debugging tools (maxwell disassembler, SPIRV translator, etc)" OFF)
 
 # non-linux bundled qt are static
-if (YUZU_USE_BUNDLED_QT AND (APPLE OR NOT UNIX))
+if (YUZU_USE_BUNDLED_QT AND NOT UNIX)
     set(YUZU_STATIC_BUILD ON)
 endif()
 
@@ -135,15 +135,6 @@ if (YUZU_STATIC_BUILD)
         set(YUZU_USE_BUNDLED_OPENSSL ON)
 
         set(HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF)
-    elseif(APPLE)
-        set(YUZU_USE_BUNDLED_FFMPEG ON)
-        set(YUZU_USE_BUNDLED_SDL3 ON)
-        set(YUZU_USE_BUNDLED_OPENSSL ON)
-
-        # these libs do not properly provide static libs/let you do it with cmake
-        set(fmt_FORCE_BUNDLED ON)
-        set(SPIRV-Headers_FORCE_BUNDLED ON)
-        set(zstd_FORCE_BUNDLED ON)
     endif()
 endif()
 
@@ -229,9 +220,9 @@ endif()
 option(YUZU_USE_BUNDLED_SIRIT "Download bundled sirit" ${BUNDLED_SIRIT_DEFAULT})
 
 # FreeBSD 15+ has libusb, versions below should disable it
-cmake_dependent_option(ENABLE_LIBUSB "Enable the use of LibUSB" ON "WIN32 OR PLATFORM_LINUX OR PLATFORM_FREEBSD OR APPLE" OFF)
+cmake_dependent_option(ENABLE_LIBUSB "Enable the use of LibUSB" ON "WIN32 OR PLATFORM_LINUX OR PLATFORM_FREEBSD" OFF)
 
-cmake_dependent_option(ENABLE_OPENGL "Enable OpenGL" ON "NOT (WIN32 AND ARCHITECTURE_arm64) AND NOT APPLE" OFF)
+cmake_dependent_option(ENABLE_OPENGL "Enable OpenGL" ON "NOT (WIN32 AND ARCHITECTURE_arm64)" OFF)
 mark_as_advanced(FORCE ENABLE_OPENGL)
 
 option(ENABLE_WEB_SERVICE "Enable web services (telemetry, etc.)" ON)
@@ -268,8 +259,6 @@ cmake_dependent_option(YUZU_CRASH_DUMPS "Compile crash dump (Minidump) support" 
 option(YUZU_DOWNLOAD_TIME_ZONE_DATA "Always download time zone binaries" ON)
 set(YUZU_TZDB_PATH "" CACHE STRING "Path to a pre-downloaded timezone database")
 
-cmake_dependent_option(YUZU_USE_BUNDLED_MOLTENVK "Download bundled MoltenVK lib" ON "APPLE AND NOT IOS" OFF)
-
 option(YUZU_DISABLE_LLVM "Disable LLVM (useful for CI)" OFF)
 
 set(DEFAULT_YUZU_USE_BUNDLED_OPENSSL OFF)
@@ -297,7 +286,7 @@ if (YUZU_ROOM)
 endif()
 
 if (UNIX AND NOT (PLATFORM_LINUX OR WIN32))
-    if(CXX_APPLE OR CXX_CLANG)
+    if(CXX_CLANG)
         # libc++ has stop_token and jthread as experimental
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexperimental-library")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexperimental-library")
@@ -504,13 +493,7 @@ function(create_target_directory_groups target_name)
 endfunction()
 
 
-if (APPLE)
-    set(apple_frameworks Carbon Metal Cocoa IOKit CoreVideo CoreMedia Security UniformTypeIdentifiers)
-    foreach(fw IN LISTS apple_frameworks)
-        find_library(${fw}_LIBRARY ${fw} REQUIRED)
-        list(APPEND PLATFORM_LIBRARIES ${${fw}_LIBRARY})
-    endforeach()
-elseif (WIN32)
+if (WIN32)
     # Target Windows 10
     add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
     set(PLATFORM_LIBRARIES ${PLATFORM_LIBRARIES} winmm iphlpapi ws2_32 wlanapi)
@@ -726,7 +709,7 @@ endif()
 
 
 # TODO: Icon/install handling n such should be put into dist/CMakeLists.txt
-if(ENABLE_QT AND UNIX AND NOT APPLE)
+if(ENABLE_QT AND UNIX)
     install(FILES "dist/dev.suyu_emu.suyu.desktop"
         DESTINATION "share/applications")
     install(FILES "dist/suyu.svg"

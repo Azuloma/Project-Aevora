@@ -158,13 +158,6 @@ bool ReadShowPerfOption() {
 }
 
 void ShowPerfMessage(std::string text) {
-#ifdef __APPLE__
-    std::size_t code_points = 0;
-    for (const unsigned char c : text) {
-        code_points += (c & 0xC0) != 0x80;
-    }
-    text.append((code_points + 1) / 2, ' ');
-#endif
     // Refreshed every second; the duration overlaps the next update so it never
     // blinks, and a status message replaces the previous one instead of queueing.
     if (g_message_ext) {

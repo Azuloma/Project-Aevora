@@ -324,12 +324,6 @@ void SetSuyuPath(SuyuPath eden_path, const Path& new_path) {
 
 #endif
 
-#ifdef __APPLE__
-
-[[nodiscard]] std::filesystem::path GetBundleDirectory();
-
-#endif
-
 // vvvvvvvvvv Deprecated vvvvvvvvvv //
 
 // Removes the final '/' or '\' if one exists

@@ -1026,7 +1026,6 @@ function(AddCIPackage)
     set(ARTIFACT_PACKAGE ${PKG_ARGS_PACKAGE})
 
     # TODO: Use amd64/aarch64 naming for everything.
-    # Also drop macos universal
 
     if (MSVC)
         set(platname windows)
@@ -1034,16 +1033,12 @@ function(AddCIPackage)
         set(platname mingw)
     elseif (LINUX)
         set(platname linux)
-    elseif (APPLE)
-        set(platname macos)
     else()
         cpm_utils_message(WARNING
             "Unsupported platform ${CMAKE_SYSTEM_NAME} for CI packages")
     endif()
 
-    if (APPLE AND NOT IOS)
-        set(archname universal)
-    elseif ((WIN32 OR LINUX) AND CPMUTIL_AMD64)
+    if ((WIN32 OR LINUX) AND CPMUTIL_AMD64)
         set(archname amd64)
     elseif (WIN32 AND CPMUTIL_ARM64)
         set(archname arm64)

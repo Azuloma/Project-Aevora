@@ -25,8 +25,7 @@ import tempfile
 import zipfile
 
 POLICY_PATH = Path(__file__).with_name('policy.json')
-KINDS = ('windows', 'linux', 'macos', 'libretro-linux', 'libretro-windows',
-         'libretro-macos', 'source', 'dependency-sources')
+KINDS = ('windows', 'linux', 'libretro-linux', 'libretro-windows', 'source', 'dependency-sources')
 HEAD_BYTES = 16384 + 8
 WHOLE_FILE_LIMIT = 1 << 20
 NESTED_MAX_BYTES = 256 << 20
@@ -188,7 +187,7 @@ class Scanner:
     def scan_entries(self, entries, is_tar, prefix, depth):
         top = depth == 0
         seen = {}
-        names, dirs, links = set(), set(), []
+        links = []
         for entry in entries:
             path, is_dir, problems = normalize(entry.raw, is_tar)
             if is_tar and not path and not problems and entry.is_dir:
@@ -205,13 +204,6 @@ class Scanner:
                 seen[key] = is_dir and seen.get(key, True)
             if not path:
                 continue
-            for i in range(1, len(path.split('/'))):
-                dirs.add('/'.join(path.split('/')[:i]))
-            if is_dir or entry.link:
-                if is_dir:
-                    dirs.add(path)
-            else:
-                names.add(path)
             if entry.link:
                 links.append((path, label, entry))
                 continue
@@ -220,59 +212,12 @@ class Scanner:
             if top:
                 self.check_layout(path, label)
             self.scan_file(path, label, entry, prefix, depth)
-        self.check_links(links, names, dirs, top)
+        self.check_links(links)
 
     # ---- links -----------------------------------------------------------
-    def check_links(self, links, names, dirs, top):
-        link_map = {path: entry.link_target for path, _, entry in links if entry.link == 'symlink'}
-        for path, label, entry in links:
-            reason = self.link_problem(path, entry, link_map, names, dirs, top)
-            if reason:
-                self.add('link', label, reason)
-
-    def link_problem(self, path, entry, link_map, names, dirs, top):
-        if not (top and self.kind == 'macos'):
-            return entry.link + ' entries are not allowed'
-        if entry.link != 'symlink':
-            return entry.link + ' entries are not allowed'
-        match = re.match(r'^(suyu\.app/.*?[^/]+\.framework)/', path + '/')
-        if not match:
-            return 'symlink outside a suyu.app framework directory'
-        framework = match[1]
-        if path == framework:
-            return 'symlink replaces a framework directory'
-        target = entry.link_target
-        if not target or '\x00' in target or '\\' in target or target.startswith('/') or re.match(r'^[A-Za-z]:', target):
-            return 'symlink target is empty or not a relative path'
-        resolved = self.resolve(posixpath.dirname(path), target, link_map)
-        if resolved is None:
-            return 'symlink target cannot be resolved inside the archive'
-        if not resolved.startswith(framework + '/') or resolved == framework:
-            return 'symlink target leaves its framework directory'
-        if resolved not in names and resolved not in dirs:
-            return 'symlink target is not a member of the archive'
-        return None
-
-    @staticmethod
-    def resolve(base, target, link_map):
-        pending = [p for p in (base + '/' + target).split('/') if p not in ('', '.')]
-        current, hops = [], 0
-        while pending:
-            part = pending.pop(0)
-            if part == '..':
-                if not current:
-                    return None
-                current.pop()
-                continue
-            current.append(part)
-            joined = '/'.join(current)
-            if joined in link_map:
-                hops += 1
-                if hops > 40 or not link_map[joined]:
-                    return None
-                current.pop()
-                pending = [p for p in link_map[joined].split('/') if p not in ('', '.')] + pending
-        return '/'.join(current)
+    def check_links(self, links):
+        for _, label, entry in links:
+            self.add('link', label, entry.link + ' entries are not allowed')
 
     # ---- layout ----------------------------------------------------------
     def check_layout(self, path, label):

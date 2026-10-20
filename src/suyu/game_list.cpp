@@ -777,13 +777,10 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
     QAction* verify_integrity = context_menu.addAction(tr("Verify Integrity"));
     QAction* copy_tid = context_menu.addAction(tr("Copy Title ID to Clipboard"));
     QAction* navigate_to_gamedb_entry = context_menu.addAction(tr("Navigate to GameDB entry"));
-// TODO: Implement shortcut creation for macOS
-#if !defined(__APPLE__)
     QMenu* shortcut_menu = context_menu.addMenu(tr("Create Shortcut"));
     QAction* create_desktop_shortcut = shortcut_menu->addAction(tr("Add to Desktop"));
     QAction* create_applications_menu_shortcut =
         shortcut_menu->addAction(tr("Add to Applications Menu"));
-#endif
     QAction* add_to_steam = context_menu.addAction(tr("Add to Steam"));
     // The static recompiler was only reachable from a file menu that gave no
     // hint it applied to a specific game. Offering it on the game itself is
@@ -802,10 +799,8 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
     QAction* properties = context_menu.addAction(tr("Properties"));
 
     const bool is_owned_placeholder = QString::fromStdString(path).startsWith(QStringLiteral("owned://"));
-#if !defined(__APPLE__)
     create_desktop_shortcut->setVisible(program_id != 0 && !is_owned_placeholder);
     create_applications_menu_shortcut->setVisible(program_id != 0 && !is_owned_placeholder);
-#endif
     add_to_steam->setVisible(program_id != 0 && !is_owned_placeholder);
     favorite->setVisible(program_id != 0 && !is_owned_placeholder);
     favorite->setCheckable(true);
@@ -888,8 +883,6 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
     connect(navigate_to_gamedb_entry, &QAction::triggered, [this, program_id]() {
         emit NavigateToGamedbEntryRequested(program_id, compatibility_list);
     });
-// TODO: Implement shortcut creation for macOS
-#if !defined(__APPLE__)
     create_desktop_shortcut->setVisible(program_id != 0 && !is_owned_placeholder);
     create_applications_menu_shortcut->setVisible(program_id != 0 && !is_owned_placeholder);
     connect(create_desktop_shortcut, &QAction::triggered, [this, program_id, path]() {
@@ -898,7 +891,6 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
     connect(create_applications_menu_shortcut, &QAction::triggered, [this, program_id, path]() {
         emit CreateShortcut(program_id, path, GameListShortcutTarget::Applications);
     });
-#endif
     add_to_steam->setVisible(program_id != 0 && !is_owned_placeholder);
     connect(add_to_steam, &QAction::triggered, [this, program_id, path]() {
         emit CreateSteamShortcut(program_id, path);

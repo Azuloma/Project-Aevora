@@ -1096,11 +1096,8 @@ std::vector<Finding> ValidateLocalExport(const fs::path& root,
     const std::regex hex16{R"([0-9a-f]{16})"};
     const std::regex hex32{R"([0-9a-f]{32})"};
 
-    // The prefix that holds the package's own files; Linux and macOS bundles
-    // keep them one level down.
-    const std::string bin = expect.platform == Platform::Linux   ? "usr/bin/"
-                            : expect.platform == Platform::MacOS ? "contents/resources/"
-                                                                 : "";
+    // The prefix that holds the package's own files; Linux bundles keep them one level down.
+    const std::string bin = expect.platform == Platform::Linux ? "usr/bin/" : "";
 
     const auto split = [](const std::string& relative) {
         std::vector<std::string> parts;
@@ -1133,9 +1130,6 @@ std::vector<Finding> ValidateLocalExport(const fs::path& root,
             return true;
         }
         if (expect.platform == Platform::Linux && (rel == "usr" || rel == "usr/bin")) {
-            return true;
-        }
-        if (expect.platform == Platform::MacOS && (rel == "contents" || rel == "contents/resources")) {
             return true;
         }
         if (expect.allow_aot_cache && (rel + "/").starts_with(bin + "aot_cache/") &&
@@ -1187,9 +1181,6 @@ std::vector<Finding> ValidateLocalExport(const fs::path& root,
         if (parts.size() == 2 && parts[0] == "licenses") {
             return name == "license.txt" || name == "third-party-notices.txt" ||
                    name == "source.txt";
-        }
-        if (expect.platform == Platform::MacOS && rel == "contents/readme_native_export.txt") {
-            return true;
         }
         if (expect.platform != Platform::Windows && rel == bin + "game_source.txt") {
             return true;

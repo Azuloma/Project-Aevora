@@ -26,9 +26,6 @@
 #include "core/loader/nro.h"
 #include "core/tools/renderdoc.h"
 
-#ifdef __APPLE__
-#include <unistd.h> // for chdir
-#endif
 #ifdef __unix__
 #include <csignal>
 #include <QtDBus/QDBusInterface>
@@ -4131,7 +4128,7 @@ void GMainWindow::ErrorDisplayRequestExit() {
 }
 
 void GMainWindow::OnMenuReportCompatibility() {
-#if defined(ARCHITECTURE_x86_64) && !defined(__APPLE__)
+#if defined(ARCHITECTURE_x86_64)
     const auto& caps = Common::g_cpu_caps;
     const bool has_fma = caps.fma;
     const auto processor_count = std::thread::hardware_concurrency();
@@ -7190,9 +7187,8 @@ bool GMainWindow::RecompiledImagesLoaded() const {
 }
 
 QString GMainWindow::FindRecompiledImageDirFor(const QString& game_path, u64 title_id) {
-    // Every export package layout - Windows package dir, Linux AppDir usr/bin,
-    // macOS Contents/Resources - puts aot_cache beside the bundled ROM, so the
-    // ROM's own directory is the only place worth looking.
+    // Every export package layout puts aot_cache beside the bundled ROM, so only the ROM's
+    // own directory is searched.
     const QString base = QFileInfo(game_path).absolutePath();
     QStringList candidates;
     if (title_id != 0) {
@@ -7207,9 +7203,6 @@ QString GMainWindow::FindRecompiledImageDirFor(const QString& game_path, u64 tit
 
 #ifdef _WIN32
     const QStringList patterns{QStringLiteral("recompiled_*.dll")};
-#elif defined(__APPLE__)
-    const QStringList patterns{QStringLiteral("recompiled_*.dylib"),
-                               QStringLiteral("librecompiled_*.dylib")};
 #else
     const QStringList patterns{QStringLiteral("recompiled_*.so"),
                                QStringLiteral("librecompiled_*.so")};
@@ -7251,9 +7244,6 @@ int GMainWindow::LoadRecompiledImagesFrom(const QString& dir, bool require_curre
                                            u64 expected_title_id) {
 #ifdef _WIN32
     const QStringList patterns{QStringLiteral("recompiled_*.dll")};
-#elif defined(__APPLE__)
-    const QStringList patterns{QStringLiteral("recompiled_*.dylib"),
-                               QStringLiteral("librecompiled_*.dylib")};
 #else
     const QStringList patterns{QStringLiteral("recompiled_*.so"),
                                QStringLiteral("librecompiled_*.so")};
@@ -7845,8 +7835,6 @@ void GMainWindow::OnLoadLibretroCore() {
         this, tr("Select a Libretro Core"), start_dir,
 #ifdef _WIN32
         tr("Libretro Core (*.dll)")
-#elif defined(__APPLE__)
-        tr("Libretro Core (*.dylib)")
 #else
         tr("Libretro Core (*.so)")
 #endif
@@ -9057,33 +9045,6 @@ void GMainWindow::UpdateThemePalette() {
     }
     LOG_DEBUG(Frontend, "Using style: {}", style_name.toStdString());
     qApp->setStyle(style_name);
-#elif defined(__APPLE__)
-    // Force the usage of the light palette in light mode
-    if (CheckDarkMode()) {
-        // Reset dark palette
-        themePalette = this->style()->standardPalette();
-    } else {
-        themePalette.setColor(QPalette::Window, QColor(236, 236, 236));
-        themePalette.setColor(QPalette::WindowText, Qt::black);
-        themePalette.setColor(QPalette::Disabled, QPalette::WindowText, Qt::black);
-        themePalette.setColor(QPalette::Base, Qt::white);
-        themePalette.setColor(QPalette::AlternateBase, QColor(245, 245, 245));
-        themePalette.setColor(QPalette::ToolTipBase, Qt::white);
-        themePalette.setColor(QPalette::ToolTipText, Qt::black);
-        themePalette.setColor(QPalette::Text, Qt::black);
-        themePalette.setColor(QPalette::Disabled, QPalette::Text, Qt::black);
-        themePalette.setColor(QPalette::Dark, QColor(191, 191, 191));
-        themePalette.setColor(QPalette::Shadow, Qt::black);
-        themePalette.setColor(QPalette::Button, QColor(236, 236, 236));
-        themePalette.setColor(QPalette::ButtonText, Qt::black);
-        themePalette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(147, 147, 147));
-        themePalette.setColor(QPalette::BrightText, Qt::white);
-        themePalette.setColor(QPalette::Link, QColor(0, 140, 200));
-        themePalette.setColor(QPalette::Highlight, QColor(179, 215, 255));
-        themePalette.setColor(QPalette::Disabled, QPalette::Highlight, QColor(220, 220, 220));
-        themePalette.setColor(QPalette::HighlightedText, Qt::black);
-        themePalette.setColor(QPalette::Disabled, QPalette::HighlightedText, Qt::black);
-    }
 #else
     if (CheckDarkMode()) {
         // Set Dark palette on non Windows platforms (that may not have a dark palette)
@@ -9468,14 +9429,6 @@ int main(int argc, char* argv[]) {
     }
     // Increases the maximum open file limit to 8192
     _setmaxstdio(8192);
-#endif
-
-#ifdef __APPLE__
-    // If you start a bundle (binary) on OSX without the Terminal, the working directory is "/".
-    // But since we require the working directory to be the executable path for the location of
-    // the user folder in the Qt Frontend, we need to cd into that working directory
-    const auto bin_path = Common::FS::GetBundleDirectory() / "..";
-    chdir(Common::FS::PathToUTF8String(bin_path).c_str());
 #endif
 
 #ifdef __linux__

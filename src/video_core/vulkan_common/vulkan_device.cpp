@@ -420,7 +420,6 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     const bool is_intel_anv = driver_id == VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA;
 
     const bool is_nvidia = driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY;
-    const bool is_mvk = driver_id == VK_DRIVER_ID_MOLTENVK;
     const bool is_qualcomm = driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY;
     const bool is_turnip = driver_id == VK_DRIVER_ID_MESA_TURNIP;
 
@@ -587,15 +586,6 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     has_broken_compute =
         CheckBrokenCompute(properties.driver.driverID, properties.properties.driverVersion) &&
         !Settings::values.enable_compute_pipelines.GetValue();
-
-    if (is_mvk) {
-        LOG_WARNING(Render_Vulkan,
-                    "MVK driver breaks when using more than 16 vertex attributes/bindings");
-        properties.properties.limits.maxVertexInputAttributes =
-            (std::min)(properties.properties.limits.maxVertexInputAttributes, 16U);
-        properties.properties.limits.maxVertexInputBindings =
-            (std::min)(properties.properties.limits.maxVertexInputBindings, 16U);
-    }
 
     if (is_turnip || is_qualcomm) {
         LOG_WARNING(Render_Vulkan, "Driver requires higher-than-reported binding limits");
@@ -983,15 +973,8 @@ bool Device::GetSuitability(bool requires_swapchain) {
 // Some features are mandatory. Check those.
 #define CHECK_FEATURE(feature, name)                                                               \
     if (!features.feature.name) {                                                                  \
-        if (IsMoltenVK() && (strcmp(#name, "geometryShader") == 0 ||                               \
-                            strcmp(#name, "logicOp") == 0 ||                                       \
-                            strcmp(#name, "shaderCullDistance") == 0 ||                            \
-                            strcmp(#name, "wideLines") == 0)) {                                    \
-            LOG_INFO(Render_Vulkan, "MoltenVK missing feature {} - using fallback", #name);       \
-        } else {                                                                                    \
-            LOG_ERROR(Render_Vulkan, "Missing required feature {}", #name);                        \
-            suitable = false;                                                                       \
-        }                                                                                           \
+        LOG_ERROR(Render_Vulkan, "Missing required feature {}", #name);                            \
+        suitable = false;                                                                          \
     }
 
 #define LOG_FEATURE(feature, name)                                                                 \

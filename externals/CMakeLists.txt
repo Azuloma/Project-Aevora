@@ -149,10 +149,6 @@ if (ENABLE_SDL3)
             set(HIDAPI ON)
         endif()
 
-        if (APPLE)
-            set(SDL_FILE ON)
-        endif()
-
         AddJsonPackage(sdl3)
     else()
         message(STATUS "Using bundled SDL3")
@@ -308,8 +304,6 @@ if (YUZU_CRASH_DUMPS AND NOT TARGET libbreakpad_client)
         list(FILTER LIBBREAKPAD_SOURCES EXCLUDE REGEX "/linux|/mac|/android")
         target_compile_definitions(libbreakpad PRIVATE ${BREAKPAD_WIN32_DEFINES})
         target_include_directories(libbreakpad PRIVATE "${CMAKE_GENERATOR_INSTANCE}/DIA SDK/include")
-    elseif (APPLE)
-        list(FILTER LIBBREAKPAD_SOURCES EXCLUDE REGEX "/linux|/windows|/android")
     else()
         list(FILTER LIBBREAKPAD_SOURCES EXCLUDE REGEX "/mac|/windows|/android")
     endif()
@@ -329,10 +323,6 @@ if (YUZU_CRASH_DUMPS AND NOT TARGET libbreakpad_client)
         list(FILTER LIBBREAKPAD_COMMON_SOURCES EXCLUDE REGEX "language.cc|path_helper.cc|stabs_to_module.cc|stabs_reader.cc|minidump_file_writer.cc")
         target_include_directories(libbreakpad_client PRIVATE "${CMAKE_GENERATOR_INSTANCE}/DIA SDK/include")
         target_compile_definitions(libbreakpad_client PRIVATE ${BREAKPAD_WIN32_DEFINES})
-    elseif (APPLE)
-        target_compile_definitions(libbreakpad_client PRIVATE HAVE_MACH_O_NLIST_H)
-        file(GLOB_RECURSE LIBBREAKPAD_CLIENT_SOURCES ${breakpad_SOURCE_DIR}/src/client/mac/*.cc ${breakpad_SOURCE_DIR}/src/common/mac/*.cc)
-        list(APPEND LIBBREAKPAD_CLIENT_SOURCES ${breakpad_SOURCE_DIR}/src/common/mac/MachIPC.mm)
     else()
         target_compile_definitions(libbreakpad_client PUBLIC HAVE_A_OUT_H)
         file(GLOB_RECURSE LIBBREAKPAD_CLIENT_SOURCES ${breakpad_SOURCE_DIR}/src/client/linux/*.cc ${breakpad_SOURCE_DIR}/src/common/linux/*.cc)
@@ -344,9 +334,6 @@ if (YUZU_CRASH_DUMPS AND NOT TARGET libbreakpad_client)
 
     if (WIN32)
         target_link_libraries(libbreakpad_client PRIVATE wininet.lib)
-    elseif (APPLE)
-        find_library(CoreFoundation_FRAMEWORK CoreFoundation)
-        target_link_libraries(libbreakpad_client PRIVATE ${CoreFoundation_FRAMEWORK})
     else()
         find_library(PTHREAD_LIBRARIES pthread)
         target_compile_definitions(libbreakpad_client PRIVATE HAVE_GETCONTEXT=1)
@@ -389,22 +376,6 @@ if (YUZU_CRASH_DUMPS AND NOT TARGET libbreakpad_client)
     endif()
 endif()
 
-
-if (APPLE AND NOT IOS)
-    add_subdirectory(metal-cpp)
-
-    # moltenvk
-    if (NOT YUZU_USE_BUNDLED_MOLTENVK)
-        find_library(MOLTENVK_LIBRARY MoltenVK)
-    endif()
-
-    # TODO: kosmickrisp?
-    if (NOT MOLTENVK_LIBRARY OR YUZU_USE_BUNDLED_MOLTENVK)
-        AddJsonPackage(moltenvk)
-
-        set(MOLTENVK_LIBRARY "${moltenvk_SOURCE_DIR}/MoltenVK/dylib/macOS/libMoltenVK.dylib" CACHE STRING "" FORCE)
-    endif()
-endif()
 
 if (YUZU_CMD)
     # Forced bundled: the targets below are built from source, so a system imgui package must not

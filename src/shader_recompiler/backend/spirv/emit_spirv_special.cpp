@@ -95,7 +95,6 @@ void AlphaTest(EmitContext& ctx) {
 
 void EmitPrologue(EmitContext& ctx) {
     if (ctx.stage == Stage::Fragment && ctx.runtime_info.dual_source_blend) {
-        // Initialize dual-source blending outputs - prevents MoltenVK crash.
         const Id zero{ctx.Const(0.0f)};
         const Id one{ctx.Const(1.0f)};
         const Id default_color{ctx.ConstantComposite(ctx.F32[4], zero, zero, zero, one)};

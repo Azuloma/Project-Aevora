@@ -66,11 +66,8 @@ void CreateGPU(std::optional<Tegra::GPU>& gpu, Core::Frontend::EmuWindow& emu_wi
         LOG_ERROR(HW_GPU, "Failed to initialize GPU: {}", exception.what());
         gpu.reset();
     } catch (...) {
-        // CreateRenderer owns the context once it is called, and the unwind that got us here has
-        // already destroyed it, so the guard must be cancelled before it can reach DoneCurrent()
-        // through the dead reference. Types that are not std::exception - a vk::Exception escaping
-        // a renderer's member initialisers, or an Objective-C exception out of MoltenVK, for
-        // instance - used to skip the handler above entirely and leave the guard active.
+        // The unwind already destroyed the context, so cancel the guard before DoneCurrent() runs.
+        // Non-std exceptions (a vk::Exception from member initialisers) skip the handler above.
         scope.Cancel();
 #if __has_include(<cxxabi.h>)
         const std::type_info* const type = abi::__cxa_current_exception_type();

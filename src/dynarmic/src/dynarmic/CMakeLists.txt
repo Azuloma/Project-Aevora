@@ -325,44 +325,6 @@ endif()
 
 if (WIN32)
     target_sources(dynarmic PRIVATE backend/exception_handler_windows.cpp)
-elseif (APPLE)
-    find_path(MACH_EXC_DEFS_DIR "mach/mach_exc.defs")
-    if (NOT MACH_EXC_DEFS_DIR)
-        message(WARNING "macOS fastmem disabled: unable to find mach/mach_exc.defs")
-        target_sources(dynarmic PRIVATE backend/exception_handler_generic.cpp)
-    else()
-        message(STATUS "mach/mach_exc.defs location: ${MACH_EXC_DEFS_DIR}")
-        execute_process(
-            COMMAND
-                mkdir -p "${CMAKE_CURRENT_SOURCE_DIR}/backend/x64/mig"
-            COMMAND
-                mig
-                -arch x86_64
-                -user "${CMAKE_CURRENT_SOURCE_DIR}/backend/x64/mig/mach_exc_user.c"
-                -header "${CMAKE_CURRENT_SOURCE_DIR}/backend/x64/mig/mach_exc_user.h"
-                -server "${CMAKE_CURRENT_SOURCE_DIR}/backend/x64/mig/mach_exc_server.c"
-                -sheader "${CMAKE_CURRENT_SOURCE_DIR}/backend/x64/mig/mach_exc_server.h"
-                "${MACH_EXC_DEFS_DIR}/mach/mach_exc.defs"
-            COMMAND_ERROR_IS_FATAL ANY
-        )
-        execute_process(
-            COMMAND
-                mkdir -p "${CMAKE_CURRENT_SOURCE_DIR}/backend/arm64/mig"
-            COMMAND
-                mig
-                -arch arm64
-                -user "${CMAKE_CURRENT_SOURCE_DIR}/backend/arm64/mig/mach_exc_user.c"
-                -header "${CMAKE_CURRENT_SOURCE_DIR}/backend/arm64/mig/mach_exc_user.h"
-                -server "${CMAKE_CURRENT_SOURCE_DIR}/backend/arm64/mig/mach_exc_server.c"
-                -sheader "${CMAKE_CURRENT_SOURCE_DIR}/backend/arm64/mig/mach_exc_server.h"
-                "${MACH_EXC_DEFS_DIR}/mach/mach_exc.defs"
-            COMMAND_ERROR_IS_FATAL ANY
-        )
-        target_sources(dynarmic PRIVATE
-            backend/exception_handler_macos.cpp
-            backend/exception_handler_macos_mig.c
-        )
-    endif()
 elseif (UNIX AND NOT PLATFORM_HAIKU)
     # Haiku lacks <ucontext.h>
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")

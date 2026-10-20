@@ -11,7 +11,7 @@ if (NOT libusb_ADDED)
 endif()
 
 # TODO: *BSD fails to compile--may need different configs/symbols
-if (MINGW OR PLATFORM_LINUX OR APPLE)
+if (MINGW OR PLATFORM_LINUX)
     set(LIBUSB_FOUND ON CACHE BOOL "libusb is present" FORCE)
     set(LIBUSB_VERSION "1.0.24" CACHE STRING "libusb version string" FORCE)
 
@@ -170,19 +170,6 @@ else() # MINGW OR (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
           ${libusb_SOURCE_DIR}/libusb/os/windows_common.c
         )
         set(OS_WINDOWS TRUE)
-    elseif (APPLE)
-        target_sources(usb PRIVATE
-            ${libusb_SOURCE_DIR}/libusb/os/darwin_usb.c
-        )
-        find_library(COREFOUNDATION_LIBRARY CoreFoundation)
-        find_library(IOKIT_LIBRARY IOKit)
-        find_library(OBJC_LIBRARY objc)
-        target_link_libraries(usb PRIVATE
-            ${COREFOUNDATION_LIBRARY}
-            ${IOKIT_LIBRARY}
-            ${OBJC_LIBRARY}
-        )
-        set(OS_DARWIN TRUE)
     elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
         target_sources(usb PRIVATE
             ${libusb_SOURCE_DIR}/libusb/os/linux_usbfs.c

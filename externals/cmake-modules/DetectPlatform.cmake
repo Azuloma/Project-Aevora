@@ -51,8 +51,6 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     set(CXX_CL ON)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
     set(CXX_ICC ON)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-    set(CXX_APPLE ON)
 endif()
 
 # https://gitlab.kitware.com/cmake/cmake/-/merge_requests/11112

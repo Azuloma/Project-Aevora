@@ -416,8 +416,6 @@ __declspec(dllimport) unsigned long __stdcall WaitForSingleObject(void* hHandle,
 __declspec(dllimport) int __stdcall ReleaseSemaphore(void* hSemaphore, long lReleaseCount,
                                                      long* lpPreviousCount);
 }
-#elif defined(__MACH__)
-#include <mach/mach.h>
 #elif defined(__unix__)
 #include <semaphore.h>
 #elif defined(FREERTOS)
@@ -485,63 +483,6 @@ public:
     void signal(int count = 1) AE_NO_TSAN {
         while (!ReleaseSemaphore(m_hSema, count, nullptr))
             ;
-    }
-};
-#elif defined(__MACH__)
-//---------------------------------------------------------
-// Semaphore (Apple iOS and OSX)
-// Can't use POSIX semaphores due to
-// http://lists.apple.com/archives/darwin-kernel/2009/Apr/msg00010.html
-//---------------------------------------------------------
-class Semaphore {
-private:
-    semaphore_t m_sema;
-
-    Semaphore(const Semaphore& other);
-    Semaphore& operator=(const Semaphore& other);
-
-public:
-    AE_NO_TSAN Semaphore(int initialCount = 0) : m_sema() {
-        assert(initialCount >= 0);
-        kern_return_t rc =
-            semaphore_create(mach_task_self(), &m_sema, SYNC_POLICY_FIFO, initialCount);
-        assert(rc == KERN_SUCCESS);
-        AE_UNUSED(rc);
-    }
-
-    AE_NO_TSAN ~Semaphore() {
-        semaphore_destroy(mach_task_self(), m_sema);
-    }
-
-    bool wait() AE_NO_TSAN {
-        return semaphore_wait(m_sema) == KERN_SUCCESS;
-    }
-
-    bool try_wait() AE_NO_TSAN {
-        return timed_wait(0);
-    }
-
-    bool timed_wait(std::uint64_t timeout_usecs) AE_NO_TSAN {
-        mach_timespec_t ts;
-        ts.tv_sec = static_cast<unsigned int>(timeout_usecs / 1000000);
-        ts.tv_nsec = static_cast<int>((timeout_usecs % 1000000) * 1000);
-
-        // added in OSX 10.10:
-        // https://developer.apple.com/library/prerelease/mac/documentation/General/Reference/APIDiffsMacOSX10_10SeedDiff/modules/Darwin.html
-        kern_return_t rc = semaphore_timedwait(m_sema, ts);
-        return rc == KERN_SUCCESS;
-    }
-
-    void signal() AE_NO_TSAN {
-        while (semaphore_signal(m_sema) != KERN_SUCCESS)
-            ;
-    }
-
-    void signal(int count) AE_NO_TSAN {
-        while (count-- > 0) {
-            while (semaphore_signal(m_sema) != KERN_SUCCESS)
-                ;
-        }
     }
 };
 #elif defined(__unix__)

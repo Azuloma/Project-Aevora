@@ -25,10 +25,6 @@
 
 #if defined(__linux__)
 #include <sys/random.h>
-#elif defined(__APPLE__)
-#include <sys/types.h>
-#include <mach/vm_map.h>
-#include <mach/mach.h>
 #elif defined(__FreeBSD__)
 #include <sys/shm.h>
 #elif defined(__OPENORBIS__)
@@ -43,7 +39,7 @@
 #ifndef MAP_ALIGNED_SUPER
 #define MAP_ALIGNED_SUPER 0
 #endif
-// macOS
+// Hosts that only define MAP_ANON
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
 #endif
@@ -514,8 +510,8 @@ public:
         fd = shm_open_anon(O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
 #elif defined(__FreeBSD__)
         fd = shm_open(SHM_ANON, O_RDWR, 0600);
-#elif defined(__APPLE__) || defined(__managarm__)
-        // macOS doesn't have memfd_create, use anonymous temporary file
+#elif defined(__managarm__)
+        // managarm has no memfd_create, use anonymous temporary file
         char template_path[] = "/tmp/suyu_mem_XXXXXX";
         fd = mkstemp(template_path);
         if (fd >= 0) {

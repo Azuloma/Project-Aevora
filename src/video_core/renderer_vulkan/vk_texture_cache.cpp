@@ -1470,26 +1470,9 @@ void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
                                     std::span<const VideoCommon::ImageCopy> copies) {
     // As per the size-compatible formats section of vulkan, copy manually via ReinterpretImage
     // these images that aren't size-compatible.
-    //
-    // On MoltenVK, differing block dimensions go the same way. Vulkan permits
-    // copying between a compressed format and an uncompressed one of the same
-    // block size - the BCn upload path pairs BC3_UNORM (4x4 blocks) with
-    // R32G32B32A32_UINT (1x1) - but Metal has no such copy. MoltenVK rejects it
-    // with VK_ERROR_FEATURE_NOT_PRESENT and throws, which reaches no handler and
-    // takes the process down.
-    //
-    // This is keyed to the driver rather than applied everywhere on purpose.
-    // Desktop drivers perform the copy correctly, and ReinterpretImage cannot
-    // stand in for it there: routing these pairs through it unconditionally
-    // makes NVIDIA throw out of the same call instead.
     const bool size_compatible =
         BytesPerBlock(src.info.format) == BytesPerBlock(dst.info.format);
-    const bool blocks_match =
-        DefaultBlockWidth(src.info.format) == DefaultBlockWidth(dst.info.format) &&
-        DefaultBlockHeight(src.info.format) == DefaultBlockHeight(dst.info.format);
-    const bool metal_block_limit =
-        !blocks_match && device.GetDriverID() == VK_DRIVER_ID_MOLTENVK;
-    if (!size_compatible || metal_block_limit) {
+    if (!size_compatible) {
 #ifdef _WIN32
         // On Windows, linear images cause device loss when used in image copies.
         // Tested with TitleID: 0x010067300059A00 (Mario + Rabbids Kingdom Battle)

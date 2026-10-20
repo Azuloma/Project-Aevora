@@ -86,7 +86,7 @@ The shared topology and image identity contracts are defined in `src/core/recomp
 | `GameExportDialog` | `game_export.h:44` | Export dialog and state. |
 | FPXV option, manifest, and bundle identity | `game_export.cpp:3507-3546`, `:4235-4247`, `:4434-4478`, `:6282` | Parses `SUYU_AOT_FPX_VEC`, records `fpx_vec`, checks it on cache reuse, and adds it to split bundle identity only when enabled. |
 | Chain-start option and image budget | `game_export.cpp:4258-4269`, `:4989-4992` | Default-on `SUYU_AOT_CHAIN_START` (`=0` disables), requires direct chaining, warns only for explicit `=1` when direct chaining is off, and refuses projected per-image size over the 2 GiB safety margin. |
-| `TargetPlatform`, `RecompileBackend` enums | `game_export.h:134`, `:140` | Windows/Linux/macOS; `SuyuStatic` / `Hybrid` / `Dynarmic`. |
+| `TargetPlatform`, `RecompileBackend` enums | `game_export.h:134`, `:140` | Windows/Linux; `SuyuStatic` / `Hybrid` / `Dynarmic`. |
 | `FindBestCmakeExecutable()` | `game_export.cpp:2931` (v) | Finds CMake on PATH, then in VS-bundled locations. |
 | `WantsCompiledOutput()` | `game_export.cpp:3139` (v) | Build (compile) versus Source-only output. |
 | `RunAotPrecompile()` | `game_export.cpp:3355` (v) | Block discovery and translation orchestration. |
@@ -222,7 +222,7 @@ Key runtime facts:
 | Engines | `engines/maxwell_3d.h:56`, `engines/draw_manager.h:20`, `fermi_2d`, `kepler_compute`, `maxwell_dma`, `kepler_memory`. |
 | GPU memory | `memory_manager.h:36`. |
 | Renderer contract | `rasterizer_interface.h:38`, `renderer_base.h:32`. |
-| Backends | `renderer_vulkan/renderer_vulkan.h:40`, `renderer_opengl/renderer_opengl.h:37`, plus null and (per survey) Metal. |
+| Backends | `renderer_vulkan/renderer_vulkan.h:40`, `renderer_opengl/renderer_opengl.h:37`, plus null. |
 | Vulkan overlay extension | `src/core/frontend/vulkan_overlay.h` and `src/core/frontend/emu_window.h:82` **(v)** | `Core::Frontend::VulkanOverlay`, `VulkanOverlayContext`, and `EmuWindow::GetVulkanOverlay()` provide the optional renderer/window extension point. |
 | Vulkan overlay rendering | `src/video_core/renderer_vulkan/renderer_vulkan.cpp:187` **(v)**; `src/video_core/renderer_vulkan/present/window_adapt_pass.cpp:37` **(v)** | `RendererVulkan::InitializeOverlay` owns setup/teardown; `WindowAdaptPass::Draw` records the overlay before ending the render pass. |
 | Caches | `texture_cache/`, `buffer_cache/`, shader/pipeline caches per backend, query cache, fence manager. |

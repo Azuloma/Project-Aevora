@@ -30,26 +30,6 @@ vk::SurfaceKHR CreateSurface(
             throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
         }
     }
-#elif defined(__APPLE__)
-    if (window_info.type == Core::Frontend::WindowSystemType::Cocoa) {
-        if (!window_info.render_surface) {
-            LOG_ERROR(Render_Vulkan,
-                      "Failed to initialize Metal surface: CAMetalLayer is missing");
-            throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
-        }
-        const VkMetalSurfaceCreateInfoEXT metal_ci = {
-            .sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
-            .pNext = nullptr,
-            .flags = 0,
-            .pLayer = static_cast<const CAMetalLayer*>(window_info.render_surface),
-        };
-        const auto vkCreateMetalSurfaceEXT = reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(dld.vkGetInstanceProcAddr(*instance, "vkCreateMetalSurfaceEXT"));
-        if (!vkCreateMetalSurfaceEXT ||
-            vkCreateMetalSurfaceEXT(*instance, &metal_ci, nullptr, &unsafe_surface) != VK_SUCCESS) {
-            LOG_ERROR(Render_Vulkan, "Failed to initialize Metal surface");
-            throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
-        }
-    }
 #elif defined(__HAIKU__)
     if (window_info.type == Core::Frontend::WindowSystemType::Xcb) {
         const VkXcbSurfaceCreateInfoKHR xcb_ci{

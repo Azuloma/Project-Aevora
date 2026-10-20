@@ -3,35 +3,30 @@
 
 #pragma once
 
-#ifdef __APPLE__
-#    include <signal.h>
-#    include <sys/ucontext.h>
-#else
-#    include <signal.h>
-#    ifndef __OpenBSD__
-#        include <ucontext.h>
-#    endif
-#    ifdef __sun__
+#include <signal.h>
+#ifndef __OpenBSD__
+#    include <ucontext.h>
+#endif
+#ifdef __sun__
 // Thanks C macros for exisitng in Solaris headers, thanks a lot
 // We really needed to define FOR EVERY SINGLE REGISTER didn't we?
-#        include <sys/regset.h>
-#        undef EAX
-#        undef EBX
-#        undef ECX
-#        undef EDX
-#        undef ESP
-#        undef EBP
-#        undef ESI
-#        undef EDI
-#        undef ERR
-#        undef SS
-#        undef CS
-#        undef ES
-#        undef DS
-#    endif
-#    ifdef __linux__
-#       include <sys/syscall.h>
-#    endif
+#    include <sys/regset.h>
+#    undef EAX
+#    undef EBX
+#    undef ECX
+#    undef EDX
+#    undef ESP
+#    undef EBP
+#    undef ESI
+#    undef EDI
+#    undef ERR
+#    undef SS
+#    undef CS
+#    undef ES
+#    undef DS
+#endif
+#ifdef __linux__
+#    include <sys/syscall.h>
 #endif
 
 #ifdef ARCHITECTURE_arm64
@@ -70,16 +65,7 @@
 #endif
 
 #if defined(ARCHITECTURE_arm64)
-#    if defined(__APPLE__)
-#        define CTX_PC (mctx->__ss.__pc)
-#        define CTX_SP (mctx->__ss.__sp)
-#        define CTX_LR (mctx->__ss.__lr)
-#        define CTX_PSTATE (mctx->__ss.__cpsr)
-#        define CTX_X(i) (mctx->__ss.__x[i])
-#        define CTX_Q(i) (mctx->__ns.__v[i])
-#        define CTX_FPSR (mctx->__ns.__fpsr)
-#        define CTX_FPCR (mctx->__ns.__fpcr)
-#    elif defined(__linux__)
+#    if defined(__linux__)
 #        define CTX_PC (mctx.pc)
 #        define CTX_SP (mctx.sp)
 #        define CTX_LR (mctx.regs[30])
@@ -109,10 +95,7 @@
 #        error "unknown platform"
 #    endif
 #elif defined(ARCHITECTURE_x86_64)
-#    if defined(__APPLE__)
-#        define CTX_PC (mctx->__ss.__rip)
-#        define CTX_SP (mctx->__ss.__rsp)
-#    elif defined(__linux__)
+#    if defined(__linux__)
 #        define CTX_PC (mctx.gregs[REG_RIP])
 #        define CTX_SP (mctx.gregs[REG_RSP])
 #    elif defined(__FreeBSD__)
@@ -205,11 +188,7 @@
 #endif
 
 #ifdef ARCHITECTURE_arm64
-#ifdef __APPLE__
-inline _STRUCT_ARM_NEON_STATE64* GetFloatingPointState(mcontext_t& host_ctx) {
-    return &(host_ctx->__ns);
-}
-#elif defined(__linux__)
+#ifdef __linux__
 inline fpsimd_context* GetFloatingPointState(mcontext_t& host_ctx) {
     _aarch64_ctx* header = reinterpret_cast<_aarch64_ctx*>(&host_ctx.__reserved);
     while (header->magic != FPSIMD_MAGIC)

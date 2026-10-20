@@ -367,13 +367,6 @@ if (SUYU_CMD OR YUZU_CMD)
             target_link_libraries(${_t} PRIVATE DiscordRPC::discord-rpc)
             target_compile_definitions(${_t} PRIVATE USE_DISCORD_PRESENCE)
         endif()
-        if (APPLE)
-            target_sources(${_t} PRIVATE
-                emu_window/emu_window_sdl2_mtl.cpp
-                emu_window/emu_window_sdl2_mtl.h
-            )
-        endif()
-
         target_link_libraries(${_t} PRIVATE common core input_common frontend_common)
         target_link_libraries(${_t} PRIVATE glad)
         if (MSVC)
@@ -386,12 +379,6 @@ if (SUYU_CMD OR YUZU_CMD)
         target_link_libraries(${_t} PRIVATE SDL3::SDL3 Vulkan::Headers VulkanMemoryAllocator Aevora::imgui aevora_overlay_font)
         # FFmpeg headers are not transitively exposed by core; add them explicitly
         target_include_directories(${_t} PRIVATE ${FFmpeg_INCLUDE_DIR})
-
-        if(UNIX)
-            if (APPLE)
-                target_link_libraries(${_t} PRIVATE metal-cpp)  # Metal support for macOS
-            endif()
-        endif()
 
         if(WIN32)
             # compile as a win32 gui application instead of a console application
@@ -418,7 +405,7 @@ if (SUYU_CMD OR YUZU_CMD)
 
     suyu_export_build_kit_add_package()
 
-    if(UNIX AND NOT APPLE)
+    if(UNIX)
         install(TARGETS suyu-cmd)
     endif()
 endif()

@@ -7,7 +7,7 @@ set_target_properties(yuzu_room_standalone PROPERTIES OUTPUT_NAME "suyu-room")
 
 target_link_libraries(yuzu_room_standalone PRIVATE yuzu-room)
 
-if(UNIX AND NOT APPLE)
+if(UNIX)
     install(TARGETS yuzu_room_standalone RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 endif()
 

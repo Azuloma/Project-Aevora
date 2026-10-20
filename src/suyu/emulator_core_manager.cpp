@@ -109,9 +109,6 @@ void EmulatorCoreManager::ScanCores() {
 #ifdef _WIN32
     search_paths << QStringLiteral("cores");
     search_paths << QDir::homePath() + QStringLiteral("/.config/retroarch/cores");
-#elif defined(__APPLE__)
-    search_paths << QDir::homePath() + QStringLiteral("/.config/retroarch/cores");
-    search_paths << QStringLiteral("/usr/lib/libretro");
 #else
     search_paths << QDir::homePath() + QStringLiteral("/.config/retroarch/cores");
     search_paths << QStringLiteral("/usr/lib/libretro");
@@ -125,8 +122,6 @@ void EmulatorCoreManager::ScanCores() {
         }
 #ifdef _WIN32
         const auto entries = dir.entryInfoList({QStringLiteral("*.dll")}, QDir::Files);
-#elif defined(__APPLE__)
-        const auto entries = dir.entryInfoList({QStringLiteral("*.dylib")}, QDir::Files);
 #else
         const auto entries = dir.entryInfoList({QStringLiteral("*.so")}, QDir::Files);
 #endif
@@ -146,8 +141,6 @@ void EmulatorCoreManager::ScanCores() {
 #ifdef _WIN32
     troppical_paths << QDir::homePath() + QStringLiteral("/AppData/Local/Troppical/troppical.exe");
     troppical_paths << QStringLiteral("C:/Program Files/Troppical/troppical.exe");
-#elif defined(__APPLE__)
-    troppical_paths << QStringLiteral("/Applications/Troppical.app/Contents/MacOS/Troppical");
 #else
     troppical_paths << QStringLiteral("/usr/bin/troppical");
     troppical_paths << QDir::homePath() + QStringLiteral("/.local/bin/troppical");
