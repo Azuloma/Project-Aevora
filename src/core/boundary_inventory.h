@@ -55,13 +55,14 @@ constexpr std::string_view FsKindName(FsKind kind) {
     return "other";
 }
 
-/// Off unless SUYU_BOUNDARY_INVENTORY is exactly "1"; read once per process.
+/// Off unless SUYU_BOUNDARY_INVENTORY is exactly "1"; read once at process start.
+inline const bool kEnabled = [] {
+    const char* value = std::getenv("SUYU_BOUNDARY_INVENTORY");
+    return value && Common::EnvFlagDefaultOff(value);
+}();
+
 inline bool Enabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("SUYU_BOUNDARY_INVENTORY");
-        return value && Common::EnvFlagDefaultOff(value);
-    }();
-    return enabled;
+    return kEnabled;
 }
 
 namespace Detail {
@@ -219,7 +220,8 @@ public:
     /// True for the first caller after kWriteIntervalNs since the last slot; false otherwise.
     bool TryTakeWriteSlot(std::uint64_t now_ns) {
         std::uint64_t last = last_write_ns_.load(std::memory_order_relaxed);
-        if (last != kNeverWritten && now_ns - last < kWriteIntervalNs) {
+        // A sample older than the published slot is stale, not a full interval ahead.
+        if (last != kNeverWritten && (now_ns < last || now_ns - last < kWriteIntervalNs)) {
             return false;
         }
         return last_write_ns_.compare_exchange_strong(last, now_ns, std::memory_order_relaxed);

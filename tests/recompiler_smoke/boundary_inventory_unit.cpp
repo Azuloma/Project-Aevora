@@ -125,6 +125,15 @@ int LimitsWritesToOncePerInterval() {
     return 0;
 }
 
+int RejectsStaleClockSample() {
+    Recorder recorder;
+    CHECK(recorder.TryTakeWriteSlot(5 * kSecondNs + 1));
+    CHECK(!recorder.TryTakeWriteSlot(5 * kSecondNs));
+    CHECK(!recorder.TryTakeWriteSlot(14 * kSecondNs));
+    CHECK(recorder.TryTakeWriteSlot(15 * kSecondNs + 1));
+    return 0;
+}
+
 int CountsConcurrentRecordsExactly() {
     Recorder recorder;
     constexpr int kPerThread = 20000;
@@ -156,6 +165,7 @@ int main() {
     if (const int rc = AggregatesAudioAppletAndFilesystem()) return rc;
     if (const int rc = FormatsDeterministically()) return rc;
     if (const int rc = LimitsWritesToOncePerInterval()) return rc;
+    if (const int rc = RejectsStaleClockSample()) return rc;
     if (const int rc = CountsConcurrentRecordsExactly()) return rc;
     std::puts("smoke_boundary_inventory_unit: OK");
     return 0;

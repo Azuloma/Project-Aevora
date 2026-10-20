@@ -15,6 +15,7 @@
 #include "common/logging/log.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
+#include "core/boundary_inventory_report.h"
 #include "core/core.h"
 #include "core/debugger/debugger.h"
 #include "core/hle/kernel/k_process.h"
@@ -321,6 +322,10 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
 
         // Handle system calls.
         if (supervisor_call) {
+            if (Core::BoundaryInventory::Enabled()) {
+                Core::BoundaryInventory::Instance().RecordSvc(m_core_index, interface->GetSvcNumber());
+                Core::BoundaryInventory::WriteReportIfDue();
+            }
             Svc::Call(system, interface->GetSvcNumber());
             return;
         }

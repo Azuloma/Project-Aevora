@@ -8,6 +8,7 @@
 #include "common/assert.h"
 #include "common/logging.h"
 #include "common/settings.h"
+#include "core/boundary_inventory.h"
 #include "core/core.h"
 #include "core/hle/ipc.h"
 #include "core/hle/kernel/kernel.h"
@@ -27,6 +28,12 @@ namespace Service {
     for (int i = 1; i <= num_params; ++i)
         function_string += fmt::format(", cmd_buf[{}]={:#X}", i, cmd_buf[i]);
     return function_string;
+}
+
+static void RecordBoundaryIpc(std::string_view service_name, HLERequestContext& ctx) {
+    Core::BoundaryInventory::Instance().RecordIpc(service_name,
+                                                  static_cast<u32>(ctx.GetCommandType()),
+                                                  ctx.GetCommand());
 }
 
 ServiceFrameworkBase::ServiceFrameworkBase(Core::System& system_, const char* service_name_, u32 max_sessions_, InvokerFn* handler_invoker_)
@@ -75,6 +82,10 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
         fmt::format_to(std::back_inserter(buf), ", [{}]={:#X}", i, cmd_buf[i]);
     buf.push_back('}');
 
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().MarkIpcUnimplemented(
+            service_name, static_cast<u32>(ctx.GetCommandType()), ctx.GetCommand());
+    }
     system.GetReporter().SaveUnimplementedFunctionReport(ctx, ctx.GetCommand(), function_name, service_name);
     UNIMPLEMENTED_MSG("Unknown / unimplemented {}", fmt::to_string(buf));
     if (Settings::values.use_auto_stub) {
@@ -85,6 +96,9 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
 }
 
 void ServiceFrameworkBase::InvokeRequest(HLERequestContext& ctx) {
+    if (Core::BoundaryInventory::Enabled()) {
+        RecordBoundaryIpc(GetServiceName(), ctx);
+    }
     auto it = handlers.find(ctx.GetCommand());
     FunctionInfoBase const* info = it == handlers.end() ? nullptr : &it->second;
     if (info == nullptr || info->handler_callback == nullptr)
@@ -95,6 +109,9 @@ void ServiceFrameworkBase::InvokeRequest(HLERequestContext& ctx) {
 }
 
 void ServiceFrameworkBase::InvokeRequestTipc(HLERequestContext& ctx) {
+    if (Core::BoundaryInventory::Enabled()) {
+        RecordBoundaryIpc(GetServiceName(), ctx);
+    }
     auto it = handlers_tipc.find(ctx.GetCommand());
     FunctionInfoBase const* info = it == handlers_tipc.end() ? nullptr : &it->second;
     if (info == nullptr || info->handler_callback == nullptr)

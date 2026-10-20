@@ -16,6 +16,7 @@
 #include "core/arm/exclusive_monitor.h"
 #include "core/core.h"
 #include "core/arm/recomp/arm_recomp.h"
+#include "core/boundary_inventory_report.h"
 
 #include "launch_timestamp_cache.h"
 #include "core/core_timing.h"
@@ -482,6 +483,9 @@ struct System::Impl {
         }
         kernel.CloseServices();
         kernel.ShutdownCores();
+        if (BoundaryInventory::Enabled()) {
+            BoundaryInventory::WriteReport();
+        }
         services.reset();
         service_manager.reset();
         fs_controller.Reset();
