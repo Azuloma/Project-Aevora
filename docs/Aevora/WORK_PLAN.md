@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `7609ab3` (README on top of `97cad8f`); host `GIT_REV` is `7609ab3a14992551ba578a14d4f5df05c8fcc3dd`. The export at `7609ab3` is done; cache publication was not established here. B1 wait splitting is present but ineffective alone because waits are under 1 ms, with about 2600 timer events/s and HID pad update at 1 kHz the largest source. Commit `97cad8f` made the Npad default 4 ms; X-Y-X results show HostTiming about 60-64% versus 99% and lower process CPU with no measurable FPS change. Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, exclusive-access and overlay/backend checks.
+HEAD is `373bcc5` (documentation-only commits on top of `7609ab3`, which is README on top of `97cad8f`); host `GIT_REV` is `7609ab3a14992551ba578a14d4f5df05c8fcc3dd`, code-identical to HEAD because `7609ab3..373bcc5` changes only Markdown. The export at `7609ab3` is done; cache publication was not established here. B1 wait splitting is present but ineffective alone because waits are under 1 ms, with about 2600 timer events/s and HID pad update at 1 kHz the largest source. Commit `97cad8f` made the Npad default 4 ms; X-Y-X results show HostTiming about 60-64% versus 99% and lower process CPU with no measurable FPS change. Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, exclusive-access and overlay/backend checks.
 
 ## Recent work (session 37)
 
@@ -19,7 +19,7 @@ HEAD is `7609ab3` (README on top of `97cad8f`); host `GIT_REV` is `7609ab3a14992
 - `ParseEnvIntInRange` is in `src/common/env_option.h` and is used for the 1-8 ms override.
 - Smoke `run.py` exited 0 before the last two review fixes; `host_timing_wait_unit` and `env_option_unit` were re-run afterward.
 - Code-review rounds found only P2/P3 findings; all were fixed.
-- `README.md` has a user working-tree change and is not ours.
+- The user's `README.md` change was committed in `7609ab3`; the working tree was clean at the start of session 38.
 
 ## Immediate next action
 
@@ -76,6 +76,6 @@ Follow the start checklist, verify evidence before changing code, use one worker
 
 - Build standalone tests after vcvars64 with `cmd.exe /c cl /std:c++20 /EHsc /W4 /I src <test>`; add `/Zc:preprocessor` and `/utf-8` as needed. Every new test needs a deterministic negative control.
 - For CPU budget, set `SUYU_CPU_BUDGET=1` (optional `SUYU_CPU_BUDGET_WINDOW_SEC` 1-60, default 10), copy logs, and summarize with `python -I -X utf8 D:\HisuiWakeBuild\diag\cpu_budget\summarize_cpu_budget.py <log> <min_frames>` (about 300 at 30 FPS, 240 for AOT). Drop windows from other scenes (loading) by filtering before summarizing; keep diagnostics off for FPS-only runs.
-- Opt-in stats: `SUYU_HOST_TIMING_STATS=1` logs `host-timing` wait and event lines every 10 s. Analysis helpers: `D:\HisuiWakeBuild	mp_gt`, `D:\HisuiWakeBuild\diag\hotrva`.
+- Opt-in stats: `SUYU_HOST_TIMING_STATS=1` logs `host-timing` wait and event lines every 10 s. Analysis helpers: `D:\HisuiWakeBuild\tmp_gt`, `D:\HisuiWakeBuild\diag\hotrva`.
 - Replay overlay input with the real router and ImGui sources; follow the standing export procedure in CLAUDE.md and clean scratch output.
 - Orca: one worker at a time, acknowledge deliveries, release workers, and check again after heartbeat-only messages.
