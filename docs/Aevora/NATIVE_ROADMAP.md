@@ -41,7 +41,7 @@ All Suyu-derived GUIs are removed. They are replaced by two Aevora programs: the
 
 ## Supported gameplay path
 
-N0 fixes the exact definition and a repeatable check list. The proposed default, which the user confirms in N0, is: boot to the title screen; load an existing save; move through Jubilife Village and the Obsidian Fieldlands; one wild catch and one battle; open the main menu, Pokedex, and bag; save; quit. A new game from the start, cutscenes outside this path, and online features are out of scope until added explicitly.
+N0 fixes the exact definition and a repeatable check list. The user confirmed this definition on 2026-10-20: boot to the title screen; load an existing save; move through Jubilife Village and the Obsidian Fieldlands; one wild catch and one battle; open the main menu, Pokedex, and bag; save; quit. A new game from the start, cutscenes outside this path, and online features are out of scope until added explicitly.
 
 ## Runtime milestones
 
@@ -54,7 +54,7 @@ Goal: measure what PLA uses along the supported path, so every later milestone h
 - Map which SDK functions in the recompiled `sdk` module lead to each SVC or IPC call, as candidate native hook points.
 - Add the structural-gate script and its first report on the current launcher.
 
-Done when: the inventory files and the gate report are recorded, and the user has confirmed the supported path.
+Done when: the inventory files and the gate report are recorded, and the check list for the confirmed supported path is written.
 
 ### N1: CPU without a JIT
 
@@ -152,11 +152,14 @@ Goal: Milestone 6 for the native application and tools: clean-checkout build, re
 
 The G milestones can run in parallel with N1-N8. G4 must finish before N10.
 
+Both GUIs use Tauri (decided 2026-10-20). Tauri is MIT/Apache-2.0 licensed; N10 checks the license compatibility of Tauri and its dependencies with GPL-3.0-or-later, and the WebView2 runtime requirement on Windows. G2 adds the Rust toolchain and the web front-end build to the build documentation.
+
 ### G1: Recompiler core and CLI
 
 Goal: the exporter works without the Qt GUI.
 
 - Move export orchestration out of `src/suyu/game_export.cpp` into a library with a command-line program (`aevora-recompiler`), keeping one definition of options, topology, and cache rules.
+- The CLI reports progress, stage results, and failures as machine-readable JSON lines in a versioned format, so the Tauri GUIs drive it without reimplementing export logic.
 - The Qt exporter calls the same library until G4.
 
 Done when: a CLI export and a Qt export of the same inputs produce identical manifests and hashes, and the export-integration matrix runs through the CLI.
@@ -166,7 +169,7 @@ Done when: a CLI export and a Qt export of the same inputs produce identical man
 Goal: a dedicated GUI for turning the user's game files into the native application.
 
 - Select game, update, keys, and output location; validate inputs; choose documented export options; show progress, logs, and cache state; report failures with the failing stage.
-- Built on the G1 library; no Suyu UI code. The GUI toolkit is chosen in a design note before implementation.
+- Built with Tauri. The Tauri backend runs the G1 CLI and reads its JSON progress; it does not reimplement export options or cache rules. No Suyu UI code.
 
 Done when: the GUI produces the same export as the CLI, and the user completes a PLA export through it.
 
@@ -176,6 +179,7 @@ Goal: a dedicated program that starts and configures the native application.
 
 - Start PLA, edit graphics, input, and audio settings, manage mods and save data, and show the version and logs.
 - Settings are stored in Aevora's own format and read through one definition shared with the runtime and the in-game overlay.
+- Built with Tauri, sharing the project structure and UI components with G2. The settings schema is defined once; the C++ runtime, the overlay, and the launcher are generated from it or validated against it at build or load time.
 
 Done when: the launcher configures and starts the native application, and its settings take effect in game.
 
@@ -206,8 +210,11 @@ Done when: the repository builds the native runtime, the Aevora Recompiler, and 
 | G3 | G1 (settings definition); N5-N8 for full settings coverage | Can start on the current runtime. |
 | G4 | G2, G3 | |
 
+## Decisions
+
+- 2026-10-20: the supported gameplay path above is confirmed.
+- 2026-10-20: the Aevora Launcher and Aevora Recompiler GUI use Tauri.
+
 ## Open questions
 
-- Confirm the supported gameplay path proposed above.
-- Choose the GUI toolkit for G2 and G3 (for example ImGui, which the overlay already uses, or another toolkit), considering license and maintenance.
-- Decide whether current WORK_PLAN B-item tuning of the emulator runtime continues, or whether work moves to N0.
+- Decide whether current WORK_PLAN B-item tuning of the emulator runtime continues, or whether work moves to N0 (the user is considering this as of 2026-10-20).
