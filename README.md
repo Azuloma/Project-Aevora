@@ -2,7 +2,7 @@
   <img alt="aevora-icon" src="Assets/Aevora-git.ICON.png" width="300px" />
 <p>
 <p align="center">
-  <img src="https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-blue?style=for-the-badge&logo=archlinux" alt="Badge">
+  <img src="https://img.shields.io/badge/platform-windows%20x64%20%7C%20linux%20amd64-blue?style=for-the-badge&logo=archlinux" alt="Badge">
   <img src="https://img.shields.io/badge/recompile%20type-static%20aot-b84b3a?style=for-the-badge&logo=ebox" alt="Badge">
   <img src="https://img.shields.io/badge/status-alpha-orange?style=for-the-badge&logo=penpot" alt="Badge">
   <img src="https://img.shields.io/badge/main%20language-c%2B%2B-purple?style=for-the-badge&logo=cplusplus" alt="Badge">
@@ -41,8 +41,7 @@ Currently, it has become clear that the Suyu recompiler's code execution method 
 | Platform      | Current status                                                    | Statically recompiled components |
 | ------------- | ----------------------------------------------------------------- | -------------------------------- |
 | Windows (x64) | Experimental; gameplay verified, performance improvements ongoing | Game CPU code (ARM64 → x64)     |
-| macOS         | Not yet validated                                                 | No verified AOT build            |
-| Linux         | Not yet validated                                                 | No verified AOT build            |
+| Linux (amd64) | Not yet validated                                                 | No verified AOT build            |
 
 ## Features
 
