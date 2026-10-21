@@ -18,6 +18,7 @@
 #include "common/scope_exit.h"
 #include "common/settings.h"
 #include "core/arm/debug.h"
+#include "core/boundary_inventory_scan.h"
 #include "core/boundary_inventory_report.h"
 #include "core/core.h"
 #include "core/debugger/debugger.h"
@@ -153,6 +154,102 @@ std::uint64_t SteadyNowNs() {
                                           .count());
 }
 
+constexpr std::size_t kScanChunkBytes = 256 * 1024;
+constexpr std::size_t kScanPageBytes = 0x1000;
+
+constexpr u8 kUnmappedFill = 0xFF;
+constexpr u64 kMaxScanModuleBytes = 512ULL << 20;
+
+// Reads [address, address + buffer.size()) in pages from `address`; unmapped pages become
+// kUnmappedFill (neither NUL nor printable) and the result is false.
+bool ReadMappedPages(Core::Memory::Memory& memory, u64 address, std::vector<u8>& buffer) {
+    std::fill(buffer.begin(), buffer.end(), kUnmappedFill);
+    bool all_mapped = true;
+    for (std::size_t offset = 0; offset < buffer.size(); offset += kScanPageBytes) {
+        const std::size_t length = std::min(kScanPageBytes, buffer.size() - offset);
+        if (memory.IsValidVirtualAddressRange(address + offset, length)) {
+            memory.ReadBlock(address + offset, buffer.data() + offset, length);
+        } else {
+            all_mapped = false;
+        }
+    }
+    return all_mapped;
+}
+
+void ScanModuleStrings(Core::Memory::Memory& memory, const Core::BoundaryInventory::ModuleRange& module,
+                       std::vector<Core::BoundaryInventory::ScanHit>& strings) {
+    const u64 end = module.base + std::min(module.end - module.base, kMaxScanModuleBytes);
+    std::vector<u8> pages;
+    std::vector<u8> window;
+    u8 previous_byte = 0;
+    for (u64 start = module.base; start < end; start += kScanChunkBytes) {
+        const u64 chunk_end = std::min<u64>(start + kScanChunkBytes, end);
+        const u64 read_end = std::min<u64>(chunk_end + Core::BoundaryInventory::kMaxScanStringLength, end);
+        pages.resize(read_end - start);
+        ReadMappedPages(memory, start, pages);
+        window.assign(1, previous_byte);
+        window.insert(window.end(), pages.begin(), pages.end());
+        Core::BoundaryInventory::FindNvnStrings(window, 1, 1 + (chunk_end - start), start - 1,
+                                                strings);
+        previous_byte = pages[chunk_end - start - 1];
+    }
+}
+
+void ScanModuleSymbols(Core::Memory::Memory& memory, const Core::BoundaryInventory::ModuleRange& module,
+                       std::vector<Core::BoundaryInventory::ScanHit>& symbols) {
+    const u64 size = module.end - module.base;
+    const auto read = [&](u64 offset, void* destination, std::size_t length) {
+        if (offset > size || length > size - offset ||
+            !memory.IsValidVirtualAddressRange(module.base + offset, length)) {
+            return false;
+        }
+        memory.ReadBlock(module.base + offset, destination, length);
+        return true;
+    };
+    const auto location = Core::BoundaryInventory::FindDynsym(read, size);
+    std::vector<u8> symtab;
+    std::vector<u8> strtab;
+    if (location) {
+        symtab.resize(location->strtab_offset - location->symtab_offset);
+        strtab.resize(location->strtab_size);
+    }
+    if (!location || !ReadMappedPages(memory, module.base + location->symtab_offset, symtab) ||
+        !ReadMappedPages(memory, module.base + location->strtab_offset, strtab)) {
+        LOG_WARNING(Core, "boundary inventory scan: no usable dynsym in {}", module.name);
+        return;
+    }
+    Core::BoundaryInventory::ParseDynsym(symtab, strtab, module.base, symbols);
+}
+
+// Writes the local NVN/SDK name list of the loaded modules; SUYU_BOUNDARY_INVENTORY_SCAN=0 skips it.
+void ScanInventoryModules(KProcess& process,
+                          const std::vector<Core::BoundaryInventory::ModuleRange>& modules) {
+    const char* option = std::getenv("SUYU_BOUNDARY_INVENTORY_SCAN");
+    if (option != nullptr && !Common::EnvFlagDefaultOn(option)) {
+        return;
+    }
+    auto& memory = process.GetMemory();
+    std::vector<Core::BoundaryInventory::ScanHit> strings;
+    std::vector<Core::BoundaryInventory::ScanHit> symbols;
+    for (const auto& module : modules) {
+        if (module.end <= module.base) {
+            continue;
+        }
+        ScanModuleStrings(memory, module, strings);
+        ScanModuleSymbols(memory, module, symbols);
+    }
+    std::string error;
+    const auto path = Core::BoundaryInventory::OutputDir() /
+                      Core::BoundaryInventory::ScanFileName(Core::BoundaryInventory::RunLabel());
+    if (!Core::BoundaryInventory::WriteTextFile(
+            path,
+            Core::BoundaryInventory::FormatScan(Core::BoundaryInventory::Instance(), strings,
+                                                symbols),
+            error)) {
+        LOG_ERROR(Core, "boundary inventory: {}", error);
+    }
+}
+
 // Lists the loaded modules for the inventory's name+0xRVA output; run by the first SVC only.
 void RecordInventoryModules(KProcess& process) {
     std::vector<Core::BoundaryInventory::ModuleRange> modules;
@@ -160,7 +257,8 @@ void RecordInventoryModules(KProcess& process) {
         const u64 last_byte = GetInteger(Core::GetModuleEnd(&process, KProcessAddress{base}));
         modules.push_back({name, base, last_byte + 1});
     }
-    Core::BoundaryInventory::Instance().SetModules(std::move(modules));
+    Core::BoundaryInventory::Instance().SetModules(modules);
+    ScanInventoryModules(process, modules);
 }
 
 // The guest caller chain of an SVC the CPU just stopped at; the inventory's [callers] section.

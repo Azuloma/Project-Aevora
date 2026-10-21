@@ -3,12 +3,15 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <optional>
 #include <map>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "core/boundary_inventory.h"
+#include "core/boundary_inventory_scan.h"
 
 using Core::BoundaryInventory::FsKind;
 using Core::BoundaryInventory::Recorder;
@@ -459,6 +462,218 @@ int IpcStashStaysBounded() {
     return 0;
 }
 
+std::vector<std::uint8_t> Bytes(const std::string& text) {
+    return {text.begin(), text.end()};
+}
+
+int NvnStringsNeedNulBoundariesAndPrintableText() {
+    using namespace Core::BoundaryInventory;
+    // Index 0 starts the window; "x" before the second nvn and a control byte disqualify.
+    std::string text = "nvnOne";
+    text += '\0';
+    text += "xnvnTwo";
+    text += '\0';
+    text += "nvnThree";
+    text += '\0';
+    text += "nvn";
+    text += '\0';
+    text += "nvnBad";
+    text += '\x01';
+    text += '\0';
+    text += "nvnOpen";
+    const auto window = Bytes(text);
+    std::vector<ScanHit> hits;
+    FindNvnStrings(window, 0, window.size(), 0x1000, hits);
+    CHECK(hits.size() == 2);
+    CHECK(hits[0].address == 0x1000 && hits[0].text == "nvnOne");
+    CHECK(hits[1].address == 0x1000 + 15 &&hits[1].text == "nvnThree");
+    // An over-long string is dropped, one of the maximum length is kept.
+    std::string longest = "nvn" + std::string(kMaxScanStringLength - 3, 'a');
+    std::string too_long = longest + "a";
+    hits.clear();
+    const auto edge = Bytes(longest + '\0' + too_long + '\0');
+    FindNvnStrings(edge, 0, edge.size(), 0, hits);
+    CHECK(hits.size() == 1 && hits[0].text == longest);
+    return 0;
+}
+
+int NvnScanChunksLoseAndRepeatNothing() {
+    using namespace Core::BoundaryInventory;
+    std::string text = "pad";
+    text += '\0';
+    text += "nvnAlpha";
+    text += '\0';
+    text += "nvnBeta";
+    text += '\0';
+    const auto data = Bytes(text);
+    std::vector<ScanHit> whole;
+    FindNvnStrings(data, 0, data.size(), 0, whole);
+    CHECK(whole.size() == 2);
+    // Every split point gives the same hits once: the window keeps one byte before `first`.
+    for (std::size_t split = 1; split < data.size(); ++split) {
+        std::vector<ScanHit> hits;
+        FindNvnStrings(data, 0, split, 0, hits);
+        FindNvnStrings(data, split, data.size(), 0, hits);
+        CHECK(hits.size() == whole.size());
+    }
+    return 0;
+}
+
+struct FakeModule {
+    std::vector<std::uint8_t> bytes = std::vector<std::uint8_t>(0x400, 0);
+
+    template <typename T>
+    void Put(std::size_t offset, T value) {
+        std::memcpy(bytes.data() + offset, &value, sizeof value);
+    }
+    void PutText(std::size_t offset, const std::string& text) {
+        std::memcpy(bytes.data() + offset, text.c_str(), text.size() + 1);
+    }
+    void PutDynamic(std::size_t index, std::int64_t tag, std::uint64_t value) {
+        Put<std::int64_t>(0x40 + index * 16, tag);
+        Put<std::uint64_t>(0x48 + index * 16, value);
+    }
+    void PutSymbol(std::size_t index, std::uint32_t name_offset, std::uint64_t value) {
+        Put<std::uint32_t>(0x100 + index * 24, name_offset);
+        Put<std::uint64_t>(0x108 + index * 24, value);
+    }
+    bool Read(std::uint64_t offset, void* destination, std::size_t length) const {
+        if (offset > bytes.size() || length > bytes.size() - offset) {
+            return false;
+        }
+        std::memcpy(destination, bytes.data() + offset, length);
+        return true;
+    }
+    std::optional<Core::BoundaryInventory::DynsymLocation> Find() const {
+        return Core::BoundaryInventory::FindDynsym(
+            [this](std::uint64_t o, void* d, std::size_t n) { return Read(o, d, n); },
+            bytes.size());
+    }
+};
+
+FakeModule ValidModule() {
+    FakeModule module;
+    module.Put<std::uint32_t>(4, 0x20);
+    module.Put<std::uint32_t>(0x20, Core::BoundaryInventory::kModMagic);
+    module.Put<std::uint32_t>(0x24, 0x20);
+    module.PutDynamic(0, 5, 0x200);
+    module.PutDynamic(1, 6, 0x100);
+    module.PutDynamic(2, 10, 0x40);
+    module.PutDynamic(3, 11, 24);
+    module.PutDynamic(4, 0, 0);
+    module.PutText(0x201, "nn::x");
+    module.PutText(0x207, "memcpy");
+    module.PutText(0x20E, "nvnFoo");
+    module.PutSymbol(1, 1, 0x1234);
+    module.PutSymbol(2, 7, 0x10);
+    module.PutSymbol(3, 14, 0);
+    return module;
+}
+
+int DynsymIsReadWithinBounds() {
+    using namespace Core::BoundaryInventory;
+    FakeModule module = ValidModule();
+    const auto location = module.Find();
+    CHECK(location && location->symtab_offset == 0x100 && location->strtab_offset == 0x200 &&
+          location->strtab_size == 0x40);
+    std::vector<ScanHit> hits;
+    ParseDynsym({module.bytes.data() + 0x100, 0x100}, {module.bytes.data() + 0x200, 0x40}, 0x8000,
+                hits);
+    CHECK(hits.size() == 2);
+    CHECK(hits[0].address == 0x8000 + 0x1234 && hits[0].text == "nn::x");
+    CHECK(hits[1].address == 0 && hits[1].text == "nvnFoo");
+    return 0;
+}
+
+int CorruptDynsymFailsInsteadOfLooping() {
+    using namespace Core::BoundaryInventory;
+    FakeModule bad_magic = ValidModule();
+    bad_magic.Put<std::uint32_t>(0x20, 0);
+    CHECK(!bad_magic.Find());
+    FakeModule bad_header = ValidModule();
+    bad_header.Put<std::uint32_t>(4, 0x7FFFFFF0);
+    CHECK(!bad_header.Find());
+    FakeModule bad_entry_size = ValidModule();
+    bad_entry_size.PutDynamic(3, 11, 16);
+    CHECK(!bad_entry_size.Find());
+    // The DT_NULL sits past the entry limit; the tables themselves are valid.
+    FakeModule unterminated = ValidModule();
+    unterminated.bytes.resize(0x40 + (kMaxDynamicEntries + 8) * 16);
+    for (std::size_t n = 3; n < kMaxDynamicEntries + 4; ++n) {
+        unterminated.PutDynamic(n, 1, 0);
+    }
+    unterminated.PutDynamic(kMaxDynamicEntries + 4, 0, 0);
+    CHECK(!unterminated.Find());
+    FakeModule strtab_start_outside = ValidModule();
+    strtab_start_outside.PutDynamic(0, 5, 0x500);
+    CHECK(!strtab_start_outside.Find());
+    FakeModule tables_equal = ValidModule();
+    tables_equal.PutDynamic(0, 5, 0x100);
+    CHECK(!tables_equal.Find());
+    FakeModule strtab_outside = ValidModule();
+    strtab_outside.PutDynamic(2, 10, 0x300);
+    CHECK(!strtab_outside.Find());
+    FakeModule size_wraps = ValidModule();
+    size_wraps.PutDynamic(2, 10, ~std::uint64_t{0} - 0x10);
+    CHECK(!size_wraps.Find());
+    FakeModule tables_swapped = ValidModule();
+    tables_swapped.PutDynamic(0, 5, 0x100);
+    tables_swapped.PutDynamic(1, 6, 0x200);
+    CHECK(!tables_swapped.Find());
+    FakeModule no_symtab = ValidModule();
+    no_symtab.PutDynamic(1, 6, 0);
+    CHECK(!no_symtab.Find());
+    return 0;
+}
+
+int DynsymNamesAreBounded() {
+    using namespace Core::BoundaryInventory;
+    std::vector<std::uint8_t> symtab(3 * kElf64SymbolBytes, 0);
+    std::string strtab_text = "x";
+    strtab_text += '\0';
+    strtab_text += "nvnA";
+    strtab_text += '\0';
+    strtab_text += "nvnUnterminated";
+    std::vector<std::uint8_t> strtab(strtab_text.begin(), strtab_text.end());
+    const auto set_name = [&](std::size_t index, std::uint32_t name_offset) {
+        std::memcpy(symtab.data() + index * kElf64SymbolBytes, &name_offset, sizeof name_offset);
+    };
+    set_name(0, 2);   // "nvnA"
+    set_name(1, 7);   // runs to the end of the table without a NUL
+    set_name(2, 999); // outside the table
+    std::vector<ScanHit> hits;
+    ParseDynsym(symtab, strtab, 0, hits);
+    CHECK(hits.size() == 1 && hits[0].text == "nvnA");
+    // A name over kMaxSymbolNameLength is skipped.
+    std::string long_name = "nvn" + std::string(kMaxSymbolNameLength, 'a');
+    std::vector<std::uint8_t> long_strtab(long_name.begin(), long_name.end());
+    long_strtab.push_back(0);
+    std::vector<std::uint8_t> one_symbol(kElf64SymbolBytes, 0);
+    hits.clear();
+    ParseDynsym(one_symbol, long_strtab, 0, hits);
+    CHECK(hits.empty());
+    return 0;
+}
+
+int ScanNamesAndOutputFormat() {
+    using namespace Core::BoundaryInventory;
+    CHECK(IsInterestingSymbolName("nvnBootstrapLoader"));
+    CHECK(IsInterestingSymbolName("nn::os::Foo"));
+    CHECK(IsInterestingSymbolName("_ZN2nn2os3FooEv"));
+    CHECK(!IsInterestingSymbolName("memcpy"));
+    CHECK(!IsInterestingSymbolName("_ZN3foo3BarEv"));
+    CHECK(ScanFileName("a b") == "inventory_a_b_scan.txt");
+
+    Recorder recorder;
+    recorder.SetModules({{"main", 0x1000, 0x2000}});
+    const std::string out = FormatScan(recorder, {{0x1010, "nvnA"}}, {{0x1020, "nn::B"}});
+    CHECK(Contains(out, "# boundary inventory scan v1 (local only, do not commit)\n"
+                        "# strings=1 symbols=1\n"));
+    CHECK(Contains(out, "string\tmain+0x10\tnvnA\n"));
+    CHECK(Contains(out, "symbol\tmain+0x20\tnn::B\n"));
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -472,6 +687,12 @@ int main() {
     if (const int rc = CallersFollowPauseAndSegments()) return rc;
     if (const int rc = IpcCallerComesFromTheStashOfItsThread()) return rc;
     if (const int rc = IpcStashStaysBounded()) return rc;
+    if (const int rc = NvnStringsNeedNulBoundariesAndPrintableText()) return rc;
+    if (const int rc = NvnScanChunksLoseAndRepeatNothing()) return rc;
+    if (const int rc = DynsymIsReadWithinBounds()) return rc;
+    if (const int rc = CorruptDynsymFailsInsteadOfLooping()) return rc;
+    if (const int rc = DynsymNamesAreBounded()) return rc;
+    if (const int rc = ScanNamesAndOutputFormat()) return rc;
     if (const int rc = CountsSvcsPerCoreAndOverflow()) return rc;
     if (const int rc = RecordsIpcKeysAndUnimplementedFlag()) return rc;
     if (const int rc = NvdrvDropsDeviceNameAtClose()) return rc;
