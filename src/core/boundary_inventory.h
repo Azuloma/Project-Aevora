@@ -89,12 +89,25 @@ inline std::string OpenReportFileName(std::string_view run) {
 
 constexpr std::size_t kCallerFrames = 4;   ///< the SVC site plus three callers up the frame chain
 constexpr std::size_t kCallersPerKey = 8;
+constexpr std::size_t kMaxIpcStashThreads = 1024;
 
 using CallerFrames = std::array<std::uint64_t, kCallerFrames>;
 
 /// True for `svc #svc_number` (A64 SVC encoding).
 constexpr bool IsSvcInstruction(std::uint32_t instruction, std::uint32_t svc_number) {
     return (instruction & 0xFFE0001Fu) == 0xD4000001u && ((instruction >> 5) & 0xFFFFu) == svc_number;
+}
+
+/// SendSyncRequest (0x21) and SendSyncRequestWithUserBuffer (0x22) start a blocking IPC request.
+constexpr bool IsIpcSendSvc(std::uint32_t svc_number) {
+    return svc_number == 0x21 || svc_number == 0x22;
+}
+
+/// [callers] key of one IPC command, for example "ipc:hid:4:100".
+inline std::string IpcCallerKey(std::string_view service, std::uint32_t command_type,
+                                std::uint32_t command_id) {
+    return "ipc:" + std::string{service} + ':' + std::to_string(command_type) + ':' +
+           std::to_string(command_id);
 }
 
 /// The SVC site, LR, then return addresses up the x29 chain; `read(address, value)` reads guest
@@ -403,6 +416,36 @@ public:
         });
     }
 
+    /// Remembers the guest caller of the SVC that sends an IPC request; the service thread
+    /// that handles it reads it by guest thread id. A newer stash replaces an unread one.
+    void StashIpcCaller(std::uint64_t thread_id, const CallerFrames& frames) {
+        if (!IsRecording()) {
+            return;
+        }
+        std::lock_guard lock{ipc_stash_mutex_};
+        if (ipc_stash_.size() >= kMaxIpcStashThreads && ipc_stash_.find(thread_id) == ipc_stash_.end()) {
+            ipc_stash_.clear();
+        }
+        ipc_stash_[thread_id] = frames;
+    }
+
+    /// Records the stashed caller of `thread_id` under IpcCallerKey and consumes the stash;
+    /// a request with no stash is counted in no row.
+    void RecordIpcCaller(std::uint64_t thread_id, std::string_view service,
+                         std::uint32_t command_type, std::uint32_t command_id) {
+        CallerFrames frames{};
+        {
+            std::lock_guard lock{ipc_stash_mutex_};
+            const auto it = ipc_stash_.find(thread_id);
+            if (it == ipc_stash_.end()) {
+                return;
+            }
+            frames = it->second;
+            ipc_stash_.erase(it);
+        }
+        RecordCaller(IpcCallerKey(service, command_type, command_id), frames);
+    }
+
     /// True for the first caller after kWriteIntervalNs since the last slot; false otherwise.
     bool TryTakeWriteSlot(std::uint64_t now_ns) {
         std::uint64_t last = last_write_ns_.load(std::memory_order_relaxed);
@@ -659,6 +702,8 @@ private:
     mutable std::mutex modules_mutex_;
     std::vector<ModuleRange> modules_;
     std::atomic<bool> module_scan_claimed_{false};
+    std::mutex ipc_stash_mutex_;
+    std::map<std::uint64_t, CallerFrames> ipc_stash_;
     std::atomic<std::uint64_t> last_write_ns_{kNeverWritten};
 };
 

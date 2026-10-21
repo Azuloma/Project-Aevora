@@ -193,8 +193,12 @@ void RecordSvcCaller(KThread* thread, Core::ArmInterface& interface, u32 svc_num
     }
     char key[16];
     std::snprintf(key, sizeof key, "svc:0x%02X", svc_number);
-    recorder.RecordCaller(key, Core::BoundaryInventory::CollectCallerFrames(
-                                   site, context.lr, context.fp, read64));
+    const auto frames =
+        Core::BoundaryInventory::CollectCallerFrames(site, context.lr, context.fp, read64);
+    recorder.RecordCaller(key, frames);
+    if (Core::BoundaryInventory::IsIpcSendSvc(svc_number)) {
+        recorder.StashIpcCaller(thread->GetThreadId(), frames);
+    }
 }
 
 } // namespace

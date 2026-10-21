@@ -11,6 +11,7 @@
 #include "core/boundary_inventory.h"
 #include "core/core.h"
 #include "core/hle/ipc.h"
+#include "core/hle/kernel/k_thread.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/service.h"
@@ -32,8 +33,11 @@ namespace Service {
 
 static void RecordBoundaryIpc(std::string_view service_name, HLERequestContext& ctx,
                               bool unimplemented) {
-    Core::BoundaryInventory::Instance().RecordIpc(
-        service_name, static_cast<u32>(ctx.GetCommandType()), ctx.GetCommand(), unimplemented);
+    auto& recorder = Core::BoundaryInventory::Instance();
+    const u32 command_type = static_cast<u32>(ctx.GetCommandType());
+    recorder.RecordIpc(service_name, command_type, ctx.GetCommand(), unimplemented);
+    recorder.RecordIpcCaller(ctx.GetThread().GetThreadId(), service_name, command_type,
+                             ctx.GetCommand());
 }
 
 ServiceFrameworkBase::ServiceFrameworkBase(Core::System& system_, const char* service_name_, u32 max_sessions_, InvokerFn* handler_invoker_)

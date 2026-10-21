@@ -401,6 +401,64 @@ int CallersFollowPauseAndSegments() {
     return 0;
 }
 
+int IpcCallerComesFromTheStashOfItsThread() {
+    using namespace Core::BoundaryInventory;
+    CHECK(IsIpcSendSvc(0x21) && IsIpcSendSvc(0x22));
+    CHECK(!IsIpcSendSvc(0x1F) && !IsIpcSendSvc(0x23));
+    CHECK(IpcCallerKey("hid", 4, 100) == "ipc:hid:4:100");
+
+    Recorder recorder;
+    recorder.StashIpcCaller(7, Frames(0x10));
+    recorder.StashIpcCaller(8, Frames(0x20));
+    recorder.RecordIpcCaller(7, "hid", 4, 100);
+    std::string report = recorder.FormatReport();
+    CHECK(Contains(report, "ipc:hid:4:100\t1\tother=0\n\t1\t?0x10\t-\t-\t-\n"));
+    CHECK(!Contains(report, "?0x20"));
+    // The stash is consumed: a second request of thread 7 and an unknown thread add no row.
+    recorder.RecordIpcCaller(7, "hid", 4, 100);
+    recorder.RecordIpcCaller(9, "hid", 4, 101);
+    report = recorder.FormatReport();
+    CHECK(Contains(report, "ipc:hid:4:100\t1\tother=0\n"));
+    CHECK(!Contains(report, "ipc:hid:4:101"));
+    // A newer stash replaces an unread one.
+    recorder.StashIpcCaller(8, Frames(0x30));
+    recorder.RecordIpcCaller(8, "fsp-srv", 4, 18);
+    report = recorder.FormatReport();
+    CHECK(Contains(report, "ipc:fsp-srv:4:18\t1\tother=0\n\t1\t?0x30\t-\t-\t-\n"));
+    CHECK(!Contains(report, "?0x20"));
+    // A paused recorder neither stashes nor records.
+    recorder.SetRecording(false);
+    recorder.StashIpcCaller(5, Frames(0x40));
+    recorder.SetRecording(true);
+    recorder.RecordIpcCaller(5, "hid", 4, 102);
+    CHECK(!Contains(recorder.FormatReport(), "ipc:hid:4:102"));
+    return 0;
+}
+
+int IpcStashStaysBounded() {
+    using namespace Core::BoundaryInventory;
+    Recorder recorder;
+    for (std::uint64_t thread = 1; thread <= kMaxIpcStashThreads; ++thread) {
+        recorder.StashIpcCaller(thread, Frames(thread));
+    }
+    // A full table is emptied before the next new thread is added; the newest stash survives.
+    recorder.StashIpcCaller(kMaxIpcStashThreads + 1, Frames(0x77));
+    recorder.RecordIpcCaller(1, "hid", 4, 1);
+    recorder.RecordIpcCaller(kMaxIpcStashThreads + 1, "hid", 4, 2);
+    const std::string report = recorder.FormatReport();
+    CHECK(!Contains(report, "ipc:hid:4:1\t"));
+    CHECK(Contains(report, "ipc:hid:4:2\t1\tother=0\n\t1\t?0x77\t-\t-\t-\n"));
+    // Re-stashing a known thread at the limit does not empty the table.
+    Recorder full;
+    for (std::uint64_t thread = 1; thread <= kMaxIpcStashThreads; ++thread) {
+        full.StashIpcCaller(thread, Frames(thread));
+    }
+    full.StashIpcCaller(5, Frames(0x55));
+    full.RecordIpcCaller(6, "hid", 4, 3);
+    CHECK(Contains(full.FormatReport(), "ipc:hid:4:3\t1\t"));
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -412,6 +470,8 @@ int main() {
     if (const int rc = CallersKeepTheFrequentOnes()) return rc;
     if (const int rc = CallersPrintModuleNames()) return rc;
     if (const int rc = CallersFollowPauseAndSegments()) return rc;
+    if (const int rc = IpcCallerComesFromTheStashOfItsThread()) return rc;
+    if (const int rc = IpcStashStaysBounded()) return rc;
     if (const int rc = CountsSvcsPerCoreAndOverflow()) return rc;
     if (const int rc = RecordsIpcKeysAndUnimplementedFlag()) return rc;
     if (const int rc = NvdrvDropsDeviceNameAtClose()) return rc;
