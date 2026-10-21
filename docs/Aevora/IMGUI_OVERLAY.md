@@ -25,11 +25,13 @@ The main files are:
 
 `OverlayInputRouter` decides on the event thread whether mouse, keyboard, and text belong to the overlay or game; a press remains owned by its first recipient until release (`src/suyu_cmd/overlay/overlay_logic.h:94-138,223-286`). Text is split at UTF-8 code-point boundaries, and the input queue is bounded at 256 events with mouse move/wheel coalescing and reset recovery (`overlay_logic.h:27-32,149-167,299-329`). Focus loss, minimization, or queue loss resets pointer and key state; the UI thread publishes keyboard/text capture and regions after each frame (`overlay_logic.h:172-218`, `debug_overlay.cpp:319-347`).
 
-The command bar is revealed by the top hover strip and remains while the pointer is over it. A combo or popup opened by a window is never treated as a command-bar menu: it can keep an already-visible bar captured, but cannot summon a hidden bar (`overlay_logic.h:35-63`; `tests/recompiler_smoke/overlay_logic_unit.cpp:93-110`). Fullscreen hotkeys are F11 and Alt+Enter (including keypad Enter); `HotkeyKeyTracker` gives a fresh chord to fullscreen and owns repeats/releases until the press ends (`fullscreen_toggle.h:12-51`). The SDL event path invokes this ownership before game dispatch (`emu_window_sdl2.cpp:406-459`).
+The command bar is revealed by the top hover strip and remains while the pointer is over it. A combo or popup opened by a window is never treated as a command-bar menu: it can keep an already-visible bar captured, but cannot summon a hidden bar (`overlay_logic.h:35-63`; `tests/recompiler_smoke/overlay_logic_unit.cpp:93-110`). Fullscreen hotkeys are F11 and Alt+Enter (including keypad Enter); inventory hotkeys are F9 and F10; `HotkeyKeyTracker` gives a fresh chord to each and owns repeats/releases until the press ends (`fullscreen_toggle.h:12-73`). The SDL event path invokes this ownership before game dispatch (`emu_window_sdl2.cpp:406-459`).
 
 ## UI surface
 
-The command bar exposes Debug, Graphics, Controller, Mods and folders, Game, and View > Fullscreen (`debug_overlay.cpp:349-386`).
+The command bar exposes Inventory beside Debug, plus Graphics, Controller, Mods and folders, Game, and View > Fullscreen (`debug_overlay.cpp:349-386`).
+
+- Inventory shows the segment state line and offers Mark, Pause/Resume, Skip step, Write now, and a typed label. F9/F10 work while an ImGui window holds the keyboard; the typed-label text input is not yet tried by hand (`inventory_session.h`, `inventory_host.h`, `emu_window_sdl2_vk.cpp`).
 
 - Debug/status reads native status, overlay statistics, build identity, recompiled CPU, and GPU diagnostics (`debug_overlay.cpp:388-424,684-735`).
 - Graphics reads the current shared Resolution Scale index and posts a save-only scale action (`debug_overlay.cpp:424-452`, `graphics_settings.h:18-37`).
