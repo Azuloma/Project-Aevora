@@ -38,6 +38,7 @@
 #include "core/arm/recomp/recomp_exclusive_stats.h"
 #include "core/arm/recomp/recomp_exit_targets.h"
 #include "core/arm/recomp/recomp_lookup_stats.h"
+#include "core/arm/recomp/recomp_pc_description.h"
 #include "core/arm/recomp/recomp_diagnostic_sampler.h"
 #include "core/arm/recomp/recomp_sharded_counters.h"
 #include "core/arm/recomp/recomp_thread_time.h"
@@ -479,20 +480,10 @@ RecompAccessSites::Slot& AccessSitesSlot() {
     return slot;
 }
 
-// Per-thread copy of the module bases and names, so an exit does not take the module-map lock.
-struct ModuleSnapshot {
-    u32 generation = ~0U;
-    std::vector<u64> bases;
-    std::vector<std::string> names;
-};
+using ModuleSnapshot = RecompModuleSnapshot;
 
-// "module+0xoffset" for a pc, or the bare pc when no module base is at or below it.
 std::string DescribePc(const ModuleSnapshot& modules, u64 pc) {
-    const std::size_t index = RecompLookupStats::ModuleIndex(modules.bases, pc);
-    if (index >= modules.bases.size()) {
-        return fmt::format("{:#x}", pc);
-    }
-    return fmt::format("{}+{:#x}", modules.names[index], pc - modules.bases[index]);
+    return DescribeRecompPc(modules, pc);
 }
 
 const ModuleSnapshot& CurrentModuleSnapshot() {
@@ -2264,8 +2255,8 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             // No recompiled block covers this address (an indirect branch into code the static pass never reached); hand the thread to
             // the JIT, since PrefetchAbort suspends it for an absent debugger and silently hangs on a black screen.
             if (miss_index < 64) {
-                LOG_ERROR(Core_ARM, "No recompiled block at PC {:#x}; falling back to JIT",
-                          impl->ctx.pc);
+                LOG_ERROR(Core_ARM, "No recompiled block at PC {:#x} ({}); falling back to JIT",
+                          impl->ctx.pc, DescribePc(CurrentModuleSnapshot(), impl->ctx.pc));
             } else {
                 LOG_DEBUG(Core_ARM, "No recompiled block at PC {:#x}; falling back to JIT",
                           impl->ctx.pc);
@@ -2278,9 +2269,9 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
                 // A strict run stops here, and may never reach teardown.
                 RecompGaps::Flush(true, true);
                 LOG_CRITICAL(Core_ARM,
-                             "recomp: no JIT fallback available at PC {:#x}; thread cannot "
+                             "recomp: no JIT fallback available at PC {:#x} ({}); thread cannot "
                              "continue",
-                             impl->ctx.pc);
+                             impl->ctx.pc, DescribePc(CurrentModuleSnapshot(), impl->ctx.pc));
                 return HaltReason::PrefetchAbort;
             }
             return RunFallback(thread);
@@ -2416,14 +2407,17 @@ HaltReason ArmRecomp::RunThread(Kernel::KThread* thread) {
             RecompGaps::RecordUnimplemented(unsupported_opcode);
             static std::atomic<int> unhandled_count{0};
             if (unhandled_count.fetch_add(1, std::memory_order_relaxed) < 16) {
-                LOG_WARNING(Core_ARM, "recomp: unimplemented opcode {:#010x} at {:#x}; checking fallback policy",
-                            unsupported_opcode, impl->ctx.pc);
+                LOG_WARNING(Core_ARM,
+                            "recomp: unimplemented opcode {:#010x} at {:#x} ({}); checking fallback policy",
+                            unsupported_opcode, impl->ctx.pc,
+                            DescribePc(CurrentModuleSnapshot(), impl->ctx.pc));
             }
             if (!EnterFallback()) {
                 g_counters.no_fallback_available.fetch_add(1, std::memory_order_relaxed);
                 RecompGaps::Flush(true, true);
-                LOG_CRITICAL(Core_ARM, "recomp: unimplemented opcode {:#010x} at {:#x} and no JIT fallback",
-                             unsupported_opcode, impl->ctx.pc);
+                LOG_CRITICAL(Core_ARM, "recomp: unimplemented opcode {:#010x} at {:#x} ({}) and no JIT fallback",
+                             unsupported_opcode, impl->ctx.pc,
+                             DescribePc(CurrentModuleSnapshot(), impl->ctx.pc));
                 return HaltReason::PrefetchAbort;
             }
             return RunFallback(thread);

@@ -56,11 +56,20 @@ Goal: measure what PLA uses along the supported path, so every later milestone h
 
 Done when: the inventory files and the gate report are recorded, and the check list for the confirmed supported path is written.
 
-Status (2026-10-21): The inventory files, gate report, and supported-path check list in `N0_INVENTORY.md` exist. N0 awaits the user's acceptance.
+Status (2026-10-21): accepted by the user.
 
 ### N1: CPU without a JIT
 
 Goal: the launcher contains no runtime code generation.
+
+Plan (2026-10-21):
+
+- Add a separate no-JIT build tree with `SUYU_NO_JIT=ON`, provisionally `D:\HisuiWakeBuild\msvc-release-nojit`; keep the existing `msvc-release` tree with JIT for Qt, Hybrid, and JIT comparison.
+- Stage 1: make strict-mode diagnostics name the module and offset.
+- Stage 2: port the U1 optimizations (plain-page pointers, lock-free marks, and the TTAS idea) to a dynarmic-free `StandaloneExclusiveMonitor`; measure it against the current `std::mutex` implementation.
+- Stage 3: make the no-JIT tree and rebuild script compile with `SUYU_NO_JIT=ON`, fixing the NCE visitor, debugger/GDB stub, and exception-handler dependencies as needed.
+- Stage 4: make the exporter and build kit use the no-JIT tree for the strict launcher and the JIT tree for Hybrid, define the choice once, replace the silent Hybrid retry with a diagnostic failure, and include the JIT flag in the cache key.
+- Stage 5: commit, reconfigure, perform a full export, pass the structural gate with `--require-absent N1`, verify the launcher title shows `(no-JIT build)`, play the supported path, and compare CPU ms/frame at the same position.
 
 - Build the static launcher without dynarmic. A lookup miss or unimplemented instruction fails fast with a diagnostic naming the guest address and module, instead of falling back.
 - Exclusive access and the reservation monitor use native atomics without the dynarmic monitor.
@@ -216,6 +225,7 @@ Done when: the repository builds the native runtime, the Aevora Recompiler, and 
 
 - 2026-10-20: the supported gameplay path above is confirmed.
 - 2026-10-20: the Aevora Launcher and Aevora Recompiler GUI use Tauri.
+- 2026-10-21: N0 accepted; N1 builds the strict launcher from a separate `SUYU_NO_JIT=ON` tree and keeps the JIT tree for Qt, Hybrid, and comparison.
 
 ## Open questions
 

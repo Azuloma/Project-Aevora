@@ -2635,3 +2635,63 @@ The ec8e1a5 baseline used `SUYU_CPU_BUDGET=1`, 10-second windows, and user logs;
 ### Status (before the session 39 cleanup)
 
 HEAD is `2db4218` (`docs: compact WORK_PLAN for the session 39 handoff`) on `main`; the host was reconfigured and rebuilt in session 39 and `GIT_REV` in `msvc-release\src\common\scm_rev.cpp` equals `2db4218ebf260a8b050e29354790f3dae5359ccb`. The PLA export and the persistent AOT cache entry date from `7609ab3`; the new producer revision requires a full export before the next measurement. Optimization state: B1 wait splitting alone was ineffective (waits are under 1 ms; about 2600 timer events/s, HID pad update at 1 kHz the largest source); the 4 ms Npad default (`97cad8f`) cut HostTiming from about 99% to 60-64% of a core with no measurable FPS change (table below). Untested: AudioManager appearing only in the 1 ms AOT run, the remaining roughly 60% HostTiming cost, other event coalescing, and overlay/backend checks. macOS support is removed; Linux and FreeBSD builds were not run.
+## Archived on 2026-10-21 from WORK_PLAN.md (session 40 cleanup)
+
+## Status
+
+HEAD is `c338961` on `main` with the user's N0 stages 5b, 5c, and 6 commits included; stage 7 documentation is uncommitted. Host binaries were rebuilt after 5c (`suyu.exe` and `suyu-cmd.exe`, 8/8, 0 errors), but `GIT_REV` in `msvc-release\src\common\scm_rev.cpp` still reads an earlier hash until the next reconfigure. The PLA export/AOT cache entry still dates from `7609ab3`.
+
+## N0 progress (session 40)
+
+Every N0 stage was a normal commit declared by the user; this WORK_PLAN carries the record, so `CHANGELOG.md` is unchanged. N0 proceeds stage by stage; after each stage the main agent reports, gives the file list and a normal-commit message, and waits for the user's approval before the next stage (user instruction, 2026-10-20).
+
+| Stage | What | State |
+| --- | --- | --- |
+| 0 | read-only hook survey | done (`b1f6610`) |
+| 1 | design note | done (`437df06`) |
+| 2 | header-only recorder and unit test | done (`511c147`) |
+| 3a | SVC and IPC hooks | done (`1c5167e`) |
+| 3b | nvdrv, audio, applet, filesystem hooks | done (`917cf94`) |
+| 4 | collection on the JIT host; manual segments (4a-1 `0038de1`, 4a-2 `5cbafc6`); user collections `boot1` and `test1` (4b) | done |
+| 5a | module table and SVC caller chains in `[callers]` | done (`810c1bf`) |
+| 5b | IPC caller attribution through a per-thread stash written at SVC 0x21/0x22 | done (`b619bf9`) |
+| 5c | module and NVN scan at load (local lists only) | done (`3c945e4`) |
+| 5d | collection and local analysis of callers | done (test2 collection) |
+| 6 | structural-gate script with a shared deny list, synthetic test, first report on the current launcher | done (`c338961`) |
+| 7 | Markdown batch: supported-path check list, inventory summary (aggregates only), WORK_PLAN, CODEBASE_INDEX | done (uncommitted) |
+
+### What the code does now
+
+- Option `SUYU_BOUNDARY_INVENTORY=1` (exactly `1`; read once at process start); off, every hook is one flag check. Recorder: `src/core/boundary_inventory.h` (header-only, OS-free); file output: `src/core/boundary_inventory_report.h`.
+- Hooks: `PhysicalCore::RunThread` (SVC number per core and caller chain, module table filled at the first SVC), `ServiceFrameworkBase::InvokeRequest`/`InvokeRequestTipc` (service, command type, command ID, unimplemented flag in one record), nvdrv `Module::Open/Close/Ioctl1-3`, audio `OpenAudioRenderer`/`RequestUpdateAuto`, `ILibraryAppletCreator`, `fsp_srv.cpp` opens, `IFileSystem::OpenFile`, `IFile::Read`, `IStorage::Read`; `System` shutdown writes the open segment after the cores stop. At SVC 0x21/0x22, `RecordSvcCaller` stashes four caller frames per guest thread id and `RecordBoundaryIpc` consumes the stash with `ctx.GetThread().GetThreadId()`; the stash is bounded to 1024 threads and clears when full. `ScanInventoryModules` runs on the first SVC after the module list is set, scanning loaded modules in 256 KiB chunks and using bounded dynsym parsing; modules larger than 512 MiB are cut.
+- Segments: recording can be paused; `EndSegment` returns the segment and resets it; the nvdrv fd-to-device map survives pauses and marks. suyu-cmd controls: F9 mark, F10 pause/resume, Inventory window (command bar item beside Debug), state line at the bottom right. It starts paused when the controls exist (`SUYU_BOUNDARY_INVENTORY_START=1` starts recording); without them (Qt `suyu.exe`) it records from the start and auto-saves the open segment every 10 s.
+- Output: folder `SUYU_BOUNDARY_INVENTORY_DIR` (default `<log dir>/boundary_inventory`), run label `SUYU_BOUNDARY_INVENTORY_RUN`; files `inventory_<run>_<NN>_<label>.txt` (segments), `inventory_<run>_open.txt`, and the local-only `inventory_<run>_scan.txt`. Format v1 is unchanged: `# boundary inventory v1`, `# segment label=<label> elapsed_ms=<n>`, sections `[svc] [ipc] [nvdrv] [audio] [applet] [fs-open] [fs-read] [callers]`. `SUYU_BOUNDARY_INVENTORY_SCAN=0` disables the scan.
+- Tests: `smoke_boundary_inventory_unit`, `smoke_inventory_session_unit`, `smoke_fullscreen_toggle_unit` (F9/F10 routes); each new check has header mutants that must fail (see procedures).
+
+### Results so far
+
+- Union of boot1, test1, and test2 (18 reports): 32 distinct SVCs, 44 service interfaces with 121 commands, 34 nvdrv rows across six devices, no audio renderer open, no applet, 7 fs-open rows, and fs-read on two directories (RomFS of the current process and save data only).
+- Test2: 202,179 IPC calls and 29 caller-recorded IPC keys with matching `[callers]` and `[ipc]` totals; SVC 0x21 was called 202,276 times. All four-frame IPC chains ended in the SDK module; SVC callers reached the main module for part of the calls. Test2 covered 24 distinct SVCs and 61 distinct keys; it had no boot segment.
+- Test2 scan: 563 NVN strings and 15,965 matching dynsym names; the main module contained 524 NVN strings and a table of 524 NVN API function names. Scan time was not measured; collection completed. The bag step has no segment of its own in test1 or test2.
+- Stage 6: 34 structural gate tests with an independent oracle pass, and all 56 tool mutants fail the suite. The first baseline report matched 1,007,632 public symbols and 37 imported DLLs; import-pattern matches were zero. `--require-absent N1` failed with `FAIL jit`, as expected for the JIT-capable launcher.
+
+### Local data and tools (not in the repository)
+
+`D:\HisuiWakeBuild\diag\n0\` holds `run_n0.bat <game> <label>`, `summarize_inventory.py`, `segments_report.py`, `union_summary.txt`, and local collections `boot1`, `test1`, and `test2` (do not delete). The test2 collection includes eight labeled segments, the open remainder, and the scan file. The structural gate and its tests are in the repository; its first report is local in the gate output folder. `D:\HisuiWakeBuild\scratch\n0_stage0\` holds the read-only survey reports and worker specs of session 39.
+
+### Design decisions to keep
+
+Raw guest addresses and game-derived name lists stay local, the repository gets aggregates only; the caller table keeps the eight most frequent callers per key and counts evicted ones in `other=`. The IPC caller is a per-thread stash written at SVC 0x21/0x22 and consumed once by the service thread, bounded to 1024 threads. The module scan writes only a local file and the repository receives aggregates only; the gate keeps one deny table for all milestones and refuses unverified evidence unless the user opts in.
+
+### Not verified yet
+
+Inventory under the AOT launcher; scan stall time; the asynchronous SVC 0x23 stash limit; deeper IPC attribution beyond the SDK; Linux for the gate; the typed-label input of the Inventory window.
+
+## Immediate next action
+
+1. Read `CLAUDE.md`, this plan, `NATIVE_ROADMAP.md`, `CODEBASE_INDEX.md`; run `git status`; confirm no `suyu`, `ninja`, or `cl` process holds the build tree; compare `GIT_REV` of the host with HEAD and rebuild with `D:\HisuiWakeBuild\rebuild-suyu.bat` through `Start-Process` if sources changed.
+2. N0 is complete on the user's acceptance: the inventory files and gate report are recorded, and the supported-path check list is written in `N0_INVENTORY.md`.
+3. After acceptance, candidates in roadmap order are N1 (CPU without JIT; the gate's N1 check is the done criterion) or N8a (NVN interception can start after N0), or parked CPU item B2 and the listed cheap cleanups. The choice is the user's.
+4. Parked CPU work (B2): compare the AOT guest-core gap with JIT at the same position using `SUYU_GUEST_TIME` and RIP sampling, with no code change first; NATIVE_ROADMAP notes that tuning of the emulated scheduler and HostTiming does not carry over to the native runtime (N3). Optional: investigate AudioManager and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), or other periodic events can be coalesced.
+5. Cheap: tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` test, an optional `LoadLibraryExW` error-mode change with test, the obsolete `*.plist` glob in `tools/translations/qt-source.sh`, and the now-dead `NOT MULTIARCH_BUILD` conditions in `src/dynarmic/CMakeModules/TargetArchitectureSpecificSources.cmake` and `src/dynarmic/tests/CMakeLists.txt`.
+

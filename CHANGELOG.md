@@ -2,6 +2,24 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.2-dev13 - Unreleased
+
+*Development entry 13 toward v0.0.2. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added `src/core/arm/recomp/recomp_pc_description.h`, which names the recompiler module and offset for a guest PC when a module snapshot is available.
+- Added `tests/recompiler_smoke/pc_description_unit.cpp` and the registered `smoke_pc_description_unit`, covering the module-and-offset description contract and its bounds check.
+
+### Changed
+
+- Strict-mode lookup-miss, no-fallback, unimplemented-opcode warning, and unimplemented-opcode critical diagnostics now append the module and offset description.
+- Recorded N0 acceptance and the N1 plan in `docs/Aevora/WORK_PLAN.md` and `docs/Aevora/NATIVE_ROADMAP.md`.
+
+### Not verified
+
+- The full `tests/recompiler_smoke/run.py` suite and a real strict session that hits a miss were not run. Unit-test edge cases for a bare PC of 0, `UINT64_MAX`, and 17 or more modules remain uncovered.
+
 ## v0.0.2-dev12 - Unreleased
 
 *Development entry 12 toward v0.0.2. Not a release; no build artifacts are published.*

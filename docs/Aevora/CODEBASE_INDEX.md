@@ -14,6 +14,7 @@ Snapshot of the source tree at `2fdf3f9` (2026-10-16), updated from a read-only 
 | `CMakeLists.txt`, `CMakeModules/`, `cpmfile.json` | Build configuration and CPM dependency manifest. |
 | `externals/` | Third-party sources; many directories are empty until fetched. |
 | `.patch/` | Patches CPM applies to fetched dependencies. |
+| `AGENTS.md` | Codex entry point; points to `CLAUDE.md`. |
 | `vcpkg.json`, `vcpkg-configuration.json`, `vcpkg-overlays/`, `conanfile.txt`, `shell.nix` | Alternate/legacy package manifests (*inference*: CPM is the active path). |
 | `tests/` | Recompiler and export test projects (see section 7). |
 | `research/` | Recompiler research tests (`tests/` and `tests/fixtures/shader_constant_buffers.h`, used by `research/tests/test_review_regressions.py`). |
@@ -141,6 +142,7 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `src/core/arm/recomp/recomp_sharded_counters.h:17` **(v, 2026-10-10)** | `RecompShardedCounters` provides per-thread cache-line-aligned slots, single-writer increments, and aggregate counter reads for dispatch-path diagnostics. |
 | `src/core/arm/recomp/recomp_sharded_counters.h:32` **(v, 2026-10-11)** | `RecompShardedCounters::Add` adds an amount to a selected counter slot. |
 | `src/core/arm/recomp/recomp_lookup_stats.h:20-27` **(v, 2026-10-11)** | `DispatchReturn` and `ClassifyReturn` classify dispatcher exits; `RecompLookupStats` begins at line 38, with per-thread windows, module indexes, and top exit pairs. |
+| `src/core/arm/recomp/recomp_pc_description.h` **(v, 2026-10-21)** | `RecompModuleSnapshot` and `DescribeRecompPc` format a guest PC as its recompiler module and offset when the snapshot contains it. |
 | `src/core/arm/recomp/recomp_exit_targets.h:21` **(v, 2026-10-11)** | `RecompExitTargets` records per-thread exit targets in bounded hash tables and reports top targets, overflow, and rebase state. |
 | `src/core/arm/recomp/arm_recomp.cpp:403-409, 345, 438` **(v, 2026-10-11)** | `kLookupStats`/`kLookupTargets` parse diagnostic flags; `g_module_generation` and `CurrentModuleSnapshot` provide per-thread module snapshots for dispatch-loop reports. |
 | `src/core/arm/recomp/arm_recomp.cpp:279-305`, `:1725`, `:1972-1976` **(v)** | `kThreadTime`, `ThreadTimeScope`, one ledger per `Impl`, and the scope at the top of `ArmRecomp::RunThread`; enabled only by `SUYU_RECOMP_THREAD_TIME=1`. |
@@ -318,6 +320,8 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/overlay_style_unit.cpp` | Both embedded font byte streams, theme RGB/alpha rules, and 125% scale checks; each font has flipped-byte and truncated-copy negative controls; registered as `smoke_overlay_style_unit`. |
 | `tests/recompiler_smoke/perf_hud_unit.cpp` **(v, 2026-10-18)** | `smoke_perf_hud_unit`: HUD formatting/visibility, core scaling, and failed-CPU-read negative controls. |
 | `tests/recompiler_smoke/thread_time_unit.cpp` **(v)** | Standalone `RecompThreadTimeLedger` unit; registered as `smoke_thread_time_unit` and invoked by `run.py`. |
+| `tests/recompiler_smoke/exclusive_stats_unit.cpp` | `smoke_exclusive_stats_unit`: exclusive callback timing counters. |
+| `tests/recompiler_smoke/pc_description_unit.cpp` **(v, 2026-10-21)** | `smoke_pc_description_unit`: module-and-offset formatting and module-count bounds checks for recompiler diagnostics. |
 | `tests/recompiler_smoke/guest_time_unit.cpp` | `smoke_guest_time_unit`, registered in `CMakeLists.txt:115-117` and `run.py:854`. (v, 2026-10-11) |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` **(v, 2026-10-10)** | Standalone `RecompShardedCounters` unit; registered as `smoke_sharded_counters_unit` and invoked by `run.py`, with a race-free shared-slot negative control. |
 | `tests/recompiler_smoke/lookup_stats_unit.cpp` **(v, 2026-10-11)** | Dispatcher-return, module-index, per-window, and exit-pair unit; registered as `smoke_lookup_stats_unit`. |
