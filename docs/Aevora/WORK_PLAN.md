@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `8796a8c v0.0.3-dev1: add the [memory] boundary-inventory section and the N2 design note (N2 stage 0)`. Stage 0 is committed; test4 collection results are recorded in this batch. The repository origin moved to `https://github.com/project-aevora/project.aevora-main` (the old `Azuloma/project.aevora-main` URL redirects).
+HEAD is `65854f3 v0.0.3-dev2: record test4 memory inventory and N2 stage 0 results`. Stage 1 is implemented in uncommitted changes, awaiting the user's commit as dev3. Code review found four P2 items: the mapper now counts any non-Free page as already mapped, unmapping accepts Normal pages with any permission attributes, unmapping spans adjacent alias records whose page pairs were mapped together, and `HeapGrowthIsCappedByPhysicalCapacity` plus `heap-capacity` coverage was added; the block-boundary item is recorded for Stage 2. The standalone unit passed (exit 0), all 14 mutants built from the CMake function's output in `cmake -P` script mode exited 1 with their intended failing check, and the full `run.py` suite plus a real CMake configure remain unrun. The repository origin moved to `https://github.com/project-aevora/project.aevora-main` (the old `Azuloma/project.aevora-main` URL redirects).
 
 ## Handoff
 
@@ -25,9 +25,9 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 
 ## Immediate next action
 
-1. The user commits the Stage 0 batch, suggested message `v0.0.3-dev1: add the [memory] boundary-inventory section and the N2 design note (N2 stage 0)` (already committed at HEAD; confirm before committing this batch).
-2. The dev17 title confirmation remains pending.
-3. Begin Stage 1: native mapper library with unit tests and negative controls, one stage at a time.
+1. The user commits Stage 1 with suggested message `v0.0.3-dev3: add the standalone native address-space mapper and its mutant tests (N2 stage 1)`.
+2. After approval, begin Stage 2 shadow comparison behind `SUYU_NATIVE_MEM_SHADOW=1`.
+3. The dev17 title confirmation remains pending.
 
 ## Open items
 
@@ -43,6 +43,7 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 - Full `tests/recompiler_smoke/run.py` and `tests/exclusive_access` suites were not run for N1. `StandaloneExclusiveMonitor` was exercised by the real session but not stress-tested (no ThreadSanitizer).
 - Old N0 follow-ups: inventory under the AOT launcher, scan stall time, SVC 0x23 stash limit, IPC attribution beyond the SDK, gate on Linux, and typed-label input.
 - The full `tests/recompiler_smoke/run.py` suite was not run, and the no-JIT tree was not rebuilt after Stage 0; bag and quit were not segmented in test4.
+- The full `tests/recompiler_smoke/run.py` suite was not run for N2 Stage 1; CMake wiring was verified only through a `cmake -P` script-mode run, not a real configure. Stage 2 must decide whether to model the kernel's disable-merge block attributes, which can make `QueryMemory` base/size smaller after adjacent `MapMemory` calls than in the mapper that only coalesces identical neighbours.
 
 ## Measurement setup
 

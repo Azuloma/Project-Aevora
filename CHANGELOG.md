@@ -2,6 +2,25 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev3 - Unreleased
+
+*Development entry 3 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the standalone header-only native address-space mapper `src/core/native_memory/native_address_space.h`, with process-layout computation and `AddressSpace` support for query, code mapping, stack remapping, permissions/attributes, heap sizing, physical/shared memory, TLS, and a fail-fast `SetupForIpc` stub.
+- Added `tests/recompiler_smoke/native_memory_unit.cpp` and the `smoke_native_memory_unit` target, plus 14 exact-once header-mutant targets covering the Stage 1 mapper invariants; the 12 earlier mutants are joined by `heap-capacity` and `alias-span`, and the unit adds `UnmapSpansAdjacentAliasRecords` plus extra physical-memory map/unmap cases.
+
+### Verified
+
+- The standalone MSVC C++20 unit build passed (exit 0) and printed `All synthetic native memory smoke checks passed.`; all 14 mutants, built from the CMake function's output in `cmake -P` script mode, exited 1 with their intended failing check. Codex Code review found four P2 items: the mapper now counts any non-Free page as already mapped, unmapping accepts Normal pages with any permission attributes, unmapping spans adjacent alias records whose page pairs were mapped together, and `HeapGrowthIsCappedByPhysicalCapacity` plus `heap-capacity` coverage was added; the block-boundary item remains for Stage 2 because the kernel preserves disable-merge attributes while the mapper only coalesces identical neighbours.
+- The unit verified both observed test4 process layouts, 800 randomized layouts across four address-space types, and the observed 3,232,497,664-byte map / 3,228,565,504-byte unmap against a 4 GiB capacity. Stage 1 is not in a CMake source list, so no host rebuild was needed.
+
+### Known gaps
+
+- The full `tests/recompiler_smoke/run.py` suite was not run; CMake wiring was exercised only through a `cmake -P` script-mode run, not a real configure. No host or no-JIT rebuild was done.
+- Stage 2 shadow comparison remains unimplemented; block-boundary merging (including whether to model the kernel's disable-merge attributes), the HAS_NCE 256 GiB limit, IPC/transfer/device/code-memory paths, `ProcessMemoryPermission`, physical addresses, and `DeviceMemory` backing remain unmodeled.
+
 ## v0.0.3-dev2 - Unreleased
 
 *Development entry 2 toward v0.0.3. Not a release; no build artifacts are published.*

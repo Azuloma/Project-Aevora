@@ -20,11 +20,11 @@ The scope is the supported path's memory SVCs, guest code/heap/stack/TLS/shared-
 
 ## Inferred / to be verified
 
-- The `KProcessPageTable` to native-mapper object seam is high confidence because the SVC forwarding path is concentrated there; the exact object lifetime and ownership are to be verified in Stage 1.
+- The `KProcessPageTable` to native-mapper object seam is high confidence because the SVC forwarding path is concentrated there; the Stage 1 mapper is a standalone object with no ownership seam yet.
 - The `KProcess::Initialize`/`LoadFromMetadata` to address-space allocator seam is medium-high confidence; the exact layout must be fixed from the user's Stage 0 collection.
 - The native mapper's core is a physical-memory-backed alias-region allocator plus stack remapping, TLS, shared memory, and transfer-memory locking (inference); the supported path does not reach `SetupForIpc`/`CleanupForIpc*`.
 - Region bases are randomized per process creation (inference); Stage 2 must take bases from `KPageTable`'s result, while native-only mode needs one published, consistent base definition.
-- The device-memory backing must hold one 3.01 GiB `MapPhysicalMemory` call; the DRAM setting and `Core::DeviceMemory` capacity must be checked in Stage 1.
+- The default `DeviceMemory` backing is 4 GiB (`memory_layout_mode` 4/6/8/10/12 GiB), so one 3.01 GiB `MapPhysicalMemory` call fits raw capacity; user-pool availability still needs runtime validation.
 - `KernelCore::InitializeMemoryLayout` and slab heaps are medium confidence: kernel initialization is still needed by objects that remain until N3/N4, so bypass timing must be verified rather than assumed.
 - The supported-path scope of each consumer listed above, and the behavior of physical addresses as `DeviceMemory` offsets, remains to be verified.
 
@@ -76,12 +76,21 @@ Observed in the JIT-capable `suyu-cmd` collection (title, village, field, catch,
 
 Verification: `smoke_boundary_inventory_unit` passed with `cl` and `/Zc:preprocessor` (exit 0); the JIT host `rebuild-suyu.bat` completed 24/24 steps with 0 errors and linked `suyu-cmd.exe`. The full `tests/recompiler_smoke/run.py` suite was not run, and the no-JIT tree was not rebuilt. Merged evidence and scripts remain local at `D:\HisuiWakeBuild\diag\n0\test4\memory_merged.txt`, `D:\HisuiWakeBuild\diag\n0\merge_memory.py`, and `D:\HisuiWakeBuild\diag\n0\summarize_memory.py`.
 
+## Stage 1 results
+
+`src/core/native_memory/native_address_space.h` is a new header-only, unconnected mapper. `ComputeLayout` ports `KPageTableBase::InitializeForProcess` placement for 39-, 36-, and 32-bit spaces (including 32-bit without alias), accepts an injectable inclusive random range, and rejects invalid code ranges; `AddressSpace` implements the Stage 1 map/query/protection, heap, physical/shared-memory, TLS, and stack-alias operations, while `SetupForIpc` returns `NotSupported`.
+
+The standalone unit verified the two observed test4 layouts, 800 randomized layouts (200 seeds across four address-space types) inside disjoint spaces, and the 3,232,497,664-byte map / 3,228,565,504-byte unmap against a 4 GiB capacity. Stage 1 findings also confirm that kernel `CheckMemoryState` requires uniform state and permission over a range, while the observed kernel-map, stack, alias, and heap regions were gapless and ordered because ASLR region randomization was effectively zero; only the code-derived base moved. The MSVC standalone build passed with exit 0 and `All synthetic native memory smoke checks passed.`; all 14 header mutants, built from the CMake function's output in `cmake -P` script mode, exited 1 with their intended failing check. Codex Code review found four P2 items: MapPhysicalMemory now counts any non-Free page as already mapped, UnmapPhysicalMemory accepts Normal pages with any permission attributes, UnmapMemory spans adjacent alias records whose page pairs were mapped together, and `HeapGrowthIsCappedByPhysicalCapacity` plus `heap-capacity` coverage was added; the block-boundary item remains for Stage 2 because the kernel preserves disable-merge attributes while the mapper only coalesces identical neighbours. The new `UnmapSpansAdjacentAliasRecords` test uses `alias-span`, and the physical-memory test has extra map/unmap cases. The full `tests/recompiler_smoke/run.py` suite was not run, and a real CMake configure was not run.
+
 ## Risks
 
 - `SetupForIpc` map-alias semantics may differ from ordinary mappings.
 - `KernelCore` initialization remains needed by kernel objects until N3/N4.
 - GPU physical addresses must preserve their `DeviceMemory` offset meaning.
 - The expected performance effect is none or neutral; the observed inventory is about 1,500 memory SVCs over a session, so performance claims require measurement.
+- Stage 2 shadow comparison still needs to account for block boundaries and merging: the kernel keeps disable-merge attributes (for example on each `MapMemory` head), while the mapper only coalesces identical neighbours, so `QueryMemory` base/size may differ.
+- `MapMemory` source/destination validity currently relies on alias records rather than physical page groups; the HAS_NCE 256 GiB map limit is not modeled.
+- IPC map-alias, transfer memory, device mapping, code memory, and `ProcessMemoryPermission` are not modeled; physical addresses and `DeviceMemory` backing are not modeled yet.
 
 ## Decisions
 

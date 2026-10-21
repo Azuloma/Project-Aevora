@@ -112,6 +112,9 @@ GG_HOST_ABORT = ("hook-map", "hook-unmap", "hook-protect-rx", "hook-protect-rw",
                  "guest-store-cross", "host-write", "pointer-exposed", "jit-fallback")
 
 
+NATIVE_MEMORY_MUTANTS = ("layout-order", "merge-attribute", "reprotect-flag", "capacity-unchecked", "unmap-accounting", "stack-region", "alias-record", "heap-shrink-accounting", "shared-region", "source-lock", "tls-region", "outside-query", "heap-capacity", "alias-span")
+
+
 def call(args, expected=0, timeout=120, env=None):
     result = subprocess.run([str(arg) for arg in args], check=False, timeout=timeout, env=env)
     if result.returncode != expected:
@@ -899,6 +902,10 @@ def main():
         call([executable(export_build, "smoke_boundary_inventory_unit")])
         call([executable(export_build, "smoke_inventory_session_unit")])
         call([executable(export_build, "smoke_cpu_budget_unit")])
+        call([executable(export_build, "smoke_native_memory_unit")])
+        for name in NATIVE_MEMORY_MUTANTS:
+            mutant = executable(export_build, "smoke_native_memory_mutant_" + name.replace("-", "_"))
+            call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_host_timing_wait_unit")])
         call([executable(export_build, "smoke_sharded_counters_unit")])
         call([executable(export_build, "smoke_lookup_stats_unit")])
