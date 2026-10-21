@@ -57,10 +57,23 @@ Design note for the boundary inventory, written in session 39 (stage 1). It desc
 - Repository output: the stage 7 summary aggregates filesystem paths to directory level with counts; raw reports stay in `D:\HisuiWakeBuild\diag\n0\`.
 - Verification per stage: standalone build of the unit test and its negative control (stage 2); host build, Code reviewer review including the off-path check, and a short `suyu.exe` start with the option off and on (stages 3a and 3b).
 
+## N0 design amendment (stage 4a: manual segments)
+
+Written in session 39 after the first collection (run1, JIT host `suyu-cmd.exe`, option on). The cumulative report kept per-phase attribution hard, so recording becomes manual and segmented. The user approved the design on 2026-10-21 and chose to start paused.
+
+- Run1 result (local files under `D:\HisuiWakeBuild\diag\n0\`): 32 distinct SVCs, 44 service interfaces with 121 commands, 34 nvdrv rows, 7 fs-open rows; `[audio]` and `[applet]` were empty (PLA uses `audout:u`/`hwopus`, not `audren:u`; no library applet was created on the played path). The cumulative snapshots copied at each step are valid and can be differenced into per-step deltas.
+- Operation (suyu-cmd only): F9 marks (ends the open segment, writes its file, starts the next); F10 pauses and resumes; an Inventory window under Debug shows the state, the segment label, and Mark, Pause, Skip step, and Write now actions; a small on-screen line shows the state (for example `INV rec 3/8 battle 12.4 s`). Keys are provisional until checked against `fullscreen_toggle.h` and the game's key bindings.
+- Labels: the supported-path steps in order (title, village, field, catch, battle, menu, pokedex, save); the overlay can also take a typed label.
+- Start state: paused when a control host (suyu-cmd) is present; `SUYU_BOUNDARY_INVENTORY_START=1` starts recording at launch. Without a control host (Qt `suyu.exe`), recording is on from the start and the single open segment is auto-saved every 10 s, as in stage 3.
+- Segments are independent: file `inventory_<run>_<NN>_<label>.txt`, header `# segment label=<label> elapsed_ms=<n>`, counts since the previous mark. The whole run is the sum of the segments (the local summarizer merges files). The open segment is auto-saved to `inventory_<run>_open.txt` every 10 s.
+- Environment: `SUYU_BOUNDARY_INVENTORY_DIR` (output folder) and `SUYU_BOUNDARY_INVENTORY_RUN` (run label) replace `SUYU_BOUNDARY_INVENTORY_PATH`, which nothing outside the local helper used.
+- Recorder semantics (stage 4a-1, implemented): `SetRecording` pauses the counters but the nvdrv fd-to-device map keeps following the guest; `EndSegment(label, elapsed_ns)` returns the segment text and resets it; SVC counts are the totals minus a baseline, each total read once, so concurrent marks lose and duplicate no call; tables are moved out under their own mutexes; the fd map is kept across marks.
+- Stages: 4a-1 recorder segment API and unit tests (done: `smoke_boundary_inventory_unit` passes; ten header mutants fail it, including baseline not advanced, pause ignored, tables not reset, a mark that clears the fd map, and a pause that blocks the fd map); 4a-2 suyu-cmd F9/F10, Inventory window, state line, DIR/RUN output, host build, and review; 4b the user re-collects the supported path.
+
 ## Immediate next action
 
 1. Read `CLAUDE.md`, this plan, `NATIVE_ROADMAP.md`, and `CODEBASE_INDEX.md`; check status and confirm no `suyu.exe`, `ninja`, or `cl` holds the build tree.
-2. Continue N0 at stage 2 (header-only recorder and unit test) per `## N0 design (stage 1)`, after user approval of the design.
+2. Continue N0 at stage 4a-2 (suyu-cmd F9/F10, Inventory window, state line, DIR/RUN output) per `## N0 design amendment (stage 4a: manual segments)`, then the user re-collects (4b).
 3. Optional: investigate AudioManager and whether TouchUpdate/UpdateDefault (4 ms), KHardwareTimer (about 380/s), or other periodic events can be coalesced.
 4. Cheap: tracked `__pycache__`/`.bak` cleanup, the `configure_audio` combo-index fix, a `controller_assign.h` test, an optional `LoadLibraryExW` error-mode change with test, the obsolete `*.plist` glob in `tools/translations/qt-source.sh`, and the now-dead `NOT MULTIARCH_BUILD` conditions in `src/dynarmic/CMakeModules/TargetArchitectureSpecificSources.cmake` and `src/dynarmic/tests/CMakeLists.txt`.
 
@@ -70,6 +83,7 @@ Design note for the boundary inventory, written in session 39 (stage 1). It desc
 - `research/tests` has 7 failures/1 error pre-existing; tracked `__pycache__`/`.pyc`, `src/suyu/game_card.cpp.bak`, and the `cpp-lint.sh` tab issue remain.
 - Bad Image dialog cause and `recomp_bundle.cpp:305` error-mode handling remain unresolved.
 - HUD checks, OpenGL/Null windows, FPS/overhead, and Linux/FreeBSD configure and build (after the macOS removal) remain untested; `tests/exclusive_access/run.py` passed in session 38.
+- Plain `suyu-cmd.exe <game>` does not auto-assign controllers (only exported packages do, `emu_window_sdl2.cpp:842`): assign Player 1 in the overlay Controller window. `suyu-cmd -g <path>` reads the path through the ANSI code page and garbles non-ASCII file names; the positional argument is read as UTF-16.
 
 ## Measurement setup
 

@@ -1,5 +1,6 @@
 // smoke_boundary_inventory_unit: the SUYU_BOUNDARY_INVENTORY recorder (core/boundary_inventory.h).
 // Driven directly with an injected clock; negative controls drop the behavior a check relies on.
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -22,6 +23,7 @@ using Core::BoundaryInventory::Recorder;
 namespace {
 
 constexpr std::uint64_t kSecondNs = 1'000'000'000ULL;
+constexpr std::uint64_t kMillisecondNs = 1'000'000ULL;
 
 bool Contains(const std::string& text, const char* part) {
     return text.find(part) != std::string::npos;
@@ -58,9 +60,9 @@ int RecordsIpcKeysAndUnimplementedFlag() {
     recorder.RecordIpc("hid", 4, 100);
     recorder.RecordIpc("hid", 4, 101);
     recorder.RecordIpc("fsp-srv", 4, 18);
-    recorder.MarkIpcUnimplemented("hid", 4, 101);
+    recorder.RecordIpc("hid", 4, 101, true);
     const std::string report = recorder.FormatReport();
-    CHECK(Contains(report, "[ipc]\nfsp-srv\t4\t18\t1\t0\t2\nhid\t4\t100\t2\t0\t0\nhid\t4\t101\t1\t1\t1\n"));
+    CHECK(Contains(report, "[ipc]\nfsp-srv\t4\t18\t1\t0\t2\nhid\t4\t100\t2\t0\t0\nhid\t4\t101\t2\t1\t1\n"));
     return 0;
 }
 
@@ -155,6 +157,110 @@ int CountsConcurrentRecordsExactly() {
     return 0;
 }
 
+// The number that follows `prefix` in `text`, or UINT64_MAX when the prefix is absent.
+std::uint64_t NumberAfter(const std::string& text, const std::string& prefix) {
+    const auto at = text.find(prefix);
+    if (at == std::string::npos) {
+        return UINT64_MAX;
+    }
+    return std::stoull(text.substr(at + prefix.size()));
+}
+
+int SegmentsAreIndependent() {
+    Recorder recorder;
+    for (int n = 0; n < 3; ++n) {
+        recorder.RecordSvc(0, 0x19);
+    }
+    recorder.RecordSvc(0, 0x100);
+    recorder.RecordIpc("hid", 4, 100);
+    recorder.RecordIpc("hid", 4, 100);
+    recorder.RecordFsOpen(FsKind::Sdmc, "/a", 1);
+    const std::string first = recorder.EndSegment("title", 1500 * kMillisecondNs);
+    CHECK(Contains(first, "# boundary inventory v1\n# segment label=title elapsed_ms=1500\n"));
+    CHECK(Contains(first, "[svc]\n0x19\t3\noverflow\t1\n"));
+    CHECK(Contains(first, "hid\t4\t100\t2\t0\t0\n"));
+    CHECK(Contains(first, "[fs-open]\nsdmc\t/a\t1\t1\t0\n"));
+
+    recorder.RecordSvc(1, 0x19);
+    recorder.RecordIpc("hid", 4, 100);
+    const std::string second = recorder.EndSegment("village", 0);
+    CHECK(Contains(second, "[svc]\n0x19\t1\noverflow\t0\n"));
+    CHECK(Contains(second, "hid\t4\t100\t1\t0\t0\n"));
+    CHECK(!Contains(second, "sdmc"));
+
+    const std::string open_segment = recorder.FormatReport();
+    CHECK(Contains(open_segment, "[svc]\noverflow\t0\n[ipc]\n[nvdrv]\n[audio]\n[applet]\n"
+                                 "[fs-open]\n[fs-read]\n"));
+    return 0;
+}
+
+int PauseFreezesCountersButNotFdMap() {
+    Recorder recorder;
+    recorder.SetRecording(false);
+    CHECK(!recorder.IsRecording());
+    recorder.RecordSvc(0, 0x19);
+    recorder.RecordIpc("hid", 4, 100);
+    recorder.RecordFsRead("/a", 0, 16);
+    recorder.RecordNvdrvOpen(7, "/dev/nvmap");
+    recorder.RecordNvdrvIoctl(7, 1, 0x1);
+    CHECK(Contains(recorder.FormatReport(), "[svc]\noverflow\t0\n[ipc]\n[nvdrv]\n[audio]\n"
+                                            "[applet]\n[fs-open]\n[fs-read]\n"));
+    recorder.SetRecording(true);
+    recorder.RecordNvdrvIoctl(7, 1, 0x2);
+    const std::string report = recorder.FormatReport();
+    CHECK(Contains(report, "ioctl\t/dev/nvmap\t1\t0x00000002\t1\t0\n"));
+    CHECK(!Contains(report, "open\t/dev/nvmap"));
+    return 0;
+}
+
+int FdMapSurvivesSegmentEnd() {
+    Recorder recorder;
+    recorder.RecordNvdrvOpen(7, "/dev/nvmap");
+    recorder.EndSegment("boot", 0);
+    recorder.RecordNvdrvIoctl(7, 1, 0x3);
+    const std::string report = recorder.FormatReport();
+    CHECK(Contains(report, "ioctl\t/dev/nvmap\t1\t0x00000003\t1\t0\n"));
+    CHECK(!Contains(report, "<unknown fd>"));
+    return 0;
+}
+
+int ConcurrentMarksLoseNothing() {
+    Recorder recorder;
+    constexpr int kThreads = 3;
+    constexpr int kPerThread = 20000;
+    std::atomic<int> running{kThreads};
+    std::vector<std::thread> threads;
+    for (std::size_t core = 0; core < kThreads; ++core) {
+        threads.emplace_back([&recorder, &running, core] {
+            for (int n = 0; n < kPerThread; ++n) {
+                recorder.RecordSvc(core, 0x20);
+                recorder.RecordIpc("hid", 4, 100);
+            }
+            running.fetch_sub(1);
+        });
+    }
+    std::uint64_t svc_sum = 0;
+    std::uint64_t ipc_sum = 0;
+    const auto add_segment = [&](const std::string& segment) {
+        if (const auto svc = NumberAfter(segment, "0x20\t"); svc != UINT64_MAX) {
+            svc_sum += svc;
+        }
+        if (const auto ipc = NumberAfter(segment, "hid\t4\t100\t"); ipc != UINT64_MAX) {
+            ipc_sum += ipc;
+        }
+    };
+    while (running.load() > 0) {
+        add_segment(recorder.EndSegment("running", 0));
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    add_segment(recorder.EndSegment("last", 0));
+    CHECK(svc_sum == static_cast<std::uint64_t>(kThreads) * kPerThread);
+    CHECK(ipc_sum == static_cast<std::uint64_t>(kThreads) * kPerThread);
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -166,6 +272,10 @@ int main() {
     if (const int rc = FormatsDeterministically()) return rc;
     if (const int rc = LimitsWritesToOncePerInterval()) return rc;
     if (const int rc = RejectsStaleClockSample()) return rc;
+    if (const int rc = SegmentsAreIndependent()) return rc;
+    if (const int rc = PauseFreezesCountersButNotFdMap()) return rc;
+    if (const int rc = FdMapSurvivesSegmentEnd()) return rc;
+    if (const int rc = ConcurrentMarksLoseNothing()) return rc;
     if (const int rc = CountsConcurrentRecordsExactly()) return rc;
     std::puts("smoke_boundary_inventory_unit: OK");
     return 0;

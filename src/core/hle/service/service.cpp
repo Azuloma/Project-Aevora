@@ -30,10 +30,10 @@ namespace Service {
     return function_string;
 }
 
-static void RecordBoundaryIpc(std::string_view service_name, HLERequestContext& ctx) {
-    Core::BoundaryInventory::Instance().RecordIpc(service_name,
-                                                  static_cast<u32>(ctx.GetCommandType()),
-                                                  ctx.GetCommand());
+static void RecordBoundaryIpc(std::string_view service_name, HLERequestContext& ctx,
+                              bool unimplemented) {
+    Core::BoundaryInventory::Instance().RecordIpc(
+        service_name, static_cast<u32>(ctx.GetCommandType()), ctx.GetCommand(), unimplemented);
 }
 
 ServiceFrameworkBase::ServiceFrameworkBase(Core::System& system_, const char* service_name_, u32 max_sessions_, InvokerFn* handler_invoker_)
@@ -82,10 +82,6 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
         fmt::format_to(std::back_inserter(buf), ", [{}]={:#X}", i, cmd_buf[i]);
     buf.push_back('}');
 
-    if (Core::BoundaryInventory::Enabled()) {
-        Core::BoundaryInventory::Instance().MarkIpcUnimplemented(
-            service_name, static_cast<u32>(ctx.GetCommandType()), ctx.GetCommand());
-    }
     system.GetReporter().SaveUnimplementedFunctionReport(ctx, ctx.GetCommand(), function_name, service_name);
     UNIMPLEMENTED_MSG("Unknown / unimplemented {}", fmt::to_string(buf));
     if (Settings::values.use_auto_stub) {
@@ -96,12 +92,13 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
 }
 
 void ServiceFrameworkBase::InvokeRequest(HLERequestContext& ctx) {
-    if (Core::BoundaryInventory::Enabled()) {
-        RecordBoundaryIpc(GetServiceName(), ctx);
-    }
     auto it = handlers.find(ctx.GetCommand());
     FunctionInfoBase const* info = it == handlers.end() ? nullptr : &it->second;
-    if (info == nullptr || info->handler_callback == nullptr)
+    const bool unimplemented = info == nullptr || info->handler_callback == nullptr;
+    if (Core::BoundaryInventory::Enabled()) {
+        RecordBoundaryIpc(GetServiceName(), ctx, unimplemented);
+    }
+    if (unimplemented)
         return ReportUnimplementedFunction(ctx, info);
 
     LOG_TRACE(Service, "{}", MakeFunctionString(info->name, GetServiceName(), ctx.CommandBuffer()));
@@ -109,12 +106,13 @@ void ServiceFrameworkBase::InvokeRequest(HLERequestContext& ctx) {
 }
 
 void ServiceFrameworkBase::InvokeRequestTipc(HLERequestContext& ctx) {
-    if (Core::BoundaryInventory::Enabled()) {
-        RecordBoundaryIpc(GetServiceName(), ctx);
-    }
     auto it = handlers_tipc.find(ctx.GetCommand());
     FunctionInfoBase const* info = it == handlers_tipc.end() ? nullptr : &it->second;
-    if (info == nullptr || info->handler_callback == nullptr)
+    const bool unimplemented = info == nullptr || info->handler_callback == nullptr;
+    if (Core::BoundaryInventory::Enabled()) {
+        RecordBoundaryIpc(GetServiceName(), ctx, unimplemented);
+    }
+    if (unimplemented)
         return ReportUnimplementedFunction(ctx, info);
 
     LOG_TRACE(Service, "{}", MakeFunctionString(info->name, GetServiceName(), ctx.CommandBuffer()));

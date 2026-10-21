@@ -31,7 +31,7 @@ inline std::filesystem::path ReportPath() {
 inline void WriteReport() {
     static std::mutex write_mutex;
     const std::lock_guard lock{write_mutex};
-    const Recorder& recorder = Instance();
+    Recorder& recorder = Instance();
     const std::string report = recorder.FormatReport();
     const std::filesystem::path path = ReportPath();
     std::ofstream out(path, std::ios::trunc);
