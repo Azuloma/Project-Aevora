@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -12,6 +13,7 @@
 
 #include "core/frontend/vulkan_overlay.h"
 #include "suyu_cmd/overlay/controller_settings.h"
+#include "suyu_cmd/overlay/inventory_session.h"
 #include "suyu_cmd/overlay/mods_folders.h"
 #include "suyu_cmd/overlay/overlay_actions.h"
 #include "suyu_cmd/overlay/overlay_logic.h"
@@ -78,6 +80,17 @@ public:
         mods_folders_applier = std::move(applier);
     }
 
+    /// Applies a boundary inventory request; set and called on the event thread only.
+    using InventoryApplier = std::function<UiActionResult(const InventoryRequest&)>;
+    void SetInventoryApplier(InventoryApplier applier) {
+        inventory_applier = std::move(applier);
+    }
+
+    /// What the Inventory window and state line show; published by the event thread.
+    SnapshotBox<InventorySnapshot>& GetInventorySnapshot() {
+        return inventory_snapshot;
+    }
+
     /// What the Mods and folders window shows; published by the event thread.
     SnapshotBox<ModsFoldersSnapshot>& GetModsFoldersSnapshot() {
         return mods_folders_snapshot;
@@ -129,6 +142,9 @@ private:
     void BuildControllerWindow();
     void BuildModsFoldersWindow();
     void PostModsFolders(ModsFoldersRequest request);
+    void BuildInventoryWindow(const InventorySnapshot& view);
+    void BuildInventoryStateLine(const InventorySnapshot& view);
+    void PostInventory(InventoryRequest request);
     void BuildGameSection();
     void PostFullscreenToggle();
     void PostController(ControllerRequest request);
@@ -156,6 +172,8 @@ private:
     FullscreenToggler fullscreen_toggler;   ///< Event thread only.
     std::atomic<bool> window_fullscreen{false};
     ModsFoldersApplier mods_folders_applier; ///< Event thread only.
+    InventoryApplier inventory_applier;      ///< Event thread only.
+    SnapshotBox<InventorySnapshot> inventory_snapshot;
     SnapshotBox<ModsFoldersSnapshot> mods_folders_snapshot;
     SnapshotBox<ControllerSnapshot> controller_snapshot;
     std::atomic<bool> controller_window_open{false};
@@ -172,6 +190,10 @@ private:
     OverlayRect graphics_window_rect{};
     bool show_controller_window{};
     bool show_mods_folders_window{};
+    bool inventory_available{};
+    bool show_inventory_window{};
+    OverlayRect inventory_window_rect{};
+    std::array<char, kInventoryLabelCapacity + 1> inventory_label_buffer{};
     bool mods_folders_window_was_open{};
     OverlayRect mods_folders_window_rect{};
     OverlayRect controller_window_rect{};

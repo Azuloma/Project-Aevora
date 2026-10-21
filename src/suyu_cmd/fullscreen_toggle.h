@@ -12,14 +12,22 @@ namespace SuyuCmd {
 /// Scancode that matches no key, so an unset hotkey never fires.
 inline constexpr std::uint32_t kNoScancode = 0xFFFFFFFFu;
 
-/// The scancodes of the host hotkeys (fullscreen and the performance HUD); the host supplies
-/// them so this stays SDL-free.
+/// The scancodes of the host hotkeys (fullscreen, the performance HUD and the boundary inventory);
+/// the host supplies them so this stays SDL-free.
 struct FullscreenKeys {
     std::uint32_t toggle;       ///< pressed alone
     std::uint32_t enter;        ///< pressed with Alt
     std::uint32_t keypad_enter; ///< pressed with Alt
     std::uint32_t perf_hud{kNoScancode}; ///< pressed alone, with or without Alt
+    std::uint32_t inventory_mark{kNoScancode};  ///< pressed alone, with or without Alt
+    std::uint32_t inventory_pause{kNoScancode}; ///< pressed alone, with or without Alt
 };
+
+/// The keys that stay hotkeys while an ImGui window holds the keyboard.
+constexpr bool IsOverlayIndependentHotkey(std::uint32_t scancode, const FullscreenKeys& keys) {
+    return scancode == keys.perf_hud || scancode == keys.inventory_mark ||
+           scancode == keys.inventory_pause;
+}
 
 /// True for F11, or Enter / keypad Enter while Alt is held.
 constexpr bool IsFullscreenChord(std::uint32_t scancode, bool alt_down,
@@ -39,6 +47,8 @@ public:
         Game,    ///< not a hotkey
         Toggle,  ///< a fresh hotkey press: switch fullscreen
         ToggleHud, ///< a fresh press of the HUD key: show or hide the performance HUD
+        InventoryMark,  ///< a fresh press of the inventory mark key
+        InventoryPause, ///< a fresh press of the inventory pause key
         Consume, ///< the hotkey's own repeat; nobody acts on it
     };
 
@@ -46,7 +56,9 @@ public:
     Route OnKeyDown(std::uint32_t scancode, bool alt_down, bool repeat, const FullscreenKeys& keys) {
         const bool tracked = scancode < kHotkeyTrackedKeys;
         const bool hud = scancode == keys.perf_hud;
-        const bool chord = hud || IsFullscreenChord(scancode, alt_down, keys);
+        const bool mark = scancode == keys.inventory_mark;
+        const bool pause = scancode == keys.inventory_pause;
+        const bool chord = hud || mark || pause || IsFullscreenChord(scancode, alt_down, keys);
         if (repeat) {
             if (tracked && hotkey_keys.test(scancode)) {
                 return Route::Consume;
@@ -65,7 +77,13 @@ public:
             if (tracked) {
                 hotkey_keys.set(scancode);
             }
-            return hud ? Route::ToggleHud : Route::Toggle;
+            if (hud) {
+                return Route::ToggleHud;
+            }
+            if (mark) {
+                return Route::InventoryMark;
+            }
+            return pause ? Route::InventoryPause : Route::Toggle;
         }
         if (tracked) {
             game_keys.set(scancode);

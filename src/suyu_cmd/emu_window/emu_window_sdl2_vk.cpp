@@ -22,6 +22,7 @@
 #include "common/scm_rev.h"
 #include "suyu_cmd/emu_window/emu_window_sdl2_vk.h"
 #include "suyu_cmd/overlay/debug_overlay.h"
+#include "suyu_cmd/overlay/inventory_host.h"
 #include "suyu_cmd/resolution_scale_host.h"
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 
@@ -37,6 +38,7 @@ EmuWindow_SDL2_VK::EmuWindow_SDL2_VK(InputCommon::InputSubsystem* input_subsyste
         InstallOverlayController();
         InstallOverlayModsFolders();
         InstallOverlayFullscreen();
+        InstallOverlayInventory();
     }
 #ifdef SUYU_CMD_STATIC_RECOMP
     // Exports are renamed after the game at packaging time; reuse that name as the title.
@@ -247,6 +249,41 @@ void EmuWindow_SDL2_VK::InstallOverlayModsFolders() {
     });
 }
 
+void EmuWindow_SDL2_VK::InstallOverlayInventory() {
+    if (!SuyuCmd::InventoryHost::Wanted()) {
+        return;
+    }
+    inventory_host = std::make_unique<SuyuCmd::InventoryHost>();
+    debug_overlay->SetInventoryApplier([this](const SuyuCmd::InventoryRequest& request) {
+        const SuyuCmd::UiActionResult result = inventory_host->Apply(request);
+        PublishOverlayInventory();
+        return result;
+    });
+    PublishOverlayInventory();
+}
+
+void EmuWindow_SDL2_VK::PublishOverlayInventory() {
+    if (inventory_host) {
+        debug_overlay->GetInventorySnapshot().Publish(inventory_host->Snapshot());
+    }
+}
+
+bool EmuWindow_SDL2_VK::HasInventory() const {
+    return inventory_host != nullptr;
+}
+
+void EmuWindow_SDL2_VK::InventoryHotkey(bool mark) {
+    if (!inventory_host) {
+        return;
+    }
+    using Kind = SuyuCmd::InventoryRequest::Kind;
+    const SuyuCmd::UiActionResult result =
+        inventory_host->Apply({mark ? Kind::Mark : Kind::TogglePause, {}});
+    PublishOverlayInventory();
+    LOG_INFO(Frontend, "{}", result.message);
+    debug_overlay->GetActions().PublishStatus({result.ok, result.message});
+}
+
 void EmuWindow_SDL2_VK::InstallOverlayFullscreen() {
     debug_overlay->SetFullscreenToggler([this] { return ToggleFullscreen(); });
     debug_overlay->PublishFullscreen(FullscreenRequested());
@@ -341,6 +378,11 @@ EmuWindow_SDL2_VK::~EmuWindow_SDL2_VK() {
         debug_overlay->SetControllerApplier({});
         debug_overlay->SetModsFoldersApplier({});
         debug_overlay->SetFullscreenToggler({});
+        debug_overlay->SetInventoryApplier({});
+        if (inventory_host) {
+            inventory_host->Finalize();
+        }
+        inventory_host.reset();
         mods_scanner.reset();
         CancelControllerRebind();
         debug_overlay->GetActions().DetachEventThread();

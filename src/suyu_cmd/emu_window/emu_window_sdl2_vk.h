@@ -18,7 +18,8 @@ class InputSubsystem;
 
 namespace SuyuCmd {
 class DebugOverlay;
-}
+class InventoryHost;
+} // namespace SuyuCmd
 
 class EmuWindow_SDL2_VK final : public EmuWindow_SDL2 {
 public:
@@ -37,6 +38,10 @@ protected:
     void RunOverlayActions() override;
     bool HasPerfHud() const override;
     void TogglePerfHud() override;
+    bool HasInventory() const override;
+    void InventoryHotkey(bool mark) override;
+    void InstallOverlayInventory();
+    void PublishOverlayInventory();
     void InstallOverlayResolutionScale();
     void PublishOverlayResolutionScale();
     void InstallOverlayController();
@@ -45,6 +50,7 @@ protected:
     void InstallOverlayModsFolders();
 
     std::unique_ptr<SuyuCmd::ModsScanner> mods_scanner;
+    std::unique_ptr<SuyuCmd::InventoryHost> inventory_host;
     void ServiceOverlayController(bool actions_ran);
 
     bool controller_dirty{true};

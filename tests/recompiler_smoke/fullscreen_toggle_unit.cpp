@@ -140,9 +140,63 @@ int HudKeyHasItsOwnRoute() {
     return 0;
 }
 
+constexpr std::uint32_t kMarkKey = 70;
+constexpr std::uint32_t kPauseKey = 71;
+constexpr FullscreenKeys kInventoryKeys{68, 40, 88, kHudKey, kMarkKey, kPauseKey};
+
+// Negative control: reports the inventory pause key as a mark.
+class PauseAsMarkTracker {
+public:
+    Route OnKeyDown(std::uint32_t scancode, bool alt_down, bool repeat, const FullscreenKeys& keys) {
+        const Route route = inner.OnKeyDown(scancode, alt_down, repeat, keys);
+        return route == Route::InventoryPause ? Route::InventoryMark : route;
+    }
+    bool OnKeyUp(std::uint32_t scancode) {
+        return inner.OnKeyUp(scancode);
+    }
+
+private:
+    HotkeyKeyTracker inner;
+};
+
+// The inventory key rules, shared by the real tracker and the control. False on a breach.
+template <class Tracker>
+bool InventoryKeyRulesHold(Tracker tracker) {
+    // Each key acts once per fresh press, alone or with Alt; repeats and the release stay with it.
+    if (tracker.OnKeyDown(kMarkKey, false, false, kInventoryKeys) != Route::InventoryMark ||
+        tracker.OnKeyDown(kMarkKey, false, true, kInventoryKeys) != Route::Consume ||
+        !tracker.OnKeyUp(kMarkKey) ||
+        tracker.OnKeyDown(kPauseKey, true, false, kInventoryKeys) != Route::InventoryPause ||
+        tracker.OnKeyDown(kPauseKey, true, true, kInventoryKeys) != Route::Consume ||
+        !tracker.OnKeyUp(kPauseKey)) {
+        return false;
+    }
+    // The other hotkeys keep working beside them.
+    return tracker.OnKeyDown(kInventoryKeys.toggle, false, false, kInventoryKeys) == Route::Toggle &&
+           tracker.OnKeyDown(kHudKey, false, false, kInventoryKeys) == Route::ToggleHud;
+}
+
+int InventoryKeysHaveTheirOwnRoutes() {
+    CHECK(InventoryKeyRulesHold(HotkeyKeyTracker{}));
+    CHECK(!InventoryKeyRulesHold(PauseAsMarkTracker{}));
+    // Without configured inventory keys no scancode is taken as one.
+    HotkeyKeyTracker tracker;
+    CHECK(tracker.OnKeyDown(kMarkKey, false, false, kHudKeys) == Route::Game);
+    CHECK(tracker.OnKeyDown(kPauseKey, false, false, kHudKeys) == Route::Game);
+    // The overlay-independent set is exactly the HUD and inventory keys.
+    CHECK(IsOverlayIndependentHotkey(kHudKey, kInventoryKeys));
+    CHECK(IsOverlayIndependentHotkey(kMarkKey, kInventoryKeys));
+    CHECK(IsOverlayIndependentHotkey(kPauseKey, kInventoryKeys));
+    CHECK(!IsOverlayIndependentHotkey(kInventoryKeys.toggle, kInventoryKeys));
+    CHECK(!IsOverlayIndependentHotkey(kOther, kInventoryKeys));
+    CHECK(!IsOverlayIndependentHotkey(kMarkKey, kHudKeys));
+    return 0;
+}
+
 } // namespace
 
 int main() {
+    CHECK(InventoryKeysHaveTheirOwnRoutes() == 0);
     CHECK(HudKeyHasItsOwnRoute() == 0);
     CHECK(ChordNeedsAltForEnter() == 0);
     CHECK(OwnershipFollowsTheFirstPress() == 0);

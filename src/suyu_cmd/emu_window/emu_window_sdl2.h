@@ -91,6 +91,16 @@ protected:
     /// Shows or hides the overlay's performance HUD. Event thread only.
     virtual void TogglePerfHud() {}
 
+    /// Whether this window has the boundary inventory controls; only then do F9 and F10 belong to it.
+    virtual bool HasInventory() const {
+        return false;
+    }
+
+    /// F9 (`mark`) or F10 (pause or resume) for the boundary inventory. Event thread only.
+    virtual void InventoryHotkey(bool mark) {
+        (void)mark;
+    }
+
     /// What the overlay's Controller window shows. Event thread only.
     SuyuCmd::ControllerSnapshot BuildControllerSnapshot();
 

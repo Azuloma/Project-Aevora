@@ -261,9 +261,27 @@ int ConcurrentMarksLoseNothing() {
     return 0;
 }
 
+int NamesAreSafeFileComponents() {
+    using Core::BoundaryInventory::OpenReportFileName;
+    using Core::BoundaryInventory::SanitizeFileComponent;
+    using Core::BoundaryInventory::SegmentFileName;
+    CHECK(SegmentFileName("run1", 3, "battle") == "inventory_run1_03_battle.txt");
+    CHECK(SegmentFileName("run1", 123, "battle") == "inventory_run1_123_battle.txt");
+    CHECK(OpenReportFileName("run1") == "inventory_run1_open.txt");
+    // Separators, dots and non-ASCII bytes never reach the file name.
+    CHECK(SanitizeFileComponent("..\\a/b c.txt", "x") == "___a_b_c_txt");
+    CHECK(SanitizeFileComponent("", "fallback") == "fallback");
+    CHECK(SegmentFileName("", 1, "") == "inventory_run_01_segment.txt");
+    const std::string long_name(200, 'a');
+    CHECK(SanitizeFileComponent(long_name, "x").size() ==
+          Core::BoundaryInventory::kMaxFileComponentLength);
+    return 0;
+}
+
 } // namespace
 
 int main() {
+    if (const int rc = NamesAreSafeFileComponents()) return rc;
     if (const int rc = CountsSvcsPerCoreAndOverflow()) return rc;
     if (const int rc = RecordsIpcKeysAndUnimplementedFlag()) return rc;
     if (const int rc = NvdrvDropsDeviceNameAtClose()) return rc;

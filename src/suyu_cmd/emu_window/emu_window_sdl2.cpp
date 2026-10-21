@@ -40,8 +40,9 @@ constexpr u64 kStatusRefreshMs = 750;
 constexpr u64 kControlsSaveMs = 2000;
 constexpr Sint32 kEventWaitSliceMs = 250;
 
-constexpr SuyuCmd::FullscreenKeys kFullscreenKeys{SDL_SCANCODE_F11, SDL_SCANCODE_RETURN,
-                                                  SDL_SCANCODE_KP_ENTER, SDL_SCANCODE_F12};
+constexpr SuyuCmd::FullscreenKeys kFullscreenKeys{SDL_SCANCODE_F11,      SDL_SCANCODE_RETURN,
+                                                  SDL_SCANCODE_KP_ENTER, SDL_SCANCODE_F12,
+                                                  SDL_SCANCODE_F9,       SDL_SCANCODE_F10};
 
 // Gamepads SDL recognises plus suyu's own Joy-Con / Pro Controller driver; wheels and virtual
 // devices take no player. @p sdl_gamepads, when given, gets how many gamepads SDL sees.
@@ -308,6 +309,10 @@ SuyuCmd::FullscreenKeys EmuWindow_SDL2::ActiveHotkeys() const {
     if (!HasPerfHud()) {
         keys.perf_hud = SuyuCmd::kNoScancode;
     }
+    if (!HasInventory()) {
+        keys.inventory_mark = SuyuCmd::kNoScancode;
+        keys.inventory_pause = SuyuCmd::kNoScancode;
+    }
     return keys;
 }
 
@@ -437,9 +442,10 @@ void EmuWindow_SDL2::WaitEvent() {
         break;
     case SDL_EVENT_KEY_DOWN: {
         const SuyuCmd::FullscreenKeys hotkeys = ActiveHotkeys();
-        // The HUD key works even while an ImGui window holds the keyboard.
+        // The HUD and inventory keys work even while an ImGui window holds the keyboard.
         if (taken_by_overlay &&
-            static_cast<std::uint32_t>(event.key.scancode) != hotkeys.perf_hud) {
+            !SuyuCmd::IsOverlayIndependentHotkey(static_cast<std::uint32_t>(event.key.scancode),
+                                                 hotkeys)) {
             break;
         }
         switch (hotkey_keys.OnKeyDown(static_cast<std::uint32_t>(event.key.scancode),
@@ -453,6 +459,12 @@ void EmuWindow_SDL2::WaitEvent() {
         case SuyuCmd::HotkeyKeyTracker::Route::ToggleHud:
             TogglePerfHud();
             break;
+        case SuyuCmd::HotkeyKeyTracker::Route::InventoryMark:
+            InventoryHotkey(true);
+            break;
+        case SuyuCmd::HotkeyKeyTracker::Route::InventoryPause:
+            InventoryHotkey(false);
+            break;
         case SuyuCmd::HotkeyKeyTracker::Route::Consume:
             break;
         case SuyuCmd::HotkeyKeyTracker::Route::Game:
@@ -462,8 +474,8 @@ void EmuWindow_SDL2::WaitEvent() {
         break;
     }
     case SDL_EVENT_KEY_UP: {
-        const bool hud_key =
-            static_cast<std::uint32_t>(event.key.scancode) == ActiveHotkeys().perf_hud;
+        const bool hud_key = SuyuCmd::IsOverlayIndependentHotkey(
+            static_cast<std::uint32_t>(event.key.scancode), ActiveHotkeys());
         if ((!taken_by_overlay || hud_key) &&
             !hotkey_keys.OnKeyUp(static_cast<std::uint32_t>(event.key.scancode))) {
             OnKeyEvent(static_cast<int>(event.key.scancode), SDL_RELEASED);

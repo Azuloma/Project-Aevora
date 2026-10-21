@@ -357,12 +357,16 @@ void DebugOverlay::CollectActionStatus() {
 }
 
 void DebugOverlay::BuildUi() {
+    const InventorySnapshot inventory = inventory_snapshot.Get();
+    inventory_available = inventory.available;
     BuildCommandBar();
     BuildDebugWindow();
     BuildGraphicsWindow();
     BuildControllerWindow();
     BuildModsFoldersWindow();
+    BuildInventoryWindow(inventory);
     BuildPerfHud();
+    BuildInventoryStateLine(inventory);
 
     // A hidden OS pointer would leave nothing to aim with; draw one only while it is over the UI.
     ImGuiIO& io = ImGui::GetIO();
@@ -406,6 +410,9 @@ void DebugOverlay::PublishCaptureRegions() {
     }
     if (show_mods_folders_window) {
         regions.push_back(mods_folders_window_rect);
+    }
+    if (show_inventory_window && inventory_available) {
+        regions.push_back(inventory_window_rect);
     }
     if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
         // An open menu or combo list lies outside the windows; keep clicks on it with the UI.
@@ -456,6 +463,9 @@ void DebugOverlay::BuildCommandBar() {
         ImGui::MenuItem("Cheats");
         ImGui::EndDisabled();
         ImGui::MenuItem("Debug", nullptr, &show_debug_window);
+        if (inventory_available) {
+            ImGui::MenuItem("Inventory", nullptr, &show_inventory_window);
+        }
         ImGui::EndMainMenuBar();
     }
 }
@@ -680,6 +690,78 @@ void DebugOverlay::BuildModsFoldersWindow() {
         ImGui::EndChild();
     }
     ImGui::End();
+}
+
+void DebugOverlay::BuildInventoryWindow(const InventorySnapshot& view) {
+    if (!show_inventory_window || !view.available) {
+        return;
+    }
+    ImGui::SetNextWindowPos({Scaled(16.0f), Scaled(48.0f)}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({Scaled(420.0f), Scaled(230.0f)}, ImGuiCond_FirstUseEver);
+    const bool expanded = ImGui::Begin("Boundary inventory", &show_inventory_window);
+    inventory_window_rect = {ImGui::GetWindowPos().x, ImGui::GetWindowPos().y,
+                             ImGui::GetWindowSize().x, ImGui::GetWindowSize().y};
+    if (expanded) {
+        using Kind = InventoryRequest::Kind;
+        ImGui::TextUnformatted(FormatInventoryStateLine(view, InventoryNowNs()).c_str());
+        ImGui::Text("Next file: segment %02u, '%s'", view.next_serial, view.label.c_str());
+        if (ImGui::Button("Mark (F9)")) {
+            PostInventory({Kind::Mark, {}});
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(view.recording ? "Pause (F10)" : "Resume (F10)")) {
+            PostInventory({Kind::TogglePause, {}});
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Skip step")) {
+            PostInventory({Kind::SkipStep, {}});
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Write now")) {
+            PostInventory({Kind::WriteNow, {}});
+        }
+        ImGui::SetNextItemWidth(Scaled(220.0f));
+        ImGui::InputText("##inventory_label", inventory_label_buffer.data(),
+                         inventory_label_buffer.size());
+        ImGui::SameLine();
+        if (ImGui::Button("Set label")) {
+            PostInventory({Kind::SetLabel, inventory_label_buffer.data()});
+        }
+        if (!view.last_message.empty()) {
+            constexpr ImVec4 kErrorColor{1.0f, 0.35f, 0.3f, 1.0f};
+            ImGui::TextColored(view.last_ok ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : kErrorColor,
+                               "%s", view.last_message.c_str());
+        }
+    }
+    ImGui::End();
+}
+
+void DebugOverlay::BuildInventoryStateLine(const InventorySnapshot& view) {
+    if (!view.available) {
+        return;
+    }
+    const std::string line = FormatInventoryStateLine(view, InventoryNowNs());
+    ImFont* const bold_font = OverlayBoldFont();
+    ImFont* const font = bold_font != nullptr ? bold_font : ImGui::GetFont();
+    const float font_size_px = ImGui::GetFontSize() * kPerfHudTextScale;
+    const ImVec2 text_size = font->CalcTextSizeA(font_size_px, FLT_MAX, 0.0f, line.c_str());
+    const ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 position{io.DisplaySize.x - text_size.x - Scaled(kPerfHudMarginPx),
+                          io.DisplaySize.y - text_size.y - Scaled(kPerfHudMarginPx)};
+    // Paused is amber so a segment that is not counting cannot be mistaken for a recording one.
+    constexpr ImU32 kPausedColor = IM_COL32(255, 190, 70, 235);
+    ImGui::GetForegroundDrawList()->AddText(font, font_size_px, position,
+                                            view.recording ? kPerfHudTextColor : kPausedColor,
+                                            line.c_str());
+}
+
+void DebugOverlay::PostInventory(InventoryRequest request) {
+    actions.Post({"Inventory", [this, request = std::move(request)] {
+                      if (!inventory_applier) {
+                          return UiActionResult{false, "The boundary inventory is not available"};
+                      }
+                      return inventory_applier(request);
+                  }});
 }
 
 void DebugOverlay::PostModsFolders(ModsFoldersRequest request) {

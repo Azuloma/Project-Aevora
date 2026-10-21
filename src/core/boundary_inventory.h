@@ -27,6 +27,7 @@ constexpr std::size_t kSvcSlots = 256;
 constexpr std::size_t kMaxKeysPerSection = 65536;
 constexpr std::uint64_t kWriteIntervalNs = 10'000'000'000ULL;
 constexpr std::uint64_t kNsPerMs = 1'000'000ULL;
+constexpr std::size_t kMaxFileComponentLength = 48;
 constexpr std::string_view kUnknownDevice = "<unknown fd>";
 
 enum class FsKind : std::uint32_t {
@@ -54,6 +55,35 @@ constexpr std::string_view FsKindName(FsKind kind) {
         break;
     }
     return "other";
+}
+
+/// Keeps ASCII letters, digits, '-' and '_' (anything else becomes '_'), at most
+/// kMaxFileComponentLength characters; empty input gives `fallback`.
+inline std::string SanitizeFileComponent(std::string_view text, std::string_view fallback) {
+    std::string out;
+    for (const char c : text) {
+        if (out.size() >= kMaxFileComponentLength) {
+            break;
+        }
+        const bool plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                           (c >= '0' && c <= '9') || c == '-' || c == '_';
+        out += plain ? c : '_';
+    }
+    return out.empty() ? std::string{fallback} : out;
+}
+
+/// inventory_<run>_<serial, two digits>_<label>.txt, one file per ended segment.
+inline std::string SegmentFileName(std::string_view run, std::uint32_t serial,
+                                   std::string_view label) {
+    char number[16];
+    std::snprintf(number, sizeof number, "%02u", serial);
+    return "inventory_" + SanitizeFileComponent(run, "run") + '_' + number + '_' +
+           SanitizeFileComponent(label, "segment") + ".txt";
+}
+
+/// inventory_<run>_open.txt, the auto-saved open segment.
+inline std::string OpenReportFileName(std::string_view run) {
+    return "inventory_" + SanitizeFileComponent(run, "run") + "_open.txt";
 }
 
 /// Off unless SUYU_BOUNDARY_INVENTORY is exactly "1"; read once at process start.
