@@ -85,6 +85,15 @@ Goal: a title-specific guest address space without the emulated kernel memory ma
 - Reserve and map code, heap, stacks, TLS, and shared memory directly with host virtual memory, keeping the fastmem layout that generated code expects.
 - Replace `KPageTable` and `KMemoryManager` paths used by the supported path with a small native mapper, with the memory SVCs from the N0 inventory implemented on it.
 
+Plan (2026-10-21):
+
+- Stage 0: record the detailed opt-in memory inventory and finalize the design note; implemented and awaiting the user's commit and collection play.
+- Stage 1: build an unconnected native mapper library with map, unmap, protection, shared-memory, query, heap, and physical-memory tests, each with a weakened negative control.
+- Stage 2: compare the native mapper with `KPageTable` under `SUYU_NATIVE_MEM_SHADOW=1`, including per-SVC results, `QueryMemory`, and page entries, with a goal of zero supported-path mismatches.
+- Stage 3: make the native mapper primary under `SUYU_NATIVE_MEM`, rewire supported consumers, and count/log fallbacks and CPU ms per frame.
+- Stage 4: remove kernel memory-manager symbols from the no-JIT native build, add fail-fast stubs for unsupported callers, bypass kernel memory initialization, and pass `--require-absent N1,N2`.
+- Stage 5: full export, supported-path play, structural gate, measurement, and documentation acceptance. See [N2_DESIGN.md](N2_DESIGN.md) for the detailed plan and observed seams.
+
 Done when: the kernel memory-manager deny list passes for the native build, and memory tests (map, unmap, protection, shared memory) pass with negative controls.
 
 ### N3: Native threads and synchronization
@@ -227,6 +236,9 @@ Done when: the repository builds the native runtime, the Aevora Recompiler, and 
 - 2026-10-20: the supported gameplay path above is confirmed.
 - 2026-10-20: the Aevora Launcher and Aevora Recompiler GUI use Tauri.
 - 2026-10-21: N0 accepted; N1 builds the strict launcher from a separate `SUYU_NO_JIT=ON` tree and keeps the JIT tree for Qt, Hybrid, and comparison.
+- 2026-10-21: N2 uses a stage-by-stage plan; the existing no-JIT tree gets the future CMake option, with no third build tree.
+- 2026-10-21: N2's native address layout is exactly the `KPageTable` layout, enabling `SUYU_NATIVE_MEM_SHADOW=1` comparison.
+- 2026-10-21: the repository moved to `https://github.com/project-aevora/project.aevora-main`; versioning is now `v0.0.3`, with the next per-commit entry `v0.0.3-dev1`.
 
 ## Open questions
 

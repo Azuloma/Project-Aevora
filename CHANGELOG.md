@@ -2,6 +2,23 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev1 - Unreleased
+
+*Development entry 1 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the opt-in `[memory]` boundary-inventory diagnostic for memory SVC shapes, IPC map-alias descriptors, TLS pages, shared-memory creation, and process layout ranges. Hook sites are `boundary_inventory.h`, `physical_core.cpp`, `k_server_session.cpp`, `k_thread_local_page.cpp`, `k_shared_memory.cpp`, and `k_process.cpp`.
+- Added five `smoke_boundary_inventory_unit` tests, including deliberately weakened size-class and region-end negative controls.
+
+### Verified
+
+- The standalone unit built with MSVC `cl` and `/Zc:preprocessor` and printed `smoke_boundary_inventory_unit: OK` with exit code 0. The JIT host rebuild completed 27/27 steps with 0 errors and linked `suyu.exe` and `suyu-cmd.exe`.
+
+### Not verified
+
+- The new inventory hooks have not been exercised in a real session; the full `tests/recompiler_smoke/run.py` suite was not run, and the no-JIT tree was not rebuilt after Stage 0.
+
 ## v0.0.2-dev17 - Unreleased
 
 *Development entry 17 toward v0.0.2. Not a release; no build artifacts are published.*

@@ -12,6 +12,7 @@
 #include "common/logging.h"
 #include "common/scope_exit.h"
 #include "common/scratch_buffer.h"
+#include "core/boundary_inventory.h"
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/kernel/k_client_port.h"
@@ -508,6 +509,16 @@ Result ProcessReceiveMessageMapAliasDescriptors(int& offset, KProcessPageTable& 
 
     // Process the buffer, if it has a size.
     if (size > 0) {
+        if (Core::BoundaryInventory::Enabled()) {
+            const char* const direction =
+                perm == KMemoryPermission::UserRead ? "send" : (send ? "exchange" : "receive");
+            char key[96];
+            std::snprintf(key, sizeof key, "ipc_map %s attr=%u state=0x%X size=%s", direction,
+                          static_cast<u32>(src_desc.GetAttribute()), static_cast<u32>(dst_state),
+                          Core::BoundaryInventory::SizeClass(size).c_str());
+            Core::BoundaryInventory::Instance().RecordMemory(key, size);
+        }
+
         // Set up the source pages for ipc.
         R_TRY(dst_page_table.SetupForIpc(std::addressof(dst_address), size, src_address,
                                          src_page_table, perm, dst_state, send));

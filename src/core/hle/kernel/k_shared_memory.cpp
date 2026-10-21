@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/assert.h"
+#include "core/boundary_inventory.h"
 #include "core/core.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_scoped_resource_reservation.h"
@@ -27,6 +28,13 @@ Result KSharedMemory::Initialize(KernelCore& kernel, Core::DeviceMemory& device_
     m_owner_permission = owner_permission;
     m_user_permission = user_permission;
     m_size = Common::AlignUp(size, PageSize);
+
+    if (Core::BoundaryInventory::Enabled()) {
+        char key[64];
+        std::snprintf(key, sizeof key, "shmem_create owner_perm=0x%X user_perm=0x%X",
+                      static_cast<u32>(owner_permission), static_cast<u32>(user_permission));
+        Core::BoundaryInventory::Instance().RecordMemory(key, m_size);
+    }
 
     const size_t num_pages = Common::DivideUp(size, PageSize);
 

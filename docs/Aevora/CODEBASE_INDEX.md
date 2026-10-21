@@ -287,6 +287,11 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `src/suyu_cmd/overlay/build_identity.{h,cpp}` | Parses packaged `aot_manifest.json` display fields and stores the launcher build identity. |
 | `docs/Aevora/IMGUI_OVERLAY.md` | ImGui Vulkan overlay architecture, input routing, UI contracts, tests, and extension guide. |
 | `docs/Aevora/N0_INVENTORY.md` **(v, 2026-10-21)** | Supported-path manual check list, aggregate inventory summary, and structural-gate first report. |
+| `src/core/boundary_inventory.h:141-171,405-406` **(v, 2026-10-21)** | `[memory]` recorder helpers `SizeClass`, `RegionName`, `MemorySvcKey`, and `Recorder::RecordMemory`. |
+| `src/core/hle/kernel/physical_core.cpp:293-343` **(v, 2026-10-21)** | `RecordMemorySvc`, which records the inventoried memory SVC argument shapes, regions, sizes, and flags. |
+| `src/core/hle/kernel/k_server_session.cpp:516-519`; `k_thread_local_page.cpp:29-30`; `k_shared_memory.cpp:34-36`; `k_process.cpp:1278-1281` **(v, 2026-10-21)** | `[memory]` hook sites for IPC map-alias descriptors, TLS pages, shared-memory creation, and process layout/ranges. |
+| `tests/recompiler_smoke/boundary_inventory_unit.cpp:676-826` **(v, 2026-10-21)** | Standalone `[memory]` recorder tests, including size-class and region-end negative controls. |
+| `docs/Aevora/N2_DESIGN.md` **(v, 2026-10-21)** | N2 native guest memory design, observed seams, FM1 contract, stage plan, inventory questions, risks, and open decisions. |
 | `src/suyu_cmd/emu_window/emu_window_sdl2.h:76-106`, `emu_window_sdl2.cpp:390-466,630-773,810` **(v, 2026-10-18)**; `emu_window_sdl2_vk.{h,cpp}:190-367` **(v)** | `RouteOverlayEvent`/`WaitEvent`/`RunOverlayActions`/`SyncOverlayTextInput`, controller snapshot/request/rebind host methods, and Vulkan SDL overlay translation route overlay input before game dispatch. |
 | `src/suyu_cmd/native_status.h` **(v, 2026-10-21)** | Native status title naming: `Aevora Static AOT` with `(JIT-capable)` or `(no-JIT build)` qualifier and JIT-transition suffix only when available. |
 | `src/suyu_cmd/native_status.h:35-43`; `native_status.cpp:131-132` **(v, 2026-10-18)** | `NativeStatusSnapshot::guest_memory_used_bytes/guest_memory_total_bytes` and `SampleNativeStatus` application physical-memory sampling. |

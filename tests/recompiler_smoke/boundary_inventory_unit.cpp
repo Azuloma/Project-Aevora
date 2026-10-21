@@ -674,6 +674,116 @@ int ScanNamesAndOutputFormat() {
     return 0;
 }
 
+using SizeClassFn = std::string (*)(std::uint64_t);
+
+// Sizes at and around the page-count boundaries; the model must round a partial page up.
+bool SizeClassMatchesTable(SizeClassFn classify) {
+    struct Row {
+        std::uint64_t bytes;
+        const char* expected;
+    };
+    const Row rows[] = {{0, "0"},         {1, "<=1p"},       {0x1000, "<=1p"},
+                        {0x1001, "<=2p"}, {0x2000, "<=2p"},  {0x3000, "<=4p"},
+                        {0x4001, "<=8p"}, {0x10000, "<=16p"}, {0x100000, "<=256p"}};
+    for (const Row& row : rows) {
+        if (classify(row.bytes) != row.expected) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Weakened model: truncates to whole pages and bounds the count by the next power of two.
+std::string TruncatingSizeClass(std::uint64_t bytes) {
+    std::uint64_t pages = bytes / Core::BoundaryInventory::kMemoryPageBytes;
+    std::uint64_t bound = 1;
+    while (bound < pages) {
+        bound <<= 1;
+    }
+    return bytes == 0 ? "0" : "<=" + std::to_string(bound) + 'p';
+}
+
+using RegionNameFn = std::string_view (*)(std::uint64_t, const std::vector<Core::BoundaryInventory::RegionRange>&);
+
+// Weakened model: the end of a range counts as inside it.
+std::string_view InclusiveRegionName(std::uint64_t address,
+                                     const std::vector<Core::BoundaryInventory::RegionRange>& ranges) {
+    for (const auto& range : ranges) {
+        if (address >= range.start && address - range.start <= range.size) {
+            return range.name;
+        }
+    }
+    return "other";
+}
+
+bool RegionNamesMatchTable(RegionNameFn name_of) {
+    const std::vector<Core::BoundaryInventory::RegionRange> ranges = {
+        {"heap", 0x1000, 0x1000}, {"alias", 0x2000, 0x1000}};
+    return name_of(0x0FFF, ranges) == "other" && name_of(0x1000, ranges) == "heap" &&
+           name_of(0x1FFF, ranges) == "heap" && name_of(0x2000, ranges) == "alias" &&
+           name_of(0x3000, ranges) == "other" && name_of(0x3000, {}) == "other";
+}
+
+int MemorySizeClassesRoundUp() {
+    CHECK(SizeClassMatchesTable(&Core::BoundaryInventory::SizeClass));
+    CHECK(!SizeClassMatchesTable(&TruncatingSizeClass));
+    return 0;
+}
+
+int MemoryRegionsExcludeTheirEnd() {
+    CHECK(RegionNamesMatchTable(&Core::BoundaryInventory::RegionName));
+    CHECK(!RegionNamesMatchTable(&InclusiveRegionName));
+    return 0;
+}
+
+int MemoryRowsAggregateSizesAndOrder() {
+    Recorder recorder;
+    const std::string key =
+        Core::BoundaryInventory::MemorySvcKey(0x04, "dst=alias:state=0x5 src=heap:state=0x3 size=<=2p");
+    recorder.RecordMemory(key, 0x2000);
+    recorder.RecordMemory("tls_page", 0x1000);
+    recorder.RecordMemory(key, 0x1000);
+    recorder.RecordMemory(key, 0x1800);
+    const std::string report = recorder.FormatReport();
+    CHECK(Contains(report, "[memory]\nsvc:0x04 dst=alias:state=0x5 src=heap:state=0x3 size=<=2p\t3\t4096\t8192\t0\n"
+                           "tls_page\t1\t4096\t4096\t1\n"));
+    CHECK(recorder.DistinctKeys() == 2);
+    return 0;
+}
+
+int MemoryRowsFollowPauseAndSegments() {
+    Recorder recorder;
+    recorder.SetRecording(false);
+    recorder.RecordMemory("tls_page", 0x1000);
+    CHECK(Contains(recorder.FormatReport(), "[memory]\n"));
+    CHECK(!Contains(recorder.FormatReport(), "tls_page"));
+    recorder.SetRecording(true);
+    recorder.RecordMemory("tls_page", 0x1000);
+    const std::string first = recorder.EndSegment("title", 0);
+    CHECK(Contains(first, "[memory]\ntls_page\t1\t4096\t4096\t0\n"));
+    CHECK(!Contains(recorder.FormatReport(), "tls_page"));
+    return 0;
+}
+
+int MemoryRecordsLoseNothingAcrossThreads() {
+    constexpr int kThreads = 4;
+    constexpr int kPerThread = 20000;
+    Recorder recorder;
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&recorder] {
+            for (int n = 0; n < kPerThread; ++n) {
+                recorder.RecordMemory("svc:0x03 shared", 0x1000);
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    CHECK(Contains(recorder.FormatReport(), ("svc:0x03 shared\t" + std::to_string(kThreads * kPerThread) + "\t").c_str()));
+    return 0;
+}
+
 } // namespace
 
 int main() {
@@ -706,6 +816,11 @@ int main() {
     if (const int rc = FdMapSurvivesSegmentEnd()) return rc;
     if (const int rc = ConcurrentMarksLoseNothing()) return rc;
     if (const int rc = CountsConcurrentRecordsExactly()) return rc;
+    if (const int rc = MemorySizeClassesRoundUp()) return rc;
+    if (const int rc = MemoryRegionsExcludeTheirEnd()) return rc;
+    if (const int rc = MemoryRowsAggregateSizesAndOrder()) return rc;
+    if (const int rc = MemoryRowsFollowPauseAndSegments()) return rc;
+    if (const int rc = MemoryRecordsLoseNothingAcrossThreads()) return rc;
     std::puts("smoke_boundary_inventory_unit: OK");
     return 0;
 }

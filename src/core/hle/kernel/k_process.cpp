@@ -12,6 +12,7 @@
 #include "core/arm/dynarmic/dynarmic_exclusive_monitor.h"
 #endif
 #include "core/arm/exclusive_monitor.h"
+#include "core/boundary_inventory.h"
 #include "core/core.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_scoped_resource_reservation.h"
@@ -1263,6 +1264,29 @@ Result KProcess::LoadFromMetadata(KernelCore& kernel, const FileSys::ProgramMeta
 
     // Initialize for application process.
     R_TRY(this->Initialize(kernel, params, metadata.GetKernelCapabilities(), res_limit, pool, aslr_space_start));
+
+    if (Core::BoundaryInventory::Enabled()) {
+        const auto region = [](const char* name, KProcessAddress start, size_t size) {
+            char text[80];
+            std::snprintf(text, sizeof text, " %s=[0x%llX,+0x%llX)", name,
+                          static_cast<unsigned long long>(GetInteger(start)),
+                          static_cast<unsigned long long>(size));
+            return std::string{text};
+        };
+        auto& table = m_page_table;
+        char head[96];
+        std::snprintf(head, sizeof head, "process_layout flags=0x%X pool=%u system_pages=%d",
+                      static_cast<u32>(flag), static_cast<u32>(pool), params.system_resource_num_pages);
+        Core::BoundaryInventory::Instance().RecordMemory(
+            head + region("aspace", table.GetAddressSpaceStart(), table.GetAddressSpaceSize()) +
+                region("code", KProcessAddress{params.code_address}, code_size) +
+                region("alias", table.GetAliasRegionStart(), table.GetAliasRegionSize()) +
+                region("heap", table.GetHeapRegionStart(), table.GetHeapRegionSize()) +
+                region("stack", table.GetStackRegionStart(), table.GetStackRegionSize()) +
+                region("kernel_map", table.GetKernelMapRegionStart(),
+                       table.GetKernelMapRegionSize()),
+            code_size);
+    }
 
     // Assign remaining properties.
     m_ideal_core_id = metadata.GetMainThreadCore();

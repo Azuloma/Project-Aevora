@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "common/scope_exit.h"
+#include "core/boundary_inventory.h"
 #include "core/core.h"
 
 #include "core/hle/kernel/k_memory_block.h"
@@ -24,6 +25,10 @@ Result KThreadLocalPage::Initialize(KernelCore& kernel, KProcess* process) {
     auto page_buf_guard = SCOPE_GUARD {
         KPageBuffer::Free(kernel, page_buf);
     };
+
+    if (Core::BoundaryInventory::Enabled()) {
+        Core::BoundaryInventory::Instance().RecordMemory("tls_page", PageSize);
+    }
 
     // Map the address in.
     const auto phys_addr = kernel.System().DeviceMemory().GetPhysicalAddr(page_buf);

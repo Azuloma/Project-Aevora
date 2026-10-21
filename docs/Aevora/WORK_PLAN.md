@@ -1,6 +1,6 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-21 (session 42). See [session 41 archive](OLD_HISTORY.md#archived-on-2026-10-21-from-work_planmd-session-41-cleanup), [session 40 archive](OLD_HISTORY.md#archived-on-2026-10-21-from-work_planmd-session-40-cleanup), [session 39 archive](OLD_HISTORY.md#archived-on-2026-10-21-from-work_planmd-session-39-cleanup), [session 38 archive](OLD_HISTORY.md#archived-on-2026-10-20-from-work_planmd-session-38-cleanup), [session 37 archive](OLD_HISTORY.md#archived-on-2026-10-20-from-work_planmd-session-37-cleanup), [session 36 archive](OLD_HISTORY.md#archived-on-2026-10-19-from-work_planmd-session-36-cleanup), [session 35 archive](OLD_HISTORY.md#archived-on-2026-10-18-from-work_planmd-session-35-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
+Handoff prepared: 2026-10-21 (session 43). See [session 41 archive](OLD_HISTORY.md#archived-on-2026-10-21-from-work_planmd-session-41-cleanup), [session 40 archive](OLD_HISTORY.md#archived-on-2026-10-21-from-work_planmd-session-40-cleanup), [session 39 archive](OLD_HISTORY.md#archived-on-2026-10-21-from-work_planmd-session-39-cleanup), [session 38 archive](OLD_HISTORY.md#archived-on-2026-10-20-from-work_planmd-session-38-cleanup), [session 37 archive](OLD_HISTORY.md#archived-on-2026-10-20-from-work_planmd-session-37-cleanup), [session 36 archive](OLD_HISTORY.md#archived-on-2026-10-19-from-work_planmd-session-36-cleanup), [session 35 archive](OLD_HISTORY.md#archived-on-2026-10-18-from-work_planmd-session-35-cleanup), and [session 29 investigation record](OLD_HISTORY.md#session-29-investigation-record-2026-10-14-to-2026-10-16).
 
 ## Objective
 
@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `fee3120` (dev17: N1 stage 5 records and the launcher title change in `src/suyu_cmd/native_status.h`), plus an uncommitted handoff batch (this file, OLD_HISTORY.md, CODEBASE_INDEX.md, README.md progress table N1 Done / N2 Work in progress). Run `git log -1` and `git status` first because the user may have committed since.
+HEAD is `5e82eff Update README.md`; Stage 0 of N2 is implemented but uncommitted in the user's working tree. The repository origin moved to `https://github.com/project-aevora/project.aevora-main` (the old `Azuloma/project.aevora-main` URL redirects). Run `git log -1` and `git status` first because the user may have committed since.
 
 ## Handoff
 
@@ -25,9 +25,10 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 
 ## Immediate next action
 
-1. Check `git log -1` and `git status`; the user commits the handoff batch.
-2. dev17 (`fee3120`) is committed but the title was never built: reconfigure both trees, rebuild the no-JIT frontend, and fully re-export to confirm the title.
-3. Ask the user whether to measure same-position JIT versus static-AOT CPU ms/frame and work on the gap, or begin N2 (native guest memory model; see `NATIVE_ROADMAP.md` N2). Do not start N2 or optimization without the user's choice. Keep the one-stage-at-a-time report/file-list/commit-message/wait rule for milestone work.
+1. The user reviews and commits Stage 0 as `v0.0.3-dev1`.
+2. The user performs the memory-inventory collection play; analyze `[memory]` rows and finalize the layout/contract in `N2_DESIGN.md`.
+3. The dev17 title confirmation (reconfigure both trees, rebuild no-JIT, and fully re-export) remains pending.
+4. Then begin Stage 1 of N2, keeping the one-stage-at-a-time report/file-list/commit-message/wait rule for milestone work.
 
 ## Open items
 
@@ -42,6 +43,7 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 - Eight unresolved GOT/PLT symbols (`__EX_start`, `__EX_end`, `__got_start`, `__got_end`, `__tbss_align_abs/rel`, `__tdata_align_abs/rel`) appeared at startup and one “UnpinHandle: Pin count imbalance” warning appeared; neither was compared against a JIT log.
 - Full `tests/recompiler_smoke/run.py` and `tests/exclusive_access` suites were not run for N1. `StandaloneExclusiveMonitor` was exercised by the real session but not stress-tested (no ThreadSanitizer).
 - Old N0 follow-ups: inventory under the AOT launcher, scan stall time, SVC 0x23 stash limit, IPC attribution beyond the SDK, gate on Linux, and typed-label input.
+- N2 Stage 0 diagnostics have not been exercised in a real session; the full `tests/recompiler_smoke/run.py` suite was not run; and the no-JIT tree was not rebuilt after Stage 0.
 
 ## Measurement setup
 
@@ -83,7 +85,7 @@ Read the start checklist, verify evidence, use one worker at a time, and record 
 
 ## Working rules
 
-- Per-commit `devN` CHANGELOG entries are required from `v0.0.2-dev12` unless the user declares a normal commit; the user makes all commits.
+- Per-commit `devN` CHANGELOG entries are required from `v0.0.3-dev1` onward unless the user declares a normal commit; the user makes all commits.
 - The one-stage-at-a-time report/file-list/commit-message/wait rule applies to milestone work until the user relaxes it.
 
 ## Context and token practice

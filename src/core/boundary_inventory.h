@@ -135,6 +135,45 @@ CallerFrames CollectCallerFrames(std::uint64_t site, std::uint64_t link_register
     return frames;
 }
 
+constexpr std::uint64_t kMemoryPageBytes = 0x1000;
+
+/// Smallest power-of-two page count that holds `bytes`: "0", "<=1p", "<=2p", "<=4p", ...
+inline std::string SizeClass(std::uint64_t bytes) {
+    if (bytes == 0) {
+        return "0";
+    }
+    std::uint64_t pages = (bytes + kMemoryPageBytes - 1) / kMemoryPageBytes;
+    std::uint64_t bound = 1;
+    while (bound < pages) {
+        bound <<= 1;
+    }
+    return "<=" + std::to_string(bound) + 'p';
+}
+
+/// A named guest address range, for classifying the arguments of memory SVCs.
+struct RegionRange {
+    std::string_view name;
+    std::uint64_t start{};
+    std::uint64_t size{};
+};
+
+/// Name of the first range holding `address`, else "other".
+inline std::string_view RegionName(std::uint64_t address, const std::vector<RegionRange>& ranges) {
+    for (const RegionRange& range : ranges) {
+        if (address >= range.start && address - range.start < range.size) {
+            return range.name;
+        }
+    }
+    return "other";
+}
+
+/// [memory] key of one memory SVC, for example "svc:0x04 dst=alias src=heap size=<=16p".
+inline std::string MemorySvcKey(std::uint32_t svc_number, std::string_view detail) {
+    char head[16];
+    std::snprintf(head, sizeof head, "svc:0x%02X ", svc_number);
+    return head + std::string{detail};
+}
+
 /// One loaded module: [base, end) in guest addresses.
 struct ModuleRange {
     std::string name;
@@ -219,6 +258,11 @@ struct AudioUpdateEntry : CountEntry {
 struct FsReadEntry : CountEntry {
     std::uint64_t total_bytes = 0;
     std::uint64_t max_end_offset = 0;
+};
+
+struct MemoryEntry : CountEntry {
+    std::uint64_t min_bytes = UINT64_MAX;
+    std::uint64_t max_bytes = 0;
 };
 
 struct CallerEntry {
@@ -357,6 +401,18 @@ public:
         });
     }
 
+    /// One guest memory operation: `key` describes its shape, `bytes` the size (0 when it has none).
+    void RecordMemory(std::string_view key, std::uint64_t bytes) {
+        if (!IsRecording()) {
+            return;
+        }
+        memory_.Update(std::string{key}, [bytes](Detail::MemoryEntry& entry) {
+            ++entry.count;
+            entry.min_bytes = std::min(entry.min_bytes, bytes);
+            entry.max_bytes = std::max(entry.max_bytes, bytes);
+        });
+    }
+
     /// The loaded modules, so caller addresses print as name+0xRVA; replaces any earlier list.
     void SetModules(std::vector<ModuleRange> modules) {
         std::lock_guard lock{modules_mutex_};
@@ -479,7 +535,8 @@ public:
         keys += snapshot.ipc.entries.size() + snapshot.nvdrv_opens.entries.size() +
                 snapshot.nvdrv_ioctls.entries.size() + snapshot.audio_opens.entries.size() +
                 snapshot.audio_updates.entries.size() + snapshot.applets.entries.size() +
-                snapshot.fs_opens.entries.size() + snapshot.fs_reads.entries.size();
+                snapshot.fs_opens.entries.size() + snapshot.fs_reads.entries.size() +
+                snapshot.memory.entries.size();
         return keys;
     }
 
@@ -501,6 +558,7 @@ private:
         Detail::Table<FsOpenKey, Detail::CountEntry>::Contents fs_opens;
         Detail::Table<std::string, Detail::FsReadEntry>::Contents fs_reads;
         Detail::Table<std::string, Detail::CallerGroup>::Contents callers;
+        Detail::Table<std::string, Detail::MemoryEntry>::Contents memory;
     };
 
     std::uint64_t SvcTotal(std::size_t svc_number) const {
@@ -539,6 +597,7 @@ private:
         snapshot.fs_opens = grab(fs_opens_);
         snapshot.fs_reads = grab(fs_reads_);
         snapshot.callers = grab(callers_);
+        snapshot.memory = grab(memory_);
         return snapshot;
     }
 
@@ -570,7 +629,19 @@ private:
         FormatApplets(out, snapshot);
         FormatFs(out, snapshot);
         FormatCallers(out, snapshot);
+        FormatMemory(out, snapshot);
         return out;
+    }
+
+    /// A row per key: count, smallest and largest size in bytes, first-seen order.
+    static void FormatMemory(std::string& out, const Snapshot& snapshot) {
+        out += "[memory]\n";
+        for (const auto& [key, entry] : snapshot.memory.entries) {
+            out += key + '\t' + std::to_string(entry.count) + '\t' +
+                   std::to_string(entry.min_bytes) + '\t' + std::to_string(entry.max_bytes) +
+                   '\t' + std::to_string(entry.first_seq) + '\n';
+        }
+        AppendDropped(out, snapshot.memory.dropped);
     }
 
     /// A line per key (total, evicted calls), then a line per kept caller: count and the frames.
@@ -699,6 +770,7 @@ private:
     Detail::Table<FsOpenKey, Detail::CountEntry> fs_opens_;
     Detail::Table<std::string, Detail::FsReadEntry> fs_reads_;
     Detail::Table<std::string, Detail::CallerGroup> callers_;
+    Detail::Table<std::string, Detail::MemoryEntry> memory_;
     mutable std::mutex modules_mutex_;
     std::vector<ModuleRange> modules_;
     std::atomic<bool> module_scan_claimed_{false};

@@ -20,6 +20,10 @@ The user-confirmed path is: boot to the title screen; load an existing save; mov
 
 The collection procedure is `run_n0.bat <game> <label>`; assign Player 1 in the overlay Controller window first, use F10 to start recording, F9 to end a labeled segment, and quit normally. Human observations and gameplay checks remain local.
 
+### Memory rows
+
+When `SUYU_BOUNDARY_INVENTORY=1`, each report also contains a `[memory]` section with `key`, `count`, minimum and maximum bytes, and first-seen order. Row keys include `svc:0xNN` memory-SVC shapes, `ipc_map <send|receive|exchange> attr=... state=... size=...`, `tls_page`, `shmem_create owner_perm=... user_perm=...`, and `process_layout flags=... pool=... system_pages=...` followed by the process ranges. The option is execution-neutral when disabled; these new rows have not yet been exercised in a real session.
+
 ## 2. Inventory summary
 
 The union of boot1, test1, and test2 contains 18 reports, 32 distinct SVCs, 44 service interfaces with 121 commands, 34 nvdrv rows across six devices, no audio renderer open, no applet, 7 fs-open rows, and fs-read on two directories: RomFS of the current process and save data only.

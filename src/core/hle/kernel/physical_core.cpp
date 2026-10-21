@@ -261,6 +261,88 @@ void RecordInventoryModules(KProcess& process) {
     ScanInventoryModules(process, modules);
 }
 
+// Address-space regions of the process, for naming where a memory SVC argument points.
+std::vector<Core::BoundaryInventory::RegionRange> ProcessRegions(KProcess& process) {
+    auto& table = process.GetPageTable();
+    return {
+        {"code", GetInteger(table.GetCodeRegionStart()), table.GetCodeRegionSize()},
+        {"alias_code", GetInteger(table.GetAliasCodeRegionStart()), table.GetAliasCodeRegionSize()},
+        {"alias", GetInteger(table.GetAliasRegionStart()), table.GetAliasRegionSize()},
+        {"heap", GetInteger(table.GetHeapRegionStart()), table.GetHeapRegionSize()},
+        {"stack", GetInteger(table.GetStackRegionStart()), table.GetStackRegionSize()},
+        {"kernel_map", GetInteger(table.GetKernelMapRegionStart()),
+         table.GetKernelMapRegionSize()},
+    };
+}
+
+// "region:state=0xNN" of the page `address` is in; the state is the kernel's KMemoryState.
+std::string DescribeMemoryAddress(KProcess& process, u64 address,
+                                  const std::vector<Core::BoundaryInventory::RegionRange>& regions) {
+    std::string text{Core::BoundaryInventory::RegionName(address, regions)};
+    KMemoryInfo info{};
+    Svc::PageInfo page_info{};
+    if (process.GetPageTable().QueryInfo(std::addressof(info), std::addressof(page_info), address).IsSuccess()) {
+        char state[24];
+        std::snprintf(state, sizeof state, ":state=0x%X", static_cast<u32>(info.GetState()));
+        text += state;
+    }
+    return text;
+}
+
+// Records the shape of the memory SVCs (N2 inventory): where the arguments point, sizes, and flags.
+void RecordMemorySvc(KProcess& process, const Svc::ThreadContext& context, u32 svc_number) {
+    if (!Core::BoundaryInventory::Instance().IsRecording()) {
+        return;
+    }
+    const auto& x = context.r;
+    char flags[64];
+    std::string detail;
+    u64 bytes = 0;
+    const auto regions = ProcessRegions(process);
+    const auto at = [&](u64 address) { return DescribeMemoryAddress(process, address, regions); };
+    switch (svc_number) {
+    case 0x01: // SetHeapSize(size)
+        bytes = x[1];
+        detail = "size=" + Core::BoundaryInventory::SizeClass(bytes);
+        break;
+    case 0x03: // SetMemoryAttribute(address, size, mask, attribute)
+        bytes = x[1];
+        std::snprintf(flags, sizeof flags, " mask=0x%X attr=0x%X", static_cast<u32>(x[2]),
+                      static_cast<u32>(x[3]));
+        detail = "addr=" + at(x[0]) + " size=" + Core::BoundaryInventory::SizeClass(bytes) + flags;
+        break;
+    case 0x04: // MapMemory(dst, src, size)
+    case 0x05: // UnmapMemory(dst, src, size)
+        bytes = x[2];
+        detail = "dst=" + at(x[0]) + " src=" + at(x[1]) +
+                 " size=" + Core::BoundaryInventory::SizeClass(bytes);
+        break;
+    case 0x06: // QueryMemory(info, page_info, address)
+        detail = "addr=" + at(x[2]);
+        break;
+    case 0x13: // MapSharedMemory(handle, address, size, permission)
+    case 0x15: // CreateTransferMemory(out, address, size, permission)
+        bytes = x[2];
+        std::snprintf(flags, sizeof flags, " perm=0x%X", static_cast<u32>(x[3]));
+        detail = "addr=" + at(x[1]) + " size=" + Core::BoundaryInventory::SizeClass(bytes) + flags;
+        break;
+    case 0x29: // GetInfo(out, info_type, handle, subtype)
+        std::snprintf(flags, sizeof flags, "type=%u sub=%llu%s", static_cast<u32>(x[1]),
+                      static_cast<unsigned long long>(x[3]), x[2] == 0xFFFF8001 ? "" : " handle");
+        detail = flags;
+        break;
+    case 0x2C: // MapPhysicalMemory(address, size)
+    case 0x2D: // UnmapPhysicalMemory(address, size)
+        bytes = x[1];
+        detail = "addr=" + at(x[0]) + " size=" + Core::BoundaryInventory::SizeClass(bytes);
+        break;
+    default:
+        return;
+    }
+    Core::BoundaryInventory::Instance().RecordMemory(
+        Core::BoundaryInventory::MemorySvcKey(svc_number, detail), bytes);
+}
+
 // The guest caller chain of an SVC the CPU just stopped at; the inventory's [callers] section.
 void RecordSvcCaller(KThread* thread, Core::ArmInterface& interface, u32 svc_number) {
     KProcess* const process = thread->GetOwnerProcess();
@@ -273,6 +355,7 @@ void RecordSvcCaller(KThread* thread, Core::ArmInterface& interface, u32 svc_num
     }
     Svc::ThreadContext context{};
     interface.GetContext(context);
+    RecordMemorySvc(*process, context, svc_number);
     auto& memory = process->GetMemory();
     const auto read64 = [&memory](u64 address, u64& value) {
         if (!memory.IsValidVirtualAddressRange(address, sizeof(u64))) {
