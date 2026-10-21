@@ -64,6 +64,15 @@ int Naming() {
     other_backend.backend = "suyu-hybrid";
     CHECK(C::EntryName(other_backend, &error) != C::EntryName(kSplitKey, &error));
 
+    // A no-JIT launcher has its own entry, and every backend name is a safe key part.
+    CHECK(C::BackendName(false, true) == "suyu-static");
+    CHECK(C::BackendName(false, false) == "suyu-static-nojit");
+    CHECK(C::BackendName(true, true) == "suyu-hybrid");
+    auto no_jit = kSplitKey;
+    no_jit.backend = C::BackendName(false, false);
+    CHECK(C::EntryName(no_jit, &error) == "0100abc000000000_windows_suyu-static-nojit_split");
+    CHECK(C::EntryName(no_jit, &error) != C::EntryName(kSplitKey, &error));
+
     // Each unsafe part is refused with an error that names the field.
     auto bad = kSplitKey;
     bad.title_id_hex = "0100ABC000000000";

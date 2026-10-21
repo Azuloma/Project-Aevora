@@ -2,6 +2,23 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.2-dev16 - Unreleased
+
+*Development entry 16 toward v0.0.2. Not a release; no build artifacts are published.*
+
+### Added
+
+- Recorded the N1 stage 4 exporter/backend selection and cache-identity fix.
+
+### Changed
+
+- The launcher tree now selects the export mode: the JIT frontend serves Hybrid/JIT, while the no-JIT frontend serves strict static AOT. Strict mode rejects modules it cannot recompile; Hybrid's recorded JIT retry remains intentional.
+- Cache and manifest backend names distinguish JIT-capable static exports from no-JIT static exports (`suyu-static` versus `suyu-static-nojit`); the integration coverage uses a shared JIT static-backend constant.
+
+### Not verified
+
+- No export or session was run from the no-JIT frontend. The no-JIT export-build-kit was not packaged; it cannot provide a usable Hybrid mode and remains a release follow-up. Bare-PC fatal logs in the recompiler and generated-code guard paths remain module-unnamed.
+
 ## v0.0.2-dev15 - Unreleased
 
 *Development entry 15 toward v0.0.2. Not a release; no build artifacts are published.*

@@ -3485,8 +3485,13 @@ static bool ApplicationDirHasSourceBuild() {
 // The backend name recorded in aot_manifest.json and in the persistent cache key. One
 // definition, so the manifest and the cache entry cannot disagree about it.
 static QString AotBackendName(GameExportDialog::RecompileBackend backend) {
-    return backend == GameExportDialog::RecompileBackend::Hybrid ? QStringLiteral("suyu-hybrid")
-                                                                 : QStringLiteral("suyu-static");
+#ifdef SUYU_NO_JIT
+    constexpr bool kFrontendJitCapable = false;
+#else
+    constexpr bool kFrontendJitCapable = true;
+#endif
+    return QString::fromStdString(suyu::aot_cache::BackendName(
+        backend == GameExportDialog::RecompileBackend::Hybrid, kFrontendJitCapable));
 }
 
 // What decides the content of a split export's images, and so its bundle id.
@@ -4303,6 +4308,9 @@ QString GameExportDialog::RunAotPrecompile(const QString& exefs_dir,
                                   fallback_to_interpreter_checkbox->isChecked();
     const QString requested_backend_name = AotBackendName(backend);
     const QString effective_backend_name = requested_backend_name;
+    LOG_INFO(Frontend, "Export backend {} (launcher tree: {})",
+             effective_backend_name.toStdString(),
+             effective_backend_name.endsWith(QStringLiteral("-nojit")) ? "no-JIT" : "JIT-capable");
 
     // Addresses earlier runs of this title reached with no recompiled block
     // (recomp_gaps.json in this suyu's user folder, where Hybrid runs and

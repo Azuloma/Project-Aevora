@@ -33,6 +33,9 @@ import make_fixture  # noqa: E402
 import make_multimodule_fixture  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+# The strict backend name of the JIT-capable frontend this suite drives (it runs Hybrid and JIT
+# scenarios); a SUYU_NO_JIT frontend names it suyu-static-nojit (aot_export_cache.h BackendName).
+STATIC_BACKEND = 'suyu-static'
 # The launcher only checks that prod.keys exists, but suyu-cmd then crashes
 # (0xC0000094) building the NCA header cipher when no header_key is loaded,
 # even for unencrypted input - a known, pre-existing defect. The test file gets
@@ -685,7 +688,7 @@ class Run:
         def split_entry():
             # The entry names are the cache's naming contract (<title>_<platform>_<backend>_
             # <topology>); a deliberate change of it fails here visibly.
-            found = [p for p in entry_dirs() if p.name.endswith('_suyu-static_split')]
+            found = [p for p in entry_dirs() if p.name.endswith(f'_{STATIC_BACKEND}_split')]
             return found[0] if len(found) == 1 else None
 
         def export(tag, backend='static', rom=None, split='1', expect_reused=False,
@@ -819,7 +822,7 @@ class Run:
              lambda: edit_manifest(r'"indirect_chain": false', '"indirect_chain": true'),
              changed + 'indirect_chain'),
             ('backend',
-             lambda: edit_manifest(r'"effective_backend": "suyu-static"',
+             lambda: edit_manifest(f'"effective_backend": "{STATIC_BACKEND}"',
                                    '"effective_backend": "suyu-hybrid"'),
              changed + 'effective_backend'),
             ('recorded coverage (manifest only)',
@@ -1023,8 +1026,8 @@ class Run:
         names = sorted(p.name for p in entry_dirs())
         self.record('matrix: one entry per backend and topology', len(names) == 3 and
                     any(n.endswith('_suyu-hybrid_split') for n in names) and
-                    any(n.endswith('_suyu-static_all-static') for n in names) and
-                    any(n.endswith('_suyu-static_split') for n in names), ','.join(names))
+                    any(n.endswith(f'_{STATIC_BACKEND}_all-static') for n in names) and
+                    any(n.endswith(f'_{STATIC_BACKEND}_split') for n in names), ','.join(names))
         self.record('matrix: other entries left the split entry untouched',
                     split_entry() is not None and snapshot(split_entry()) == before)
         export('split again, from the cache', expect_reused=True)

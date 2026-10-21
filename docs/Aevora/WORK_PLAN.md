@@ -8,11 +8,11 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `c7880f5` (N1 stage 2) on `main`. N1 stage 2 is committed; stage 3 is implemented in the separate `SUYU_NO_JIT` tree. The host (`msvc-release`, JIT) still uses `DynarmicExclusiveMonitor`; the no-JIT tree builds both host frontends without dynarmic entries, and both pass the N1 structural gate. The exporter and build kit still link the JIT tree; stage 4 awaits the user's go-ahead.
+HEAD is `d344f3e` (N1 stage 3) on `main`. N1 stage 3 is committed; stage 4 is implemented but uncommitted. The host (`msvc-release`, JIT) still uses `DynarmicExclusiveMonitor`; the no-JIT tree builds both host frontends without dynarmic entries, and both pass the N1 structural gate. The exporter now selects its own frontend tree by mode: the JIT frontend serves Hybrid/JIT, while the no-JIT frontend serves strict static AOT. Cache and manifest backend identity distinguishes JIT-capable static exports from no-JIT static exports.
 
 ## Handoff
 
-N1 stage 3 is complete for the separate host build and structural gate. The user should commit the current Markdown batch, then stage 4 can switch the exporter and build kit to the no-JIT tree for the strict launcher while retaining the JIT tree for Hybrid.
+N1 stage 4 is implemented and verified for both host trees, the cache unit, and the JIT-frontended export-integration cache suite; the user should commit this Markdown and source batch. The no-JIT export-build-kit was not packaged because it cannot provide a usable Hybrid mode and remains a release follow-up.
 
 ## N0 summary
 
@@ -30,8 +30,9 @@ Inventory under the AOT launcher; scan stall time on the first SVC; asynchronous
 
 ## Immediate next action
 
-1. The user should commit the current Markdown batch.
-2. After that commit, implement N1 stage 4 in the exporter and build kit: use the no-JIT tree for the strict launcher and retain the JIT tree for Hybrid.
+1. The user should commit the current Markdown and source batch.
+2. After that commit, reconfigure both `msvc-release` and `msvc-release-nojit` so the embedded `GIT_REV` matches the new commit, then rebuild as needed.
+3. For N1 stage 5, configure and build the no-JIT tree after the commit, run the exporter from `msvc-release-nojit\bin\suyu.exe` with the user's game, run the structural gate on the exported launcher with `--require-absent N1`, confirm the title shows `(no-JIT build)`, play the supported path, and compare CPU ms/frame at the same position.
 
 ## N1 notes
 
@@ -47,7 +48,10 @@ Inventory under the AOT launcher; scan stall time on the first SVC; asynchronous
 - The stage 3 helpers are `D:\HisuiWakeBuild\configure-msvc-release-nojit.bat` (configures the second tree with the same options as `msvc-release` plus `-DSUYU_NO_JIT=ON`) and `D:\HisuiWakeBuild\rebuild-suyu-nojit.bat` (builds `suyu` and `suyu-cmd` with Ninja `-j 8 -k 0`). Their logs are `D:\HisuiWakeBuild\configure-msvc-release-nojit.log` and `D:\HisuiWakeBuild\rebuild-suyu-nojit.log`.
 - The no-JIT configure took about 70 seconds. Its first build completed 1729 steps with 0 compile or link errors in about 25 minutes; `CMakeCache.txt` has `SUYU_NO_JIT:BOOL=ON`, `build.ninja` has no dynarmic entries, and the tree has no `src/dynarmic` directory. The `arm_recomp.cpp` include and JIT-only cast do not break the `SUYU_NO_JIT` path.
 - The structural gate passed (exit 0) for `D:\HisuiWakeBuild\msvc-release-nojit\bin\suyu-cmd.exe` and `suyu.exe` with `--pdb` and `--require-absent N1`; the corresponding JIT `msvc-release` controls failed `jit` (exit 1). These are host frontends, not the strict launcher.
-- No exporter or session was run on the no-JIT tree. The title bar, supported gameplay path, and `StandaloneExclusiveMonitor` session remain unverified; `suyu-cmd.exe --help` printed nothing within 20 seconds in a bash capture (exit 0) and was not investigated. The tree has not been reconfigured after a new commit hash; it uses `c7880f5` from configure time.
+- Stage 4 cache identity: `BackendName` now returns `suyu-hybrid`, `suyu-static`, or `suyu-static-nojit`; the launcher tree is logged as JIT-capable or no-JIT, and the selected backend is written to the cache key and `aot_manifest.json`. This prevents JIT-tree and no-JIT-tree strict launchers from sharing a persistent cache entry. The unit checks all three names and the no-JIT entry name; the JIT-frontended `--only-aot-cache` integration run passed 400/400 scenarios.
+- Stage 4 host verification: `msvc-release` and `msvc-release-nojit` rebuilt `suyu` and `suyu-cmd` with 0 errors; the no-JIT image contains `suyu-static-nojit` and passes the N1 structural gate. The cache unit passed (exit 0, `aot_cache_unit: ok`), and a mutant ignoring `jit_capable` failed at its naming assertion. Existing JIT frontend entries retain their names.
+- Exporter selection facts: `game_export.cpp` walks up from the application directory to `CMakeCache.txt`, or uses the portable export-build-kit, so one frontend does not need two build trees. Under `SUYU_NO_JIT`, Dynarmic and Hybrid dialog items are compiled out; strict mode rejects an unrecompilable module and stops on LNK1248. The LNK1248 retry is a warning-producing Hybrid-only fallback, not silent strict fallback.
+- No export or session was run from the no-JIT frontend. The no-JIT export-build-kit was not packaged; it cannot provide a usable Hybrid mode and remains a release follow-up. The title bar, supported gameplay path, and `StandaloneExclusiveMonitor` session remain unverified. The remaining bare-PC fatal logs in `arm_recomp.cpp` and `arm64_to_c.h` are not yet module-named.
 
 ## Open items
 

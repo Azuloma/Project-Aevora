@@ -25,6 +25,15 @@ inline constexpr char kCacheRootDirName[] = "aot_export_cache";
 // The platform part of the key for a Windows Build export (the only cached target).
 inline constexpr char kWindowsPlatformName[] = "windows";
 
+// The backend part of the key and of the manifest's effective_backend. A launcher built in a
+// SUYU_NO_JIT tree has no dynarmic, so it never shares an entry with a JIT-capable one.
+[[nodiscard]] inline std::string BackendName(bool hybrid, bool jit_capable) {
+    if (hybrid) {
+        return "suyu-hybrid";
+    }
+    return jit_capable ? "suyu-static" : "suyu-static-nojit";
+}
+
 // Layout of one entry (relative to the entry directory). The cache stores exactly these
 // artifacts; reuse copies the launcher and manifest back into staging.
 inline constexpr char kLauncherDirName[] = "launcher";

@@ -31,6 +31,22 @@
 We've established a milestone to completely remove Suyu branding and make the project function exclusively as Aevora and a static recompiler for PLA. Work on this is currently underway.([ROADMAP](docs/Aevora/NATIVE_ROADMAP.md))<br>
 Suyu references will remain in SPDX headers, copyright notices, license information, and upstream attribution, but everything else is expected to be fully replaced.
 
+<br>This is the current roadmap. While it may evolve based on future progress and outcomes, our immediate goal is to achieve static recompilation that does not rely on full emulation.
+
+| Component | Current implementation | Planned native implementation | Milestone | Progress |
+| --- | --- | --- | --- | --- |
+| Game CPU code | Statically recompiled ARM64 game code running in a JIT-capable runtime. | Fully static execution with no CPU JIT linked into the native application. Hybrid AOT + JIT remains available only in a separate investigation build. | N1 | Work in progress |
+| Memory management | Guest memory managed by the emulated Horizon kernel. | A title-specific memory mapper using host virtual memory for code, heaps, stacks, TLS, and shared memory. | N2 | Not yet |
+| Threads, synchronization, and timing | Three emulated CPU cores, guest scheduling, and CoreTiming. | Guest threads mapped to host threads, with host OS scheduling and native synchronization while preserving game-visible timing. | N3 | Not yet |
+| Platform services | Horizon services provided through the general HLE IPC framework. | Direct native implementations through SDK hooks or a minimal PLA-specific IPC table. Unneeded services may use documented stubs. | N4 | Not yet |
+| Assets and save data | NCA/RomFS virtual filesystem and runtime key handling. | Assets prepared at export time and accessed through native file I/O; saves stored in a native per-user folder. Keys and firmware are required only by the recompiler. | N5 | Not yet |
+| Input | Emulated HID services and controller state through `hid_core` and `input_common`. | Host controller, keyboard, and mouse input delivered through native hooks or the game's expected HID memory layout. | N6 | Not yet |
+| Audio | Suyu's emulated audio core. | A PLA-specific audio implementation with native output through WASAPI or SDL. | N7 | Not yet |
+| Graphics | Emulated Maxwell GPU engines, GPU MMU, nvdrv/nvhost, and texture tracking. | NVN API interception mapped to Vulkan resources and commands, with native presentation and frame pacing. | N8 | Not yet |
+| Game shaders | Maxwell shaders translated at runtime. | Game shaders translated to SPIR-V at export time and packaged with pipeline metadata. Runtime Maxwell shader translation is removed. | N8c | Not yet |
+| Application runtime | Static CPU execution hosted inside `Core::System` and the general emulator runtime. | A standalone, title-specific application that starts directly into PLA without the general emulator runtime. | N9 | Not yet |
+| Launcher and recompiler tools | Suyu-derived frontends and a Qt-based exporter. | Dedicated Tauri-based Aevora Launcher and Aevora Recompiler, backed by a shared recompiler core and CLI. | G1–G4 | Not yet |
+
 ## Platform
 
 | Platform      | Current status                                                    | Statically recompiled components |
