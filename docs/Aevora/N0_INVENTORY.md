@@ -22,7 +22,7 @@ The collection procedure is `run_n0.bat <game> <label>`; assign Player 1 in the 
 
 ### Memory rows
 
-When `SUYU_BOUNDARY_INVENTORY=1`, each report also contains a `[memory]` section with `key`, `count`, minimum and maximum bytes, and first-seen order. Row keys include `svc:0xNN` memory-SVC shapes, `ipc_map <send|receive|exchange> attr=... state=... size=...`, `tls_page`, `shmem_create owner_perm=... user_perm=...`, and `process_layout flags=... pool=... system_pages=...` followed by the process ranges. The option is execution-neutral when disabled; these new rows have not yet been exercised in a real session.
+When `SUYU_BOUNDARY_INVENTORY=1`, each report also contains `[memory]` and cumulative `[memory_paused]` sections with `key`, `count`, minimum and maximum bytes, and first-seen order. `[memory_paused]` records boot and paused activity, repeats in every report, and must be merged by maximum count rather than sum; `[memory]` counts are summed across segments. Region matching tests narrow regions first and the spanning 39-bit code region last. Row keys include `svc:0xNN` memory-SVC shapes, `ipc_map <send|receive|exchange> attr=... state=... size=...`, `tls_page`, `shmem_create owner_perm=... user_perm=...`, and `process_layout flags=... pool=... system_pages=...` followed by the process ranges. The option is execution-neutral when disabled. Merged test4 evidence is local at `D:\HisuiWakeBuild\diag\n0\test4\memory_merged.txt`.
 
 ## 2. Inventory summary
 

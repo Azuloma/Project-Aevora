@@ -2,6 +2,25 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev2 - Unreleased
+
+*Development entry 2 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Recorded the test4 memory-inventory collection: `[memory]` segment totals and cumulative `[memory_paused]` boot/pause totals, with the paused-table maximum-count merge rule.
+- Corrected region classification by checking heap, alias, stack, and kernel map before the spanning 39-bit code region; recorded test4's randomized process-layout bases and stable sizes.
+
+### Verified
+
+- `smoke_boundary_inventory_unit` passed with MSVC `cl` and `/Zc:preprocessor` (exit 0). The JIT host `rebuild-suyu.bat` completed 24/24 steps with 0 errors and linked `suyu-cmd.exe`.
+- Test4 observed 4,359 `MapPhysicalMemory` calls across `[memory]` and `[memory_paused]`, no `ipc_map` rows, five shared-memory objects, four TLS pages, and the listed memory SVC/state combinations; evidence remains local under `D:\HisuiWakeBuild\diag\n0\test4`.
+
+### Not verified
+
+- The full `tests/recompiler_smoke/run.py` suite was not run; the no-JIT tree was not rebuilt; and bag and quit were not segmented. The second `process_layout` is the user's relaunch of the game before the battle segment (ASLR changed the bases).
+- Native-only region-base policy and the Stage 1 `Core::DeviceMemory` capacity check remain open; IPC map-alias behavior was not reached on the supported path.
+
 ## v0.0.3-dev1 - Unreleased
 
 *Development entry 1 toward v0.0.3. Not a release; no build artifacts are published.*

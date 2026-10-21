@@ -754,14 +754,17 @@ int MemoryRowsAggregateSizesAndOrder() {
 int MemoryRowsFollowPauseAndSegments() {
     Recorder recorder;
     recorder.SetRecording(false);
-    recorder.RecordMemory("tls_page", 0x1000);
-    CHECK(Contains(recorder.FormatReport(), "[memory]\n"));
-    CHECK(!Contains(recorder.FormatReport(), "tls_page"));
+    recorder.RecordMemory("process_layout", 0x2000);
+    CHECK(Contains(recorder.FormatReport(),
+                   "[memory]\n[memory_paused]\nprocess_layout\t1\t8192\t8192\t0\n"));
     recorder.SetRecording(true);
     recorder.RecordMemory("tls_page", 0x1000);
     const std::string first = recorder.EndSegment("title", 0);
-    CHECK(Contains(first, "[memory]\ntls_page\t1\t4096\t4096\t0\n"));
-    CHECK(!Contains(recorder.FormatReport(), "tls_page"));
+    CHECK(Contains(first, "[memory]\ntls_page\t1\t4096\t4096\t0\n[memory_paused]\n"
+                          "process_layout\t1\t8192\t8192\t0\n"));
+    const std::string open_segment = recorder.FormatReport();
+    CHECK(!Contains(open_segment, "tls_page"));
+    CHECK(Contains(open_segment, "process_layout\t1\t"));
     return 0;
 }
 

@@ -1,6 +1,6 @@
 # N2 Native Guest Memory Design
 
-Status: Stage 0 design note, 2026-10-21 (session 43). This document records verified observations and the staged plan for replacing the supported-path kernel memory manager with a native guest mapper.
+Status: Stage 0 design note, 2026-10-22 (test4). This document records verified observations and the staged plan for replacing the supported-path kernel memory manager with a native guest mapper.
 
 ## Purpose
 
@@ -22,7 +22,9 @@ The scope is the supported path's memory SVCs, guest code/heap/stack/TLS/shared-
 
 - The `KProcessPageTable` to native-mapper object seam is high confidence because the SVC forwarding path is concentrated there; the exact object lifetime and ownership are to be verified in Stage 1.
 - The `KProcess::Initialize`/`LoadFromMetadata` to address-space allocator seam is medium-high confidence; the exact layout must be fixed from the user's Stage 0 collection.
-- IPC session mapping is medium confidence until map-alias kinds and sizes are collected and `SetupForIpc` semantics are tested.
+- The native mapper's core is a physical-memory-backed alias-region allocator plus stack remapping, TLS, shared memory, and transfer-memory locking (inference); the supported path does not reach `SetupForIpc`/`CleanupForIpc*`.
+- Region bases are randomized per process creation (inference); Stage 2 must take bases from `KPageTable`'s result, while native-only mode needs one published, consistent base definition.
+- The device-memory backing must hold one 3.01 GiB `MapPhysicalMemory` call; the DRAM setting and `Core::DeviceMemory` capacity must be checked in Stage 1.
 - `KernelCore::InitializeMemoryLayout` and slab heaps are medium confidence: kernel initialization is still needed by objects that remain until N3/N4, so bypass timing must be verified rather than assumed.
 - The supported-path scope of each consumer listed above, and the behavior of physical addresses as `DeviceMemory` offsets, remains to be verified.
 
@@ -37,6 +39,7 @@ A native mapper must keep the FM1 fastmem contract:
 - `fastmem_arena` is set in `Core::Memory::SetCurrentPageTable` (`src/core/memory.cpp:48-60`).
 - Map, unmap, and protection continue through `Core::Memory::MapMemoryRegion`, `UnmapRegion`, `ProtectRegion`, and `HostMemory`.
 - The GG1 page-table-swap notification remains intact, and the layout checks and handshake in `src/core/arm/recomp/arm_recomp.cpp` continue to pass.
+- Region bases are process-specific observations, not a fixed contract: shadow mode must consume the `KPageTable` result, and native-only mode must publish bases from one consistent definition.
 
 The address layout is exactly the same as `KPageTable`'s layout so that `SUYU_NATIVE_MEM_SHADOW=1` can compare the native mapper with the existing implementation.
 
@@ -44,8 +47,8 @@ The address layout is exactly the same as `KPageTable`'s layout so that `SUYU_NA
 
 | Stage | Work | Verification |
 | --- | --- | --- |
-| 0 | Record the design note and collect the opt-in detailed memory inventory. | User review/commit, then a real collection play; analyze `[memory]` rows. |
-| 1 | Build an unconnected native mapper under `src/core/native_memory/`; implement map, unmap, protect, shared memory, query, heap, and physical memory, each with a deliberately weakened negative control. | Standalone unit tests pass and each negative control fails fast. |
+| 0 | Record the design note and collect the opt-in detailed memory inventory. | User review/commit, then a real collection play; analyze `[memory]` and `[memory_paused]` rows. |
+| 1 | Build an unconnected native mapper under `src/core/native_memory/`; implement the alias-region allocator and query first, then map, unmap, protect, shared memory, heap, and physical memory, each with a deliberately weakened negative control. Defer IPC map-alias to a fail-fast stub. | Standalone unit tests pass and each negative control fails fast. |
 | 2 | Add shadow comparison behind `SUYU_NATIVE_MEM_SHADOW=1`. | Compare per-SVC results, `QueryMemory` output, and page entries; supported-path mismatch count is zero. |
 | 3 | Make the mapper primary behind `SUYU_NATIVE_MEM` (`=0` disables), and rewire TLS, shared/transfer memory, IPC mapping, nvmap, and vi. | Fallbacks are counted/logged; supported-path play and CPU ms/frame are recorded; option name/default are confirmed. |
 | 4 | Remove kernel memory-manager symbols from the no-JIT native build, add fail-fast stubs for unsupported callers, and bypass `KernelCore` memory initialization. | `--require-absent N1,N2` passes and unsupported calls name the operation and address. |
@@ -53,9 +56,25 @@ The address layout is exactly the same as `KPageTable`'s layout so that `SUYU_NA
 
 ## Stage 0 inventory questions
 
-The user's collection should answer which `GetInfo` types and subtypes occur; which region/state combinations occur; which IPC map-alias kinds and sizes occur; how many TLS pages and what shared-memory sizes occur on the supported path; and the process-layout line. The process-layout ranges are needed to fix the exact native address layout and contract against `KPageTable`.
+Test4 answered the `GetInfo` types, region/state combinations, TLS/shared-memory counts and sizes, and process-layout observations. It found no IPC map-alias rows; bag and quit remain uncovered. The process-layout ranges still define what Stage 1 must compare against `KPageTable`.
 
 Collection uses `D:\HisuiWakeBuild\diag\n0\run_n0.bat <game> <label>` on the JIT host frontend: assign Player 1 in the overlay Controller window, press F10 to start recording, F9 to end a labeled segment, and quit normally. The new `[memory]` section appears in each local `inventory_<run>_NN_<label>.txt`; it is not committed.
+
+## Stage 0 results (test4, 2026-10-22)
+
+Observed in the JIT-capable `suyu-cmd` collection (title, village, field, catch, battle, menu, pokedex, and save segments; bag and quit were not segmented):
+
+- `[memory]` totals were 0x03 x202, 0x04 x13, 0x05 x13, 0x06 x241, 0x15 x102, and 0x2C x2117. `[memory_paused]` totals were `process_layout` x2, `shmem_create` x5, `tls_page` x4, 0x01 x1, 0x03 x175, 0x04 x26, 0x05 x3, 0x06 x292, 0x13 x8, 0x15 x13, 0x29 x35, 0x2C x2242, and 0x2D x1. The paused table is cumulative and repeats in every report; merge it by maximum count, not sum.
+- No `ipc_map` row appeared. The hook is only in `k_server_session.cpp` map-alias processing, and the bag and quit were not segmented.
+- The first 39-bit process layout had flags `0x47`, pool 0, system pages 4096, address space `[0x0,+0x8000000000)`, code `[0x800A4000,+0x60F7000)`, alias `[0x1106200000,+0x1000000000)`, heap `[0x2106200000,+0x200000000)`, stack `[0x1086200000,+0x80000000)`, and kernel map `[0x86200000,+0x1000000000)`. A second layout first appeared in battle: code `[0x80C61000,+0x60F7000)`, alias `[0x1106E00000,... )`, heap `[0x2106E00000,... )`, stack `[0x1086E00000,... )`, and kernel map `[0x86E00000,+0x1000000000)`. Sizes stayed constant; the bases changed. The user confirmed that the game was relaunched before the battle segment, so the change is ASLR between two launches of the same program.
+- `MapPhysicalMemory` (0x2C) supplied 4,359 calls across both tables, about 85% of memory SVCs, from 4 KiB to 3.01 GiB; one call was 3,232,497,664 bytes and one matching 0x2D was 3,228,565,504 bytes. Most calls were 256 KiB, 512 KiB, or 1.25–2 MiB; size classes are power-of-two page bounds, not exact sizes. Targets were mostly alias pages in Free or Normal (`0x77EBD05`).
+- `SetMemoryAttribute` (0x03) always used mask `0x8` and attr `0x0` or `0x8` on Normal alias pages, 4 KiB–300 MiB. `QueryMemory` (0x06) covered Normal, Free, Code, CodeData, Stack, ThreadLocal, and Inaccessible states; ThreadLocal was in kernel_map.
+- Stack remapping used MapMemory (0x04) alias-to-stack for 39 calls (64 KiB, 128 KiB, 1 MiB, or 4 KiB), plus one 4 KiB code-to-stack map; UnmapMemory (0x05) was x16 at 64 KiB. SetHeapSize (0x01) was one 16 MiB call and the heap was otherwise unused.
+- CreateTransferMemory (0x15) was x115 (24–32 KiB plus one 15,728,640-byte call). MapSharedMemory (0x13) was x8 with permission `0x1`; five shared-memory objects had owner permission `0x0`, user permission `0x1`, and sizes 4 KiB–17,825,792 bytes. Four TLS pages were created.
+- GetInfo (0x29) used types 0 (`CoreMask`), 2 (`AliasRegionAddress`), 3 (`AliasRegionSize`), 11 (`RandomEntropy`, subtypes 0–3 with a handle), 12 (`AslrRegionAddress`), 13 (`AslrRegionSize`), 14 (`StackRegionAddress`), 15 (`StackRegionSize`), 16 (`SystemResourceSizeTotal`), 17 (`SystemResourceSizeUsed`), 21 (`TotalNonSystemMemorySize`), and 22 (`UsedNonSystemMemorySize`). Types 4–7 were not used.
+- Observed low-byte memory states were Free `0x0`, Code `0x4DC7E03`, CodeData `0xFFEBD04`, Normal `0x77EBD05`, Stack `0x45C3C0B`, ThreadLocal `0x400000C`, and Inaccessible `0x10`.
+
+Verification: `smoke_boundary_inventory_unit` passed with `cl` and `/Zc:preprocessor` (exit 0); the JIT host `rebuild-suyu.bat` completed 24/24 steps with 0 errors and linked `suyu-cmd.exe`. The full `tests/recompiler_smoke/run.py` suite was not run, and the no-JIT tree was not rebuilt. Merged evidence and scripts remain local at `D:\HisuiWakeBuild\diag\n0\test4\memory_merged.txt`, `D:\HisuiWakeBuild\diag\n0\merge_memory.py`, and `D:\HisuiWakeBuild\diag\n0\summarize_memory.py`.
 
 ## Risks
 
@@ -78,3 +97,5 @@ Collection uses `D:\HisuiWakeBuild\diag\n0\run_n0.bat <game> <label>` on the JIT
 - Is the final option name `SUYU_NATIVE_MEM` or another confirmed name (the earlier working name is `SUYU_NATIVE_MEMORY`)?
 - How will N3 TLS and stack setup consume the native mapper?
 - What `KernelCore` memory initialization must remain until N3/N4, and when can it be bypassed?
+- Does the bag screen or quit path exercise additional memory or IPC behavior? (They were not segmented in test4.)
+- What region-base policy should native-only mode use, given per-process base randomization?

@@ -402,11 +402,10 @@ public:
     }
 
     /// One guest memory operation: `key` describes its shape, `bytes` the size (0 when it has none).
+    /// While recording is paused (the boot, before F10) it goes to the cumulative paused table.
     void RecordMemory(std::string_view key, std::uint64_t bytes) {
-        if (!IsRecording()) {
-            return;
-        }
-        memory_.Update(std::string{key}, [bytes](Detail::MemoryEntry& entry) {
+        auto& table = IsRecording() ? memory_ : paused_memory_;
+        table.Update(std::string{key}, [bytes](Detail::MemoryEntry& entry) {
             ++entry.count;
             entry.min_bytes = std::min(entry.min_bytes, bytes);
             entry.max_bytes = std::max(entry.max_bytes, bytes);
@@ -536,7 +535,7 @@ public:
                 snapshot.nvdrv_ioctls.entries.size() + snapshot.audio_opens.entries.size() +
                 snapshot.audio_updates.entries.size() + snapshot.applets.entries.size() +
                 snapshot.fs_opens.entries.size() + snapshot.fs_reads.entries.size() +
-                snapshot.memory.entries.size();
+                snapshot.memory.entries.size() + snapshot.paused_memory.entries.size();
         return keys;
     }
 
@@ -559,6 +558,7 @@ private:
         Detail::Table<std::string, Detail::FsReadEntry>::Contents fs_reads;
         Detail::Table<std::string, Detail::CallerGroup>::Contents callers;
         Detail::Table<std::string, Detail::MemoryEntry>::Contents memory;
+        Detail::Table<std::string, Detail::MemoryEntry>::Contents paused_memory;
     };
 
     std::uint64_t SvcTotal(std::size_t svc_number) const {
@@ -598,6 +598,7 @@ private:
         snapshot.fs_reads = grab(fs_reads_);
         snapshot.callers = grab(callers_);
         snapshot.memory = grab(memory_);
+        snapshot.paused_memory = paused_memory_.Copy();
         return snapshot;
     }
 
@@ -633,15 +634,20 @@ private:
         return out;
     }
 
-    /// A row per key: count, smallest and largest size in bytes, first-seen order.
+    /// A row per key: count, smallest and largest size in bytes, first-seen order. [memory_paused]
+    /// is cumulative (never reset by a segment) and holds what happened while recording was paused.
     static void FormatMemory(std::string& out, const Snapshot& snapshot) {
-        out += "[memory]\n";
-        for (const auto& [key, entry] : snapshot.memory.entries) {
-            out += key + '\t' + std::to_string(entry.count) + '\t' +
-                   std::to_string(entry.min_bytes) + '\t' + std::to_string(entry.max_bytes) +
-                   '\t' + std::to_string(entry.first_seq) + '\n';
-        }
-        AppendDropped(out, snapshot.memory.dropped);
+        const auto rows = [&out](const char* title, const auto& contents) {
+            out += title;
+            for (const auto& [key, entry] : contents.entries) {
+                out += key + '\t' + std::to_string(entry.count) + '\t' +
+                       std::to_string(entry.min_bytes) + '\t' + std::to_string(entry.max_bytes) +
+                       '\t' + std::to_string(entry.first_seq) + '\n';
+            }
+            AppendDropped(out, contents.dropped);
+        };
+        rows("[memory]\n", snapshot.memory);
+        rows("[memory_paused]\n", snapshot.paused_memory);
     }
 
     /// A line per key (total, evicted calls), then a line per kept caller: count and the frames.
@@ -771,6 +777,7 @@ private:
     Detail::Table<std::string, Detail::FsReadEntry> fs_reads_;
     Detail::Table<std::string, Detail::CallerGroup> callers_;
     Detail::Table<std::string, Detail::MemoryEntry> memory_;
+    Detail::Table<std::string, Detail::MemoryEntry> paused_memory_;
     mutable std::mutex modules_mutex_;
     std::vector<ModuleRange> modules_;
     std::atomic<bool> module_scan_claimed_{false};

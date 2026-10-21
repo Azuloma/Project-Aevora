@@ -261,17 +261,16 @@ void RecordInventoryModules(KProcess& process) {
     ScanInventoryModules(process, modules);
 }
 
-// Address-space regions of the process, for naming where a memory SVC argument points.
+// Address-space regions of the process, narrowest first: the 39-bit code region spans the others.
 std::vector<Core::BoundaryInventory::RegionRange> ProcessRegions(KProcess& process) {
     auto& table = process.GetPageTable();
     return {
-        {"code", GetInteger(table.GetCodeRegionStart()), table.GetCodeRegionSize()},
-        {"alias_code", GetInteger(table.GetAliasCodeRegionStart()), table.GetAliasCodeRegionSize()},
-        {"alias", GetInteger(table.GetAliasRegionStart()), table.GetAliasRegionSize()},
         {"heap", GetInteger(table.GetHeapRegionStart()), table.GetHeapRegionSize()},
+        {"alias", GetInteger(table.GetAliasRegionStart()), table.GetAliasRegionSize()},
         {"stack", GetInteger(table.GetStackRegionStart()), table.GetStackRegionSize()},
         {"kernel_map", GetInteger(table.GetKernelMapRegionStart()),
          table.GetKernelMapRegionSize()},
+        {"code", GetInteger(table.GetCodeRegionStart()), table.GetCodeRegionSize()},
     };
 }
 
@@ -291,9 +290,6 @@ std::string DescribeMemoryAddress(KProcess& process, u64 address,
 
 // Records the shape of the memory SVCs (N2 inventory): where the arguments point, sizes, and flags.
 void RecordMemorySvc(KProcess& process, const Svc::ThreadContext& context, u32 svc_number) {
-    if (!Core::BoundaryInventory::Instance().IsRecording()) {
-        return;
-    }
     const auto& x = context.r;
     char flags[64];
     std::string detail;
