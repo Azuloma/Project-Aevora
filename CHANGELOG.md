@@ -2,6 +2,22 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.2-dev15 - Unreleased
+
+*Development entry 15 toward v0.0.2. Not a release; no build artifacts are published.*
+
+### Added
+
+- Recorded the N1 stage 3 no-JIT tree build and structural-gate results.
+
+### Changed
+
+- The no-JIT host frontends now build successfully without dynarmic entries; stage 4 is next for the exporter and build kit.
+
+### Not verified
+
+- The gate was run only on `suyu.exe` and `suyu-cmd.exe`; no exporter, strict launcher, or gameplay session was run on the no-JIT tree. The title bar, standalone monitor session, and `suyu-cmd.exe --help` behavior remain unverified.
+
 ## v0.0.2-dev14 - Unreleased
 
 *Development entry 14 toward v0.0.2. Not a release; no build artifacts are published.*

@@ -8,7 +8,11 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `58573ba` (N1 stage 1) on `main`. Uncommitted: N1 stage 2, the dynarmic-free native exclusive-monitor fast path and its smoke unit. The host (`msvc-release`, JIT) still uses `DynarmicExclusiveMonitor`; stage 2 is implemented and awaits the user's go-ahead and commit. Stage 3 is next: build and fix the separate `SUYU_NO_JIT` tree.
+HEAD is `c7880f5` (N1 stage 2) on `main`. N1 stage 2 is committed; stage 3 is implemented in the separate `SUYU_NO_JIT` tree. The host (`msvc-release`, JIT) still uses `DynarmicExclusiveMonitor`; the no-JIT tree builds both host frontends without dynarmic entries, and both pass the N1 structural gate. The exporter and build kit still link the JIT tree; stage 4 awaits the user's go-ahead.
+
+## Handoff
+
+N1 stage 3 is complete for the separate host build and structural gate. The user should commit the current Markdown batch, then stage 4 can switch the exporter and build kit to the no-JIT tree for the strict launcher while retaining the JIT tree for Hybrid.
 
 ## N0 summary
 
@@ -26,21 +30,24 @@ Inventory under the AOT launcher; scan stall time on the first SVC; asynchronous
 
 ## Immediate next action
 
-1. N1 stage 2 is done but uncommitted; the user should commit it before proceeding.
-2. After that commit, build the separate `SUYU_NO_JIT=ON` tree as N1 stage 3, fixing the no-JIT dependencies and verifying the structural gate path.
+1. The user should commit the current Markdown batch.
+2. After that commit, implement N1 stage 4 in the exporter and build kit: use the no-JIT tree for the strict launcher and retain the JIT tree for Hybrid.
 
 ## N1 notes
 
 - `SUYU_NO_JIT` is defined at `CMakeLists.txt:229`; it removes dynarmic sources and links in the core, video, and Suyu CMake files. `MakeExclusiveMonitor` selects `StandaloneExclusiveMonitor` under this option, while `suyu-cmd-static` links the shared `core` library.
 - The title qualifier is `(JIT-capable)` versus `(no-JIT build)` in `src/suyu_cmd/native_status.h`; the structural-gate N1 deny list rejects dynarmic symbols and imports.
-- The planned no-JIT tree is `D:\HisuiWakeBuild\msvc-release-nojit`; the existing `D:\HisuiWakeBuild\msvc-release` tree remains the JIT tree for Qt, Hybrid, and comparison.
+- The no-JIT tree is `D:\HisuiWakeBuild\msvc-release-nojit`; the existing `D:\HisuiWakeBuild\msvc-release` tree remains the JIT tree for Qt, Hybrid, and comparison.
 - Residual fatal logs that still print a bare PC are the legacy IC IVAU refusals in `src/core/arm/recomp/arm_recomp.cpp` and generated-code guards in `src/core/recompiler/arm64_to_c.h`; the latter's changed or unmapped-code guard aborts immediately in strict mode.
 - N1 stage 2 adds `src/core/arm/native_exclusive_state.h`: per-core cache-line-separated reservation slots, a TTAS lock, locked or lock-free read-and-mark, locked store callbacks, and host load/CAS/store helpers. `StandaloneExclusiveMonitor` resolves plain-page host pointers before the lock, uses host load/CAS plus `Memory::NoteExclusiveWrite`, and retains the locked `Memory::Read*`/`WriteExclusive*` path for other pages; lock-free marks are enabled unless `SUYU_EXCL_LOCKFREE_MARK` is exactly `0`.
 - `tests/recompiler_smoke/native_exclusive_unit.cpp` (`smoke_native_exclusive_unit`) passes under MSVC 14.51 `/W4 /std:c++20` (exit 0, `native_exclusive_unit: ok`), including both lock modes, reservation semantics, same-value races, notification wiring, callback mutual exclusion, and u32/u64/u128 counters (3 cores x 100000 increments). Six header mutants fail fast with exit 1: `no_clear_others` (4), `no_compare` (6), `no_lock` (1), `notify_on_stored` (1), `no_publish` (11), and `no_owner_check` (15).
 - The host rebuild of `suyu` and `suyu-cmd` succeeded with 0 errors; `standalone_exclusive_monitor.cpp` compiled, with only pre-existing C4005 warnings. `StandaloneExclusiveMonitor` is only compiled in the no-JIT configuration, so this path is not exercised by a real session, and no `SUYU_NO_JIT` build or real session has been run.
 - The host micro-benchmark (3 threads, one address, three rounds) measured spin-wait loads at mutex 19-21 ns, native locked 19-21 ns, and native lock-free 2-3.5 ns; contended increments were mutex 41-46 ns, native locked 34-49 ns, and native lock-free 32-54 ns with no reliable difference. This is a host micro-benchmark, not PLA CPU ms per frame and not a recompiled-session result.
 - The full `tests/recompiler_smoke/run.py` suite, `tests/exclusive_access`, ThreadSanitizer, and any real session were not run. `StandaloneExclusiveMonitor` glue is not unit-tested because it needs a `Memory` instance; the testable state was moved into the header, and the plain/non-plain split mirrors the dynarmic monitor by reading rather than by test.
-- While preparing stage 3, `src/core/arm/recomp/arm_recomp.cpp:54` was found to include `core/arm/dynarmic/dynarmic_exclusive_monitor.h` unconditionally, and its JIT fallback casts the monitor to `DynarmicExclusiveMonitor`; whether the `SUYU_NO_JIT` tree compiles with these dependencies remains unverified.
+- The stage 3 helpers are `D:\HisuiWakeBuild\configure-msvc-release-nojit.bat` (configures the second tree with the same options as `msvc-release` plus `-DSUYU_NO_JIT=ON`) and `D:\HisuiWakeBuild\rebuild-suyu-nojit.bat` (builds `suyu` and `suyu-cmd` with Ninja `-j 8 -k 0`). Their logs are `D:\HisuiWakeBuild\configure-msvc-release-nojit.log` and `D:\HisuiWakeBuild\rebuild-suyu-nojit.log`.
+- The no-JIT configure took about 70 seconds. Its first build completed 1729 steps with 0 compile or link errors in about 25 minutes; `CMakeCache.txt` has `SUYU_NO_JIT:BOOL=ON`, `build.ninja` has no dynarmic entries, and the tree has no `src/dynarmic` directory. The `arm_recomp.cpp` include and JIT-only cast do not break the `SUYU_NO_JIT` path.
+- The structural gate passed (exit 0) for `D:\HisuiWakeBuild\msvc-release-nojit\bin\suyu-cmd.exe` and `suyu.exe` with `--pdb` and `--require-absent N1`; the corresponding JIT `msvc-release` controls failed `jit` (exit 1). These are host frontends, not the strict launcher.
+- No exporter or session was run on the no-JIT tree. The title bar, supported gameplay path, and `StandaloneExclusiveMonitor` session remain unverified; `suyu-cmd.exe --help` printed nothing within 20 seconds in a bash capture (exit 0) and was not investigated. The tree has not been reconfigured after a new commit hash; it uses `c7880f5` from configure time.
 
 ## Open items
 
@@ -94,6 +101,8 @@ Follow the start checklist, verify evidence before changing code, use one worker
 - Gate: `python -B -I -X utf8 tools/structural_gate/structural_gate.py <image.exe> --pdb <image.pdb> [--require-absent N1] [--json-out F] [--text-out F]`.
 - Read a local scan as `inventory_<run>_scan.txt` in the inventory output folder; never commit it.
 - Host rebuild: `Start-Process cmd.exe /c D:\HisuiWakeBuild\rebuild-suyu.bat`; confirm cmake/ninja/cl are running and read `D:\HisuiWakeBuild\rebuild-suyu.log`; only suyu and suyu-cmd are rebuilt.
+- N1 no-JIT configure: `cmd.exe /c D:\HisuiWakeBuild\configure-msvc-release-nojit.bat`; read `D:\HisuiWakeBuild\configure-msvc-release-nojit.log`.
+- N1 no-JIT rebuild: `Start-Process cmd.exe /c D:\HisuiWakeBuild\rebuild-suyu-nojit.bat`; confirm cmake/ninja/cl are running and read `D:\HisuiWakeBuild\rebuild-suyu-nojit.log`; never build both trees concurrently.
 
 ## Working rules since session 40
 
