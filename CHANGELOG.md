@@ -2,6 +2,26 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.2-dev17 - Unreleased
+
+*Development entry 17 toward v0.0.2. Not a release; no build artifacts are published.*
+
+### Added
+
+- Recorded N1 stage 5 acceptance at HEAD `a0fb2b3`: both trees were reconfigured with matching `GIT_REV`, the no-JIT tree rebuilt with 0 errors, the full PLA export used `suyu-static-nojit`, and the exported launcher passed the N1 structural gate with no `dynarmic` string.
+- Recorded the no-JIT acceptance session: PLA ran from launch through exploring the Obsidian Fieldlands for about 110 seconds with zero static-to-JIT transitions, zero JIT-to-static transitions, zero unresolved import traps, 7,486,015,732 static blocks, and no crash or fatal log.
+
+### Changed
+
+- N1 is accepted by the user's request, with the performance caveat that static AOT has improved somewhat but still performs worse than JIT. N1 proves CPU execution without a JIT, not performance parity; closing the gap is later work measured with CPU ms per frame at the same position.
+- At the user's request, the launcher title source now names the strict backend `Aevora Static AOT` and omits the ` | JIT transitions: N` suffix for no-JIT builds. This source change was not built or tested in stage 5.
+
+### Not verified
+
+- The exported launcher's title qualifier was not confirmed; the title change requires a commit, both-tree reconfiguration, a no-JIT rebuild, and a full re-export. The exporter dialog, game list, completion messages, and `main.cpp` still say `suyu static AOT (Experimental)`.
+- No same-position JIT measurement was taken; the stage used one run and one scene sequence. The no-JIT export-build-kit was not built, the bare-PC fatal logs remain untouched, and the reason `suyu-cmd.exe --help` prints nothing remains unknown.
+- The eight unresolved GOT/PLT symbol errors and one pin-count imbalance warning were not compared with a JIT session log.
+
 ## v0.0.2-dev16 - Unreleased
 
 *Development entry 16 toward v0.0.2. Not a release; no build artifacts are published.*

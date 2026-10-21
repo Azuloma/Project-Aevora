@@ -80,7 +80,7 @@ inline const char* NativeBackendName(NativeBackendClass kind) {
     case NativeBackendClass::Pending:
         return "PENDING";
     case NativeBackendClass::StrictAot:
-        return "suyu static AOT";
+        return "Aevora Static AOT";
     case NativeBackendClass::HybridAot:
         return "suyu Hybrid JIT + AOT";
     case NativeBackendClass::DynarmicJit:
@@ -146,7 +146,7 @@ inline std::string FormatNativeTitle(const NativeStatusSnapshot& s) {
                (s.shaders_building == 1 ? " shader" : " shaders");
     }
 
-    if (s.recomp_registered) {
+    if (s.recomp_registered && s.jit_available) {
         char jit[96];
         std::snprintf(jit, sizeof(jit), " | JIT transitions: %llu",
                       static_cast<unsigned long long>(s.jit_transitions));
