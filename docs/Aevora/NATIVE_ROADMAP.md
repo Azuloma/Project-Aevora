@@ -65,8 +65,8 @@ Goal: the launcher contains no runtime code generation.
 Plan (2026-10-21):
 
 - Add a separate no-JIT build tree with `SUYU_NO_JIT=ON`, provisionally `D:\HisuiWakeBuild\msvc-release-nojit`; keep the existing `msvc-release` tree with JIT for Qt, Hybrid, and JIT comparison.
-- Stage 1: make strict-mode diagnostics name the module and offset.
-- Stage 2: port the U1 optimizations (plain-page pointers, lock-free marks, and the TTAS idea) to a dynarmic-free `StandaloneExclusiveMonitor`; measure it against the current `std::mutex` implementation.
+- Stage 1: make strict-mode diagnostics name the module and offset; committed as `58573ba`.
+- Stage 2: port the U1 optimizations (plain-page pointers, lock-free marks, and the TTAS idea) to a dynarmic-free `StandaloneExclusiveMonitor`; measure it against the current `std::mutex` implementation. Implemented and awaiting the user's go-ahead and commit; the native unit passes, the host rebuild succeeds, and the host-only benchmark shows a benefit for spin-wait loads but no demonstrated increment-loop gain.
 - Stage 3: make the no-JIT tree and rebuild script compile with `SUYU_NO_JIT=ON`, fixing the NCE visitor, debugger/GDB stub, and exception-handler dependencies as needed.
 - Stage 4: make the exporter and build kit use the no-JIT tree for the strict launcher and the JIT tree for Hybrid, define the choice once, replace the silent Hybrid retry with a diagnostic failure, and include the JIT flag in the cache key.
 - Stage 5: commit, reconfigure, perform a full export, pass the structural gate with `--require-absent N1`, verify the launcher title shows `(no-JIT build)`, play the supported path, and compare CPU ms/frame at the same position.

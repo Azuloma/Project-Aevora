@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD still `29be34a` (`v0.0.2-dev12: record the N0 inventory, check list, and gate report (N0 stage 7)`) on `main`. Uncommitted: stage 1 files (`recomp_pc_description.h`, `arm_recomp.cpp`, and `pc_description_unit.cpp`) plus this handoff batch. Host binaries (`suyu.exe`, `suyu-cmd.exe`) were rebuilt after stage 1; `GIT_REV` in `D:\HisuiWakeBuild\msvc-release\src\common\scm_rev.cpp` is older than HEAD until the next reconfigure. The PLA export and persistent AOT cache entry still date from `7609ab3`; a full export is required before any AOT measurement.
+HEAD is `58573ba` (N1 stage 1) on `main`. Uncommitted: N1 stage 2, the dynarmic-free native exclusive-monitor fast path and its smoke unit. The host (`msvc-release`, JIT) still uses `DynarmicExclusiveMonitor`; stage 2 is implemented and awaits the user's go-ahead and commit. Stage 3 is next: build and fix the separate `SUYU_NO_JIT` tree.
 
 ## N0 summary
 
@@ -26,8 +26,8 @@ Inventory under the AOT launcher; scan stall time on the first SVC; asynchronous
 
 ## Immediate next action
 
-1. N1 is chosen; stage 1 is complete and awaits the user's commit. The next stage is stage 2, the dynarmic-free native exclusive monitor and its comparison against the mutex implementation.
-2. After the user commits, reconfigure and rebuild the host before exporting; the host embeds the git hash at CMake configure time.
+1. N1 stage 2 is done but uncommitted; the user should commit it before proceeding.
+2. After that commit, build the separate `SUYU_NO_JIT=ON` tree as N1 stage 3, fixing the no-JIT dependencies and verifying the structural gate path.
 
 ## N1 notes
 
@@ -35,6 +35,12 @@ Inventory under the AOT launcher; scan stall time on the first SVC; asynchronous
 - The title qualifier is `(JIT-capable)` versus `(no-JIT build)` in `src/suyu_cmd/native_status.h`; the structural-gate N1 deny list rejects dynarmic symbols and imports.
 - The planned no-JIT tree is `D:\HisuiWakeBuild\msvc-release-nojit`; the existing `D:\HisuiWakeBuild\msvc-release` tree remains the JIT tree for Qt, Hybrid, and comparison.
 - Residual fatal logs that still print a bare PC are the legacy IC IVAU refusals in `src/core/arm/recomp/arm_recomp.cpp` and generated-code guards in `src/core/recompiler/arm64_to_c.h`; the latter's changed or unmapped-code guard aborts immediately in strict mode.
+- N1 stage 2 adds `src/core/arm/native_exclusive_state.h`: per-core cache-line-separated reservation slots, a TTAS lock, locked or lock-free read-and-mark, locked store callbacks, and host load/CAS/store helpers. `StandaloneExclusiveMonitor` resolves plain-page host pointers before the lock, uses host load/CAS plus `Memory::NoteExclusiveWrite`, and retains the locked `Memory::Read*`/`WriteExclusive*` path for other pages; lock-free marks are enabled unless `SUYU_EXCL_LOCKFREE_MARK` is exactly `0`.
+- `tests/recompiler_smoke/native_exclusive_unit.cpp` (`smoke_native_exclusive_unit`) passes under MSVC 14.51 `/W4 /std:c++20` (exit 0, `native_exclusive_unit: ok`), including both lock modes, reservation semantics, same-value races, notification wiring, callback mutual exclusion, and u32/u64/u128 counters (3 cores x 100000 increments). Six header mutants fail fast with exit 1: `no_clear_others` (4), `no_compare` (6), `no_lock` (1), `notify_on_stored` (1), `no_publish` (11), and `no_owner_check` (15).
+- The host rebuild of `suyu` and `suyu-cmd` succeeded with 0 errors; `standalone_exclusive_monitor.cpp` compiled, with only pre-existing C4005 warnings. `StandaloneExclusiveMonitor` is only compiled in the no-JIT configuration, so this path is not exercised by a real session, and no `SUYU_NO_JIT` build or real session has been run.
+- The host micro-benchmark (3 threads, one address, three rounds) measured spin-wait loads at mutex 19-21 ns, native locked 19-21 ns, and native lock-free 2-3.5 ns; contended increments were mutex 41-46 ns, native locked 34-49 ns, and native lock-free 32-54 ns with no reliable difference. This is a host micro-benchmark, not PLA CPU ms per frame and not a recompiled-session result.
+- The full `tests/recompiler_smoke/run.py` suite, `tests/exclusive_access`, ThreadSanitizer, and any real session were not run. `StandaloneExclusiveMonitor` glue is not unit-tested because it needs a `Memory` instance; the testable state was moved into the header, and the plain/non-plain split mirrors the dynarmic monitor by reading rather than by test.
+- While preparing stage 3, `src/core/arm/recomp/arm_recomp.cpp:54` was found to include `core/arm/dynarmic/dynarmic_exclusive_monitor.h` unconditionally, and its JIT fallback casts the monitor to `DynarmicExclusiveMonitor`; whether the `SUYU_NO_JIT` tree compiles with these dependencies remains unverified.
 
 ## Open items
 

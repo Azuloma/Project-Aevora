@@ -3,12 +3,9 @@
 
 #pragma once
 
-#include <array>
-#include <mutex>
-#include <vector>
-
 #include "common/common_types.h"
 #include "core/arm/exclusive_monitor.h"
+#include "core/arm/native_exclusive_state.h"
 
 namespace Core::Memory {
 class Memory;
@@ -16,18 +13,8 @@ class Memory;
 
 namespace Core {
 
-/// The exclusive monitor, without dynarmic behind it.
-///
-/// suyu's only implementation of this interface wraps Dynarmic::ExclusiveMonitor,
-/// and every process builds one whether or not a JIT ever runs - which is why
-/// dynarmic shows up in the profile of a run that never enters it, and why the
-/// library cannot be unlinked while that is the only implementation.
-///
-/// The semantics are dynarmic's, deliberately: a reservation is one address per
-/// core, a successful store clears that address on *every* core holding it, and
-/// the lock is held across the compare-and-write so two cores cannot both win
-/// the same reservation. The lock being held between CheckAndClear returning
-/// true and the store completing is load-bearing, not an oversight.
+/// The exclusive monitor without dynarmic, with dynarmic's semantics and fast paths (see
+/// NativeExclusiveState). SUYU_EXCL_LOCKFREE_MARK=0 puts reservation marks back under the lock.
 class StandaloneExclusiveMonitor final : public ExclusiveMonitor {
 public:
     explicit StandaloneExclusiveMonitor(Memory::Memory& memory_, std::size_t core_count_);
@@ -47,23 +34,13 @@ public:
     bool ExclusiveWrite128(std::size_t core_index, VAddr vaddr, u128 value) override;
 
 private:
-    /// Reserve `addr` for `core_index` and read through `op`.
-    template <typename T, typename Function>
-    T ReadAndMark(std::size_t core_index, VAddr addr, Function op);
+    template <typename T>
+    T ExclusiveRead(std::size_t core_index, VAddr addr);
 
-    /// True with the lock still held when `core_index` still owns `addr`; the
-    /// caller must complete its store and then unlock. False with the lock
-    /// released.
-    bool CheckAndClear(std::size_t core_index, VAddr addr);
+    template <typename T>
+    bool ExclusiveWrite(std::size_t core_index, VAddr vaddr, T value);
 
-    template <typename T, typename Function>
-    bool DoExclusiveOperation(std::size_t core_index, VAddr addr, Function op);
-
-    static constexpr VAddr kInvalidAddress = 0xDEADDEADDEADDEADULL;
-
-    std::mutex lock;
-    std::vector<VAddr> exclusive_addresses;
-    std::vector<std::array<u64, 2>> exclusive_values;
+    NativeExclusiveState state;
     Memory::Memory& memory;
 };
 

@@ -2,6 +2,23 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.2-dev14 - Unreleased
+
+*Development entry 14 toward v0.0.2. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added `NativeExclusiveState` and the `smoke_native_exclusive_unit` test for the dynarmic-free standalone exclusive monitor, including reservation, notification, callback-exclusion, lock-mode, race, and counter coverage.
+
+### Changed
+
+- `StandaloneExclusiveMonitor` now uses per-core reservation slots, a TTAS lock, optional lock-free marks, plain-page host load/CAS fast paths, and post-lock exclusive-write notification instead of one `std::mutex`.
+- The stage 2 host rebuild succeeded with 0 errors; the unit passed under MSVC 14.51, and six header mutants failed fast. A host micro-benchmark showed the lock-free mark benefit for spin-wait loads but no demonstrated contended increment-loop gain.
+
+### Not verified
+
+- This path is compiled in every build but only selected by `SUYU_NO_JIT`; no no-JIT build or real session was run. The full smoke suite, `tests/exclusive_access`, ThreadSanitizer, and the standalone-monitor glue with a `Memory` instance were not tested. The no-JIT compile dependencies in `src/core/arm/recomp/arm_recomp.cpp` remain to be addressed in stage 3.
+
 ## v0.0.2-dev13 - Unreleased
 
 *Development entry 13 toward v0.0.2. Not a release; no build artifacts are published.*

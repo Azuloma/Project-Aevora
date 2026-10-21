@@ -160,6 +160,8 @@ Main window hooks: the export menu is wired at `src/suyu/main.cpp:1739` and `:17
 | `src/dynarmic/src/dynarmic/backend/x64/exclusive_monitor.cpp:19-27, 45-68` | Atomic reservation slot helpers `LoadSlot`/`StoreSlot` and locked slot accesses. |
 | `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp:27-42,105-140` | `EmitSpinLockLock` TTAS stub branch and shared-stub option/reporting (`SpinLockUsesTtas`). |
 | `src/core/arm/dynarmic/dynarmic_exclusive_monitor.h/.cpp` | Dynarmic exclusive-monitor fast path: resolves plain-page host pointers before the monitor lock, retains the locked Memory path for special/cross-page accesses, and conditionally reports writes. |
+| `src/core/arm/native_exclusive_state.h` **(v, 2026-10-21)** | Dynarmic-free reservation state: per-core cache-line-separated slots, TTAS locking, lock-free or locked read-and-mark, locked store callbacks, and host load/CAS/store helpers for the standalone monitor. |
+| `src/core/arm/standalone_exclusive_monitor.h/.cpp` **(v, 2026-10-21)** | Dynarmic-free exclusive-monitor glue; resolves plain-page host pointers before the native state operation and retains locked `Memory` accesses for other pages. |
 | `src/core/memory.h/.cpp` | `Memory::GetPlainExclusivePointer` (`memory.h:353`, `memory.cpp:1001`) and `Memory::NoteExclusiveWrite` (`memory.h:360`, `memory.cpp:1005`) support the lock-light U1 path. |
 | `src/dynarmic/src/dynarmic/backend/x64/emit_x64_memory.cpp.inc` | `EmitExclusiveReadMemoryInline`/`EmitExclusiveWriteMemoryInline`: inline spin lock, reservation record, fastmem access, `lock cmpxchg`, no write notification. (v, 2026-10-11) |
 | `src/dynarmic/src/dynarmic/common/spin_lock_x64.cpp:27-42,105-140` | `EmitSpinLockLock` and the shared x64 lock stub emitter; TTAS is host-stub-only and selected by `SUYU_SPINLOCK_TTAS`. |
@@ -322,6 +324,7 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/recompiler_smoke/thread_time_unit.cpp` **(v)** | Standalone `RecompThreadTimeLedger` unit; registered as `smoke_thread_time_unit` and invoked by `run.py`. |
 | `tests/recompiler_smoke/exclusive_stats_unit.cpp` | `smoke_exclusive_stats_unit`: exclusive callback timing counters. |
 | `tests/recompiler_smoke/pc_description_unit.cpp` **(v, 2026-10-21)** | `smoke_pc_description_unit`: module-and-offset formatting and module-count bounds checks for recompiler diagnostics. |
+| `tests/recompiler_smoke/native_exclusive_unit.cpp` **(v, 2026-10-21)** | `smoke_native_exclusive_unit`: reservation semantics, notification wiring, callback mutual exclusion, lock modes, same-value races, and u32/u64/u128 counter stress; six header mutants fail fast. |
 | `tests/recompiler_smoke/guest_time_unit.cpp` | `smoke_guest_time_unit`, registered in `CMakeLists.txt:115-117` and `run.py:854`. (v, 2026-10-11) |
 | `tests/recompiler_smoke/sharded_counters_unit.cpp` **(v, 2026-10-10)** | Standalone `RecompShardedCounters` unit; registered as `smoke_sharded_counters_unit` and invoked by `run.py`, with a race-free shared-slot negative control. |
 | `tests/recompiler_smoke/lookup_stats_unit.cpp` **(v, 2026-10-11)** | Dispatcher-return, module-index, per-window, and exit-pair unit; registered as `smoke_lookup_stats_unit`. |
