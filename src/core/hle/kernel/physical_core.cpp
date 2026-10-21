@@ -6,15 +6,18 @@
 
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <optional>
 #include <string_view>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "common/logging/log.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
+#include "core/arm/debug.h"
 #include "core/boundary_inventory_report.h"
 #include "core/core.h"
 #include "core/debugger/debugger.h"
@@ -23,6 +26,7 @@
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/physical_core.h"
 #include "core/hle/kernel/svc.h"
+#include "core/memory.h"
 
 namespace Kernel {
 
@@ -147,6 +151,50 @@ std::uint64_t SteadyNowNs() {
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                           std::chrono::steady_clock::now().time_since_epoch())
                                           .count());
+}
+
+// Lists the loaded modules for the inventory's name+0xRVA output; run by the first SVC only.
+void RecordInventoryModules(KProcess& process) {
+    std::vector<Core::BoundaryInventory::ModuleRange> modules;
+    for (const auto& [base, name] : Core::FindModules(&process)) {
+        const u64 last_byte = GetInteger(Core::GetModuleEnd(&process, KProcessAddress{base}));
+        modules.push_back({name, base, last_byte + 1});
+    }
+    Core::BoundaryInventory::Instance().SetModules(std::move(modules));
+}
+
+// The guest caller chain of an SVC the CPU just stopped at; the inventory's [callers] section.
+void RecordSvcCaller(KThread* thread, Core::ArmInterface& interface, u32 svc_number) {
+    KProcess* const process = thread->GetOwnerProcess();
+    if (process == nullptr || !process->Is64Bit()) {
+        return;
+    }
+    auto& recorder = Core::BoundaryInventory::Instance();
+    if (recorder.ClaimModuleScan()) {
+        RecordInventoryModules(*process);
+    }
+    Svc::ThreadContext context{};
+    interface.GetContext(context);
+    auto& memory = process->GetMemory();
+    const auto read64 = [&memory](u64 address, u64& value) {
+        if (!memory.IsValidVirtualAddressRange(address, sizeof(u64))) {
+            return false;
+        }
+        value = memory.Read64(address);
+        return true;
+    };
+    // The stop is after the SVC, so the instruction before the PC is the site; check it.
+    u64 site = 0;
+    if (context.pc >= sizeof(u32) &&
+        memory.IsValidVirtualAddressRange(context.pc - sizeof(u32), sizeof(u32)) &&
+        Core::BoundaryInventory::IsSvcInstruction(memory.Read32(context.pc - sizeof(u32)),
+                                                  svc_number)) {
+        site = context.pc - sizeof(u32);
+    }
+    char key[16];
+    std::snprintf(key, sizeof key, "svc:0x%02X", svc_number);
+    recorder.RecordCaller(key, Core::BoundaryInventory::CollectCallerFrames(
+                                   site, context.lr, context.fp, read64));
 }
 
 } // namespace
@@ -324,6 +372,7 @@ void PhysicalCore::RunThread(KernelCore& kernel, Kernel::KThread* thread) {
         if (supervisor_call) {
             if (Core::BoundaryInventory::Enabled()) {
                 Core::BoundaryInventory::Instance().RecordSvc(m_core_index, interface->GetSvcNumber());
+                RecordSvcCaller(thread, *interface, interface->GetSvcNumber());
                 Core::BoundaryInventory::WriteReportIfDue();
             }
             Svc::Call(system, interface->GetSvcNumber());

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -278,10 +279,139 @@ int NamesAreSafeFileComponents() {
     return 0;
 }
 
+// Guest memory as a map of 8-byte words; unmapped addresses cannot be read.
+struct FakeGuestMemory {
+    std::map<std::uint64_t, std::uint64_t> words;
+    bool operator()(std::uint64_t address, std::uint64_t& value) const {
+        const auto it = words.find(address);
+        if (it == words.end()) {
+            return false;
+        }
+        value = it->second;
+        return true;
+    }
+};
+
+Core::BoundaryInventory::CallerFrames Frames(std::uint64_t a, std::uint64_t b = 0,
+                                              std::uint64_t c = 0, std::uint64_t d = 0) {
+    return {a, b, c, d};
+}
+
+int SvcInstructionIsRecognized() {
+    using Core::BoundaryInventory::IsSvcInstruction;
+    CHECK(IsSvcInstruction(0xD4000421u, 0x21));
+    CHECK(!IsSvcInstruction(0xD4000421u, 0x22));
+    // HVC #0x21 and a NOP share neighboring bits but are not an SVC.
+    CHECK(!IsSvcInstruction(0xD4000422u, 0x21));
+    CHECK(!IsSvcInstruction(0xD503201Fu, 0x21));
+    return 0;
+}
+
+int CallerChainFollowsTheFramePointer() {
+    FakeGuestMemory memory;
+    memory.words = {{0x1000, 0x2000}, {0x1008, 0xAAA0}, {0x2000, 0x3000}, {0x2008, 0xBBB0}};
+    const auto frames = Core::BoundaryInventory::CollectCallerFrames(0x4FFC, 0x9990, 0x1000, memory);
+    CHECK(frames == Frames(0x4FFC, 0x9990, 0xAAA0, 0xBBB0));
+    return 0;
+}
+
+int CallerChainStopsAtTheFirstBadFrame() {
+    using Core::BoundaryInventory::CollectCallerFrames;
+    FakeGuestMemory memory;
+    memory.words = {{0x1000, 0x2000}, {0x1008, 0xAAA0}, {0x2000, 0x3000}, {0x2008, 0xBBB0}};
+    // No frame pointer, a misaligned one (whose words are readable), and an unreadable one give
+    // only the first two entries.
+    memory.words[0x1004] = 0x2000;
+    memory.words[0x100C] = 0xAAA0;
+    CHECK(CollectCallerFrames(1, 2, 0, memory) == Frames(1, 2));
+    CHECK(CollectCallerFrames(1, 2, 0x1004, memory) == Frames(1, 2));
+    CHECK(CollectCallerFrames(1, 2, 0x7000, memory) == Frames(1, 2));
+    // A zero return address ends the walk.
+    memory.words[0x1008] = 0;
+    CHECK(CollectCallerFrames(1, 2, 0x1000, memory) == Frames(1, 2));
+    memory.words[0x1008] = 0xAAA0;
+    // A next frame that does not climb (a loop or a downward link) ends it after one more frame.
+    memory.words[0x1000] = 0x1000;
+    CHECK(CollectCallerFrames(1, 2, 0x1000, memory) == Frames(1, 2, 0xAAA0));
+    memory.words[0x1000] = 0x800;
+    CHECK(CollectCallerFrames(1, 2, 0x1000, memory) == Frames(1, 2, 0xAAA0));
+    return 0;
+}
+
+int ModulesResolveAddresses() {
+    Recorder recorder;
+    recorder.SetModules({{"sdk", 0x2000, 0x3000}, {"main", 0x1000, 0x2000}});
+    CHECK(recorder.Describe(0x1000) == "main+0x0");
+    CHECK(recorder.Describe(0x1FFF) == "main+0xFFF");
+    CHECK(recorder.Describe(0x2000) == "sdk+0x0");
+    CHECK(recorder.Describe(0x3000) == "?0x3000");
+    CHECK(recorder.Describe(0xFFF) == "?0xFFF");
+    CHECK(recorder.Describe(0) == "-");
+    CHECK(recorder.ClaimModuleScan());
+    CHECK(!recorder.ClaimModuleScan());
+    return 0;
+}
+
+int CallersKeepTheFrequentOnes() {
+    Recorder recorder;
+    for (int n = 0; n < 3; ++n) {
+        recorder.RecordCaller("svc:0x21", Frames(1));
+    }
+    for (int n = 0; n < 2; ++n) {
+        recorder.RecordCaller("svc:0x21", Frames(2));
+    }
+    CHECK(Contains(recorder.FormatReport(), "[callers]\nsvc:0x21\t5\tother=0\n"
+                                            "\t3\t?0x1\t-\t-\t-\n\t2\t?0x2\t-\t-\t-\n"));
+    // Eight more distinct callers overflow the table; the two frequent ones stay.
+    for (std::uint64_t address = 3; address <= 10; ++address) {
+        recorder.RecordCaller("svc:0x21", Frames(address));
+    }
+    const std::string report = recorder.FormatReport();
+    CHECK(Contains(report, "svc:0x21\t13\tother=2\n"));
+    CHECK(Contains(report, "\t3\t?0x1\t-\t-\t-\n"));
+    CHECK(Contains(report, "\t2\t?0x2\t-\t-\t-\n"));
+    // Kept counts plus the evicted ones add up to every call.
+    std::uint64_t kept = 0;
+    for (std::size_t at = report.find("\n\t"); at != std::string::npos;
+         at = report.find("\n\t", at + 1)) {
+        kept += std::stoull(report.substr(at + 2));
+    }
+    CHECK(kept + 2 == 13);
+    return 0;
+}
+
+int CallersPrintModuleNames() {
+    Recorder recorder;
+    recorder.SetModules({{"sdk", 0x1000, 0x2000}});
+    recorder.RecordCaller("svc:0x21", Frames(0x1004, 0x1100));
+    CHECK(Contains(recorder.FormatReport(), "\t1\tsdk+0x4\tsdk+0x100\t-\t-\n"));
+    return 0;
+}
+
+int CallersFollowPauseAndSegments() {
+    Recorder recorder;
+    recorder.SetRecording(false);
+    recorder.RecordCaller("svc:0x21", Frames(1));
+    CHECK(!Contains(recorder.FormatReport(), "svc:0x21"));
+    recorder.SetRecording(true);
+    recorder.RecordCaller("svc:0x21", Frames(1));
+    const std::string ended = recorder.EndSegment("a", 0);
+    CHECK(Contains(ended, "svc:0x21\t1\tother=0\n"));
+    CHECK(!Contains(recorder.FormatReport(), "svc:0x21"));
+    return 0;
+}
+
 } // namespace
 
 int main() {
     if (const int rc = NamesAreSafeFileComponents()) return rc;
+    if (const int rc = SvcInstructionIsRecognized()) return rc;
+    if (const int rc = CallerChainFollowsTheFramePointer()) return rc;
+    if (const int rc = CallerChainStopsAtTheFirstBadFrame()) return rc;
+    if (const int rc = ModulesResolveAddresses()) return rc;
+    if (const int rc = CallersKeepTheFrequentOnes()) return rc;
+    if (const int rc = CallersPrintModuleNames()) return rc;
+    if (const int rc = CallersFollowPauseAndSegments()) return rc;
     if (const int rc = CountsSvcsPerCoreAndOverflow()) return rc;
     if (const int rc = RecordsIpcKeysAndUnimplementedFlag()) return rc;
     if (const int rc = NvdrvDropsDeviceNameAtClose()) return rc;

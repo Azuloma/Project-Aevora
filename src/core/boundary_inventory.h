@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <vector>
 
 #include "common/env_option.h"
 
@@ -85,6 +86,48 @@ inline std::string SegmentFileName(std::string_view run, std::uint32_t serial,
 inline std::string OpenReportFileName(std::string_view run) {
     return "inventory_" + SanitizeFileComponent(run, "run") + "_open.txt";
 }
+
+constexpr std::size_t kCallerFrames = 4;   ///< the SVC site plus three callers up the frame chain
+constexpr std::size_t kCallersPerKey = 8;
+
+using CallerFrames = std::array<std::uint64_t, kCallerFrames>;
+
+/// True for `svc #svc_number` (A64 SVC encoding).
+constexpr bool IsSvcInstruction(std::uint32_t instruction, std::uint32_t svc_number) {
+    return (instruction & 0xFFE0001Fu) == 0xD4000001u && ((instruction >> 5) & 0xFFFFu) == svc_number;
+}
+
+/// The SVC site, LR, then return addresses up the x29 chain; `read(address, value)` reads guest
+/// memory. The walk stops at an invalid, null, misaligned, or non-ascending frame.
+template <typename Read>
+CallerFrames CollectCallerFrames(std::uint64_t site, std::uint64_t link_register,
+                                 std::uint64_t frame_pointer, Read&& read) {
+    CallerFrames frames{};
+    frames[0] = site;
+    frames[1] = link_register;
+    std::uint64_t fp = frame_pointer;
+    for (std::size_t i = 2; i < kCallerFrames; ++i) {
+        std::uint64_t next_fp = 0;
+        std::uint64_t return_address = 0;
+        if (fp == 0 || (fp & 0xF) != 0 || !read(fp, next_fp) || !read(fp + 8, return_address) ||
+            return_address == 0) {
+            break;
+        }
+        frames[i] = return_address;
+        if (next_fp <= fp) {
+            break;
+        }
+        fp = next_fp;
+    }
+    return frames;
+}
+
+/// One loaded module: [base, end) in guest addresses.
+struct ModuleRange {
+    std::string name;
+    std::uint64_t base{};
+    std::uint64_t end{};
+};
 
 /// Off unless SUYU_BOUNDARY_INVENTORY is exactly "1"; read once at process start.
 inline const bool kEnabled = [] {
@@ -163,6 +206,17 @@ struct AudioUpdateEntry : CountEntry {
 struct FsReadEntry : CountEntry {
     std::uint64_t total_bytes = 0;
     std::uint64_t max_end_offset = 0;
+};
+
+struct CallerEntry {
+    CallerFrames frames{};
+    std::uint64_t count = 0;
+};
+
+/// The callers of one SVC or IPC command: the most frequent few, and what was evicted.
+struct CallerGroup : CountEntry {
+    std::vector<CallerEntry> entries;
+    std::uint64_t other = 0; ///< calls of callers that were evicted or never kept
 };
 
 struct alignas(64) CoreSvcCounters {
@@ -290,6 +344,65 @@ public:
         });
     }
 
+    /// The loaded modules, so caller addresses print as name+0xRVA; replaces any earlier list.
+    void SetModules(std::vector<ModuleRange> modules) {
+        std::lock_guard lock{modules_mutex_};
+        modules_ = std::move(modules);
+    }
+
+    /// True for the first caller only: whoever gets it fills in the module list.
+    bool ClaimModuleScan() {
+        return !module_scan_claimed_.exchange(true, std::memory_order_relaxed);
+    }
+
+    /// `name+0xRVA` inside a module, `?0xADDRESS` outside every module, `-` for 0.
+    std::string Describe(std::uint64_t address) const {
+        if (address == 0) {
+            return "-";
+        }
+        char offset[32];
+        {
+            std::lock_guard lock{modules_mutex_};
+            for (const ModuleRange& module : modules_) {
+                if (address >= module.base && address < module.end) {
+                    std::snprintf(offset, sizeof offset, "+0x%llX",
+                                  static_cast<unsigned long long>(address - module.base));
+                    return module.name + offset;
+                }
+            }
+        }
+        std::snprintf(offset, sizeof offset, "?0x%llX", static_cast<unsigned long long>(address));
+        return offset;
+    }
+
+    /// One call of `key` (for example "svc:0x21") made from `frames`. Each key keeps its
+    /// kCallersPerKey most frequent callers; the least frequent is evicted into `other`.
+    void RecordCaller(std::string_view key, const CallerFrames& frames) {
+        if (!IsRecording()) {
+            return;
+        }
+        callers_.Update(std::string{key}, [&frames](Detail::CallerGroup& group) {
+            ++group.count;
+            for (Detail::CallerEntry& entry : group.entries) {
+                if (entry.frames == frames) {
+                    ++entry.count;
+                    return;
+                }
+            }
+            if (group.entries.size() < kCallersPerKey) {
+                group.entries.push_back({frames, 1});
+                return;
+            }
+            auto fewest = std::min_element(
+                group.entries.begin(), group.entries.end(),
+                [](const Detail::CallerEntry& a, const Detail::CallerEntry& b) {
+                    return a.count < b.count;
+                });
+            group.other += fewest->count;
+            *fewest = {frames, 1};
+        });
+    }
+
     /// True for the first caller after kWriteIntervalNs since the last slot; false otherwise.
     bool TryTakeWriteSlot(std::uint64_t now_ns) {
         std::uint64_t last = last_write_ns_.load(std::memory_order_relaxed);
@@ -344,6 +457,7 @@ private:
         Detail::Table<std::uint32_t, Detail::CountEntry>::Contents applets;
         Detail::Table<FsOpenKey, Detail::CountEntry>::Contents fs_opens;
         Detail::Table<std::string, Detail::FsReadEntry>::Contents fs_reads;
+        Detail::Table<std::string, Detail::CallerGroup>::Contents callers;
     };
 
     std::uint64_t SvcTotal(std::size_t svc_number) const {
@@ -381,6 +495,7 @@ private:
         snapshot.applets = grab(applets_);
         snapshot.fs_opens = grab(fs_opens_);
         snapshot.fs_reads = grab(fs_reads_);
+        snapshot.callers = grab(callers_);
         return snapshot;
     }
 
@@ -402,7 +517,7 @@ private:
         }
     }
 
-    static std::string FormatSnapshot(const Snapshot& snapshot, std::string_view header_extra) {
+    std::string FormatSnapshot(const Snapshot& snapshot, std::string_view header_extra) const {
         std::string out = "# boundary inventory v1\n";
         out += header_extra;
         FormatSvc(out, snapshot);
@@ -411,7 +526,34 @@ private:
         FormatAudio(out, snapshot);
         FormatApplets(out, snapshot);
         FormatFs(out, snapshot);
+        FormatCallers(out, snapshot);
         return out;
+    }
+
+    /// A line per key (total, evicted calls), then a line per kept caller: count and the frames.
+    void FormatCallers(std::string& out, const Snapshot& snapshot) const {
+        out += "[callers]\n";
+        for (const auto& [key, group] : snapshot.callers.entries) {
+            out += key + '\t' + std::to_string(group.count) + "\tother=" +
+                   std::to_string(group.other) + '\n';
+            std::vector<const Detail::CallerEntry*> ordered;
+            for (const Detail::CallerEntry& entry : group.entries) {
+                ordered.push_back(&entry);
+            }
+            std::sort(ordered.begin(), ordered.end(),
+                      [](const Detail::CallerEntry* a, const Detail::CallerEntry* b) {
+                          return a->count != b->count ? a->count > b->count
+                                                      : a->frames < b->frames;
+                      });
+            for (const Detail::CallerEntry* entry : ordered) {
+                out += '\t' + std::to_string(entry->count);
+                for (const std::uint64_t frame : entry->frames) {
+                    out += '\t' + Describe(frame);
+                }
+                out += '\n';
+            }
+        }
+        AppendDropped(out, snapshot.callers.dropped);
     }
 
     static void FormatSvc(std::string& out, const Snapshot& snapshot) {
@@ -513,6 +655,10 @@ private:
     Detail::Table<std::uint32_t, Detail::CountEntry> applets_;
     Detail::Table<FsOpenKey, Detail::CountEntry> fs_opens_;
     Detail::Table<std::string, Detail::FsReadEntry> fs_reads_;
+    Detail::Table<std::string, Detail::CallerGroup> callers_;
+    mutable std::mutex modules_mutex_;
+    std::vector<ModuleRange> modules_;
+    std::atomic<bool> module_scan_claimed_{false};
     std::atomic<std::uint64_t> last_write_ns_{kNeverWritten};
 };
 
