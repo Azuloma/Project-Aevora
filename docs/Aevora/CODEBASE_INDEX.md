@@ -206,7 +206,7 @@ Key runtime facts:
 | `System` | `core/core.h:145`. Boot in `core/core.cpp`: `InitializeKernel` (~:263), `SetupForApplicationProcess` (~:273), `Load` (~:303). The load path reads `ReadNSOModules:375` and invokes `BindRecompProcess:386` before process publication. |
 | Boundary inventory (N0) **(v, 2026-10-21)** | `src/core/boundary_inventory.h`, `src/core/boundary_inventory_report.h`, `src/core/boundary_inventory_scan.h`; hook sites: `physical_core.cpp` `RunThread`/`RecordSvcCaller`, `service.cpp` `InvokeRequest`/`InvokeRequestTipc`, `nvdrv.cpp` `Module::Open`/`Close`/`Ioctl1-3`, `audio_renderer_manager.cpp` `OpenAudioRenderer`, `audio_renderer.cpp` `RequestUpdateAuto`, `service/am/service/library_applet_creator.cpp` `ILibraryAppletCreator`, `fsp_srv.cpp` opens, `fs_i_filesystem.cpp` `OpenFile`, `fs_i_file.cpp` `IFile::Read`, `fs_i_storage.cpp` `IStorage::Read`, `core.cpp` `ShutdownMainProcess`; `StashIpcCaller`/`RecordIpcCaller` in `boundary_inventory.h` are hooked at `RecordSvcCaller` and `RecordBoundaryIpc`; `ScanInventoryModules` in `physical_core.cpp` scans modules. |
 | `src/core/boundary_inventory_scan.h` **(v, 2026-10-21)** | Bounded printable-string and dynsym scan helpers: `FindDynsym` and `ParseDynsym`. |
-| `tools/structural_gate/structural_gate.py` **(v, 2026-10-21)** | Stdlib-only structural gate with the shared `DENY_LISTS` table, PE import parsing, matched PDB publics, baseline mode, and `--require-absent` mode. |
+| `tools/structural_gate/structural_gate.py` **(v, 2026-10-21)** | Stdlib-only structural gate with the shared `DENY_LISTS` table, PE import parsing, matched PDB publics, baseline mode, and `--require-absent` mode; N1 uses `--require-absent N1`. |
 | Timing / CPU threads | `core/core_timing.h:61` (`CoreTiming`), `core/cpu_manager.h:33` (`CpuManager`). |
 | Memory | `core/device_memory.h:19` (guest DRAM backing), `core/memory.h:59` (per-process virtual memory); `Memory::GetPlainExclusivePointer` and `Memory::NoteExclusiveWrite` support the reviewed U1 exclusive-monitor path. |
 | CPU interface | `core/arm/arm_interface.h:48` (`ArmInterface`); dynarmic glue in `core/arm/dynarmic/`. |
@@ -288,6 +288,7 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `docs/Aevora/IMGUI_OVERLAY.md` | ImGui Vulkan overlay architecture, input routing, UI contracts, tests, and extension guide. |
 | `docs/Aevora/N0_INVENTORY.md` **(v, 2026-10-21)** | Supported-path manual check list, aggregate inventory summary, and structural-gate first report. |
 | `src/suyu_cmd/emu_window/emu_window_sdl2.h:76-106`, `emu_window_sdl2.cpp:390-466,630-773,810` **(v, 2026-10-18)**; `emu_window_sdl2_vk.{h,cpp}:190-367` **(v)** | `RouteOverlayEvent`/`WaitEvent`/`RunOverlayActions`/`SyncOverlayTextInput`, controller snapshot/request/rebind host methods, and Vulkan SDL overlay translation route overlay input before game dispatch. |
+| `src/suyu_cmd/native_status.h` **(v, 2026-10-21)** | Native status title naming: `Aevora Static AOT` with `(JIT-capable)` or `(no-JIT build)` qualifier and JIT-transition suffix only when available. |
 | `src/suyu_cmd/native_status.h:35-43`; `native_status.cpp:131-132` **(v, 2026-10-18)** | `NativeStatusSnapshot::guest_memory_used_bytes/guest_memory_total_bytes` and `SampleNativeStatus` application physical-memory sampling. |
 | `src/core/frontend/vulkan_overlay.h:12-21`; `src/video_core/renderer_vulkan/renderer_vulkan.cpp:192-201` **(v, 2026-10-18)** | `VulkanOverlayContext::memory_budget`, set from `Device::CanReportMemoryUsage()` for the overlay. |
 | Qt configuration tabs | `src/suyu/configuration/` (`configure_dialog.cpp`, `configure_per_game.cpp`, `configure_graphics_extensions.cpp` for `Category::RendererExtensions`). Labels and tooltips come from `src/suyu/configuration/shared_translation.cpp`; `src/qt_common/config/shared_translation.cpp` is a separate copy. |
@@ -357,12 +358,20 @@ Open build questions are tracked in WORK_PLAN Milestone 1: actual fetch success,
 | `tests/export_integration/run_export_integration.py` | `default_option_scenarios()` and `--only-defaults` (v, 2026-10-09) | Verifies unset default-on FMI/direct/indirect options, default supported split binding, quiet unsupported-default skips, and `=0` all-off/all-static output. |
 | `src/suyu/main.cpp` RPC export options | `main.cpp:6173-6179` (v, 2026-10-07) | Test-driven export RPC accepts `aot_cache_root`, `aot_producer_revision`, and `aot_producer_build_id`; status fields are returned around `:5789-5795`. |
 | `tests/recompiler_smoke/aot_cache_unit.cpp` | `smoke_aot_cache_unit` (v, 2026-10-07) | Covers naming, producer seam, lock, staging, publish/replace, interrupted-publish restore, launcher requirement, and non-ANSI cache roots. |
+| AOT cache backend identity | `src/suyu/aot_export_cache.h`; `tests/recompiler_smoke/aot_cache_unit.cpp` | `BackendName` uses `suyu-static`, `suyu-static-nojit`, and `suyu-hybrid` without underscores; names are part of cache identity. (v, 2026-10-21) |
 | `tests/export_integration/run_export_integration.py` | `aot_cache_publish_scenarios()`, `aot_cache_matrix_scenarios()`, `--only-aot-cache`, `--only-aot-cache-matrix` (v, 2026-10-07) | Covers publish/failure preservation/reuse/producer changes/lock and the named artifact, manifest-input, backend/topology, source, and package-exclusion matrix. |
 | `tests/export_integration/run_export_integration.py` | `aot_cache_matrix_scenarios()` chain cases (`:702-706`, env-driven scenario `:767-768`) | Mutates direct/indirect manifest fields and restarts suyu with chain environment variables to verify naming, manifest/bundle-id changes, reuse, and refusal when switching off. |
 | `tests/export_integration/run_export_integration.py` | default checks `:421-457`; chain-start matrix `:905-941` | Verifies chain-start default-on and `=0` behavior, manifest mutation, direct-chain prerequisite, bundle-id/reuse behavior, split and non-split per-image refusal injection, and successful export without the injected refusal. |
 | `tests/recompiler_smoke/chain_start_budget_unit.cpp` | `smoke_chain_start_budget_unit` | Checks estimator boundaries, PLA calibration fit, and separate versus combined image projections. |
 | `tests/export_integration`, `export_regression`, `appdata_path`, `package_policy`, `export_build_kit` | Export pipeline, path, and packaging-policy tests; export integration covers AOT-cache publish/reuse and binding mismatches; export build-kit tests reject split modules at configure time; export-regression fixture execution remains blocked by its Qt-root layout lookup. |
 | `research/tests/` | Python regression scripts (`test_build_regressions.py`, `test_fixed_point_conversions.py`). |
+
+## N1 build trees
+
+| Tree | Purpose |
+|---|---|
+| `D:\HisuiWakeBuild\msvc-release` | JIT-capable host/frontend tree. |
+| `D:\HisuiWakeBuild\msvc-release-nojit` | `SUYU_NO_JIT=ON` no-JIT host/frontend tree; its frontend exports strict static AOT only. Reconfigure both trees after every commit so embedded `GIT_REV` matches HEAD. |
 
 Local analysis helpers for session 24 live outside the repository in `D:\HisuiWakeBuild\tmp_gt` and `D:\HisuiWakeBuild\diag\hotrva` (see WORK_PLAN).
 

@@ -35,8 +35,8 @@ Suyu references will remain in SPDX headers, copyright notices, license informat
 
 | Component | Current implementation | Planned native implementation | Milestone | Progress |
 | --- | --- | --- | --- | --- |
-| Game CPU code | Statically recompiled ARM64 game code running in a JIT-capable runtime. | Fully static execution with no CPU JIT linked into the native application. Hybrid AOT + JIT remains available only in a separate investigation build. | N1 | Work in progress |
-| Memory management | Guest memory managed by the emulated Horizon kernel. | A title-specific memory mapper using host virtual memory for code, heaps, stacks, TLS, and shared memory. | N2 | Not yet |
+| Game CPU code | Statically recompiled ARM64 game code running in a JIT-capable runtime. | Fully static execution with no CPU JIT linked into the native application. Hybrid AOT + JIT remains available only in a separate investigation build. | N1 | Done |
+| Memory management | Guest memory managed by the emulated Horizon kernel. | A title-specific memory mapper using host virtual memory for code, heaps, stacks, TLS, and shared memory. | N2 | Work in progress |
 | Threads, synchronization, and timing | Three emulated CPU cores, guest scheduling, and CoreTiming. | Guest threads mapped to host threads, with host OS scheduling and native synchronization while preserving game-visible timing. | N3 | Not yet |
 | Platform services | Horizon services provided through the general HLE IPC framework. | Direct native implementations through SDK hooks or a minimal PLA-specific IPC table. Unneeded services may use documented stubs. | N4 | Not yet |
 | Assets and save data | NCA/RomFS virtual filesystem and runtime key handling. | Assets prepared at export time and accessed through native file I/O; saves stored in a native per-user folder. Keys and firmware are required only by the recompiler. | N5 | Not yet |
