@@ -56,6 +56,8 @@ Goal: measure what PLA uses along the supported path, so every later milestone h
 
 Done when: the inventory files and the gate report are recorded, and the check list for the confirmed supported path is written.
 
+Status (2026-10-21): The inventory files, gate report, and supported-path check list in `N0_INVENTORY.md` exist. N0 awaits the user's acceptance.
+
 ### N1: CPU without a JIT
 
 Goal: the launcher contains no runtime code generation.

@@ -2,6 +2,34 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.2-dev12 - Unreleased
+
+*Development entry 12 toward v0.0.2. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added `docs/Aevora/N0_INVENTORY.md`: the manual check list of the confirmed supported gameplay path (with the segment label of each step and what test1/test2 exercised), the aggregate inventory summary, and the first structural-gate report. It holds counts only; no game-derived names, paths, or addresses.
+
+### Changed
+
+- Closed the N0 record in `docs/Aevora/WORK_PLAN.md` (stages 5b, 5c, 5d, 6, and 7, the results, the local data and tools, the design decisions, and the not-verified list), `docs/Aevora/CODEBASE_INDEX.md` (the module-scan header, the structural gate and its test, the new document), and the N0 status in `docs/Aevora/NATIVE_ROADMAP.md`. N0 awaits the user's acceptance.
+- From this entry on, every commit gets its own `devN` section again. The N0 stage commits before it carry no section of their own (see the next entry).
+
+### Recorded results (from the N0 stages, committed before this entry)
+
+- Stage 5b (`b619bf9`) attributes IPC callers through a per-thread stash written at SVC 0x21/0x22; stage 5c (`3c945e4`) writes a local module/NVN name scan; stage 6 (`c338961`) adds `tools/structural_gate/structural_gate.py` with `tests/structural_gate/test_structural_gate.py`.
+- Test2 collection: 202,179 IPC calls with 100% caller coverage over 29 `ipc:` keys; all four-frame IPC chains end inside the SDK module. The union of boot1, test1, and test2 (18 reports) shows 32 SVCs, 44 service interfaces with 121 commands, 34 nvdrv rows over six devices, no audio renderer open, and no applet.
+- The module scan found 563 NVN strings (524 in the main module) and 15,965 matching dynsym names in the local scan file.
+- The structural gate has 34 tests with an independent oracle, and all 56 tool mutants fail the suite. Its first baseline on the current launcher read 1,007,632 public symbols (PDB GUID and age matched the image) and 37 imported DLLs; `--require-absent N1` fails with `FAIL jit`, as expected for the JIT-capable launcher.
+
+### Not verified
+
+- The inventory under the AOT launcher, the CPU stall of the module scan on the first SVC, the asynchronous SVC 0x23 stash limit, IPC attribution beyond the SDK, the gate on Linux, and the typed-label input of the Inventory window remain open. The gate and the scan were not run against a PLA export.
+
+## v0.0.2-dev1 to v0.0.2-dev11 - Unreleased
+
+*Development entries 1 to 11 toward v0.0.2 have no CHANGELOG sections of their own. Refer to the earlier commit log instead: the commits after `28011a2` (v0.0.1-devFINAL) up to `c338961`, run `git log 28011a2..c338961`.*
+
 ## v0.0.1-devFINAL - Unreleased
 
 *Final development entry toward v0.0.1 (labelled devFINAL by the user's decision, not a counted devN). Not a release; no build artifacts are published.*
