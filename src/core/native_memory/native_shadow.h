@@ -96,8 +96,10 @@ public:
     }
 
     // Compares the shadow with the real blocks covering [address, address + size) after the operation.
+    // Physical map/unmap checks only the state of pages that were already mapped before it ran.
     void CompareBlocks(ShadowOp op, u64 address, u64 size,
-                       const std::vector<StoredBlock>& real_blocks) {
+                       const std::vector<StoredBlock>& real_blocks,
+                       const std::vector<StoredBlock>& before_blocks = {}) {
         ShadowCounts& counts = counts_[static_cast<size_t>(op)];
         const u64 range_end = address + size;
         for (const StoredBlock& real : real_blocks) {
@@ -107,8 +109,13 @@ public:
             const u8 real_user_permission = static_cast<u8>(real.permission & PermUserMask);
             for (; cursor < piece_end;) {
                 const MemoryInfo shadow = space_.QueryInfo(cursor);
-                if (shadow.state != real.state || shadow.permission != real_user_permission ||
-                    shadow.attribute != real.attribute) {
+                const bool state_only = IsPhysicalOp(op) && WasMapped(before_blocks, cursor) &&
+                                        real.state != MemoryState::Free;
+                const bool differs =
+                    shadow.state != real.state ||
+                    (!state_only && (shadow.permission != real_user_permission ||
+                                     shadow.attribute != real.attribute));
+                if (differs) {
                     ++counts.state_mismatch;
                     Report(op, cursor, size,
                            "block real=" + Describe(real.state, real_user_permission, real.attribute) +
@@ -116,7 +123,10 @@ public:
                 } else if (shadow.base != real.base || shadow.size != real.size) {
                     ++counts.boundary_only;
                 }
-                cursor = shadow.base + shadow.size;
+                const u64 shadow_end = shadow.base + shadow.size;
+                const u64 before_end =
+                    IsPhysicalOp(op) ? BeforeBlockEnd(before_blocks, cursor) : ~0ULL;
+                cursor = shadow_end < before_end ? shadow_end : before_end;
             }
         }
     }
@@ -157,6 +167,25 @@ public:
     }
 
 private:
+    static bool IsPhysicalOp(ShadowOp op) {
+        return op == ShadowOp::MapPhysicalMemory || op == ShadowOp::UnmapPhysicalMemory;
+    }
+    static u64 BeforeBlockEnd(const std::vector<StoredBlock>& blocks, u64 address) {
+        for (const StoredBlock& block : blocks) {
+            if (block.base <= address && address < block.base + block.size) {
+                return block.base + block.size;
+            }
+        }
+        return ~0ULL;
+    }
+    static bool WasMapped(const std::vector<StoredBlock>& blocks, u64 address) {
+        for (const StoredBlock& block : blocks) {
+            if (block.base <= address && address < block.base + block.size) {
+                return block.state != MemoryState::Free;
+            }
+        }
+        return false;
+    }
     static std::string Hex(u64 value) {
         char buffer[24];
         std::snprintf(buffer, sizeof(buffer), "0x%llx", static_cast<unsigned long long>(value));

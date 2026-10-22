@@ -225,6 +225,88 @@ int PendingReportsAreBounded() {
     return 0;
 }
 
+int CapacityOverrideLimitsOneOperationAndRestores() {
+    const Layout layout = MakeLayout();
+    Shadow shadow(layout, kPhysicalCapacityBytes);
+    const u64 address = layout.alias.start;
+    CHECK(shadow.Space().SetPhysicalCapacityBytes(0) == kPhysicalCapacityBytes);
+    CHECK(shadow.Space().MapPhysicalMemory(address, 0x80000) == Result::LimitReached);
+    CHECK(shadow.Space().SetPhysicalCapacityBytes(kPhysicalCapacityBytes) == 0);
+    CHECK(shadow.Space().MapPhysicalMemory(address, 0x80000) == Result::Success);
+    return 0;
+}
+
+int PhysicalOpsIgnoreAttributesOfPagesThatWereAlreadyMapped() {
+    const Layout layout = MakeLayout();
+    const u64 address = layout.alias.start;
+    StoredBlock locked = Normal(address, 0x200000);
+    locked.permission = PermLockedSource;
+    locked.attribute = AttributeLocked;
+    const std::vector<StoredBlock> before = {Normal(address, 0x200000)};
+
+    Shadow physical(layout, kPhysicalCapacityBytes);
+    physical.Sync(MakeTable(layout, before), 0x200000);
+    physical.CompareBlocks(ShadowOp::MapPhysicalMemory, address, 0x200000, {locked}, before);
+    CHECK(physical.TotalMismatches() == 0);
+
+    Shadow other_op(layout, kPhysicalCapacityBytes);
+    other_op.Sync(MakeTable(layout, before), 0x200000);
+    other_op.CompareBlocks(ShadowOp::MapMemory, address, 0x200000, {locked}, before);
+    CHECK(other_op.Counts(ShadowOp::MapMemory).state_mismatch == 1);
+
+    StoredBlock other_state = Normal(address, 0x200000);
+    other_state.state = MemoryState::Stack;
+    Shadow state_check(layout, kPhysicalCapacityBytes);
+    state_check.Sync(MakeTable(layout, before), 0x200000);
+    state_check.CompareBlocks(ShadowOp::MapPhysicalMemory, address, 0x200000, {other_state}, before);
+    CHECK(state_check.Counts(ShadowOp::MapPhysicalMemory).state_mismatch == 1);
+    return 0;
+}
+
+int PhysicalOpsStillCheckNewlyMappedPages() {
+    const Layout layout = MakeLayout();
+    const u64 address = layout.alias.start;
+    Shadow shadow(layout, kPhysicalCapacityBytes);
+    shadow.Sync(MakeTable(layout, {}), 0);
+    CHECK(shadow.Space().MapPhysicalMemory(address, 0x200000) == Result::Success);
+    StoredBlock wrong_permission = Normal(address, 0x200000);
+    wrong_permission.permission = PermLockedSource;
+    shadow.CompareBlocks(ShadowOp::MapPhysicalMemory, address, 0x200000, {wrong_permission},
+                         MakeTable(layout, {}));
+    CHECK(shadow.Counts(ShadowOp::MapPhysicalMemory).state_mismatch == 1);
+    return 0;
+}
+
+int PhysicalOpsCheckNewPagesBesideMappedOnes() {
+    const Layout layout = MakeLayout();
+    const u64 address = layout.alias.start;
+    const std::vector<StoredBlock> before = {Normal(address, 0x200000)};
+    Shadow shadow(layout, kPhysicalCapacityBytes);
+    shadow.Sync(MakeTable(layout, before), 0x200000);
+    CHECK(shadow.Space().MapPhysicalMemory(address, 0x400000) == Result::Success);
+    StoredBlock merged = Normal(address, 0x400000);
+    merged.permission = PermLockedSource;
+    shadow.CompareBlocks(ShadowOp::MapPhysicalMemory, address, 0x400000, {merged}, before);
+    CHECK(shadow.Counts(ShadowOp::MapPhysicalMemory).state_mismatch >= 1);
+    return 0;
+}
+
+int UnmapPhysicalChecksFieldsOfFreedPages() {
+    const Layout layout = MakeLayout();
+    const u64 address = layout.alias.start;
+    const std::vector<StoredBlock> before = {Normal(address, 0x200000)};
+    Shadow shadow(layout, kPhysicalCapacityBytes);
+    shadow.Sync(MakeTable(layout, before), 0x200000);
+    CHECK(shadow.Space().UnmapPhysicalMemory(address, 0x200000) == Result::Success);
+    StoredBlock freed = Normal(address, 0x200000);
+    freed.state = MemoryState::Free;
+    freed.permission = 0;
+    freed.attribute = AttributeLocked;
+    shadow.CompareBlocks(ShadowOp::UnmapPhysicalMemory, address, 0x200000, {freed}, before);
+    CHECK(shadow.Counts(ShadowOp::UnmapPhysicalMemory).state_mismatch == 1);
+    return 0;
+}
+
 int SummaryListsEveryOperation() {
     const Layout layout = MakeLayout();
     Shadow shadow(layout, kPhysicalCapacityBytes);
@@ -255,6 +337,11 @@ int main() {
     CHECK(ASplitShadowBlockStillChecksEveryPiece() == 0);
     CHECK(OnlyTheComparedRangeIsChecked() == 0);
     CHECK(PendingReportsAreBounded() == 0);
+    CHECK(CapacityOverrideLimitsOneOperationAndRestores() == 0);
+    CHECK(PhysicalOpsIgnoreAttributesOfPagesThatWereAlreadyMapped() == 0);
+    CHECK(PhysicalOpsStillCheckNewlyMappedPages() == 0);
+    CHECK(PhysicalOpsCheckNewPagesBesideMappedOnes() == 0);
+    CHECK(UnmapPhysicalChecksFieldsOfFreedPages() == 0);
     CHECK(SummaryListsEveryOperation() == 0);
     std::puts("All synthetic native shadow smoke checks passed.");
     return 0;

@@ -2,6 +2,29 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev5 - Unreleased
+
+*Development entry 5 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Changed
+
+- Followed up the opt-in native memory shadow in `k_process_page_table.h`, `native_shadow.h`, `native_address_space.h`, `native_shadow_unit.cpp`, the smoke-test `CMakeLists.txt`, and `run.py`. Overlap detection uses one atomic `m_shadow_state` (high 32 bits are entries, low 32 bits are calls in flight); a call that is not alone or whose entry counter changed is counted as `skipped` and is not compared.
+- Added 32 reviewed `ShadowBystander` RAII guards to unhooked wrappers that mutate the block table, including two extra source-table guards in `SetupForIpc` and `UnmapProcessMemory`. Guards were removed from 15 read-only wrappers (page-group open, debug read/write, device-address-space range open, cache operation, and memory-copy helpers). The shadow mutex covers only shadow state; no lock is held across kernel calls, and diagnostic dumps run after mutex release.
+- Kept a 4 GiB shadow physical-capacity constant. For a real `LimitReached`, the capacity is set to the pre-call normal bytes for that operation and restored with `SetPhysicalCapacityBytes`, so that case agrees trivially. For `MapPhysicalMemory` and `UnmapPhysicalMemory`, only `state` is compared on pages mapped before the call and still non-Free afterward; newly mapped and freed pages receive a full comparison, split at pre-call block boundaries so merged blocks cannot hide a new page.
+- Kept the 24-entry event ring and before/pre/after dumps for state mismatches; the `late` dump was removed because it took kernel locks under the shadow mutex. Renamed the Qt-colliding identifier `slots` to `slot_count` (committed in `8133d92`).
+- Code review found 1 P1 and 4 P2 findings (mutex-held late dump, state-only comparison crossing a pre-call block boundary, over-guarded read-only wrappers, missing UnmapPhysicalMemory/freed-page coverage, and undocumented physical-op relaxation); all were fixed in this batch.
+
+### Verified
+
+- `native_shadow_unit` now has 17 check functions and passes. Its 20 header mutants (shadow-result, state-field, permission-field, attribute-field, physical-op, was-mapped, state-only, freed-pages, before-step, boundary, user-permission, range-clip, sync-skipped, report-cap, total, skipped, capacity, tiling, heap-end, and physical) all exited 1 under the scratch script runner at `D:\HisuiWakeBuild` (not via `run.py`).
+- JIT and no-JIT host trees both built after the final code with 0 errors; `suyu.exe` and `suyu-cmd.exe` linked. A user JIT PLA session with the flag enabled, before the review fixes, recorded 0 mismatch lines and `sync_failures=0`: `MapMemory=26` compared (7 boundary-only), `UnmapMemory=3`, `SetMemoryAttribute=233`, `SetHeapSize=1`, `MapPhysicalMemory=2310` compared (64 boundary-only, 35 skipped), `UnmapPhysicalMemory=1`, and `SetMemoryPermission=0`.
+
+### Not verified / Known limitations
+
+- Full `run.py` and a real CMake configure of `tests/recompiler_smoke` were not run. The dev5 review fixes have not been run in a real session; Stage 3 (`SUYU_NATIVE_MEM` primary mode) must wait for user approval.
+- Earlier runs before physical-op relaxation showed 1–4 `MapPhysicalMemory` state mismatches per run on ranges containing already-mapped pages (extra Locked with permission `0x48`, or Uncached on `DeviceShared`, visible only after the call). The writer was never identified: it was not a hooked or guarded call in the event ring, the pre-call snapshot equals the before snapshot, and the change appears by the after snapshot.
+- Because of the relaxation, zero mismatches does not prove that native mapping preserves permission and attribute for already-mapped pages in `MapPhysicalMemory`/`UnmapPhysicalMemory`. `QueryMemory` is not hooked, `Common::PageTable` entries are not compared, alias validity still uses alias records, the real run covered JIT only (no AOT/no-JIT session), and diagnostics remain an open user decision.
+
 ## v0.0.3-dev4 - Unreleased
 
 *Development entry 4 toward v0.0.3. Not a release; no build artifacts are published.*

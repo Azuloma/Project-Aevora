@@ -406,6 +406,13 @@ public:
         max_heap_size_ = size;
     }
 
+    // Returns the previous capacity so a caller can restore it after one operation.
+    u64 SetPhysicalCapacityBytes(u64 capacity_bytes) {
+        const u64 previous = physical_capacity_bytes_;
+        physical_capacity_bytes_ = capacity_bytes;
+        return previous;
+    }
+
     // Adopts an observed table (stored permissions, boundaries kept); false if it does not tile the space.
     bool ReplaceBlocks(const std::vector<StoredBlock>& observed, u64 physical_bytes_in_use) {
         BlockMap rebuilt;
