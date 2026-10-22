@@ -1,14 +1,13 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-22. See [session 42 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-42-cleanup) and [older history](OLD_HISTORY.md).
+Handoff prepared: 2026-10-22. See [session 43 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-43-cleanup), [session 42 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-42-cleanup), and [older history](OLD_HISTORY.md).
 
 ## Objective
 Determine whether PLA can run through Suyu-derived static CPU recompilation, then improve the verified runtime. The N0-N10/G1-G4 end goal is in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md).
 
 ## Status
-HEAD is `aebd786 v0.0.3-dev9` (N2 Stage 3b-2, committed); the working tree contains uncommitted `v0.0.3-dev10` (N2 Stage 3b-3 native primary page table), pending the user's commit.
-Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`.
-The working tree contains only the uncommitted dev10 source/tests and its Markdown record.
+HEAD is `4362604 v0.0.3-dev10` (N2 Stage 3b-3, committed); the working tree holds only uncommitted Markdown updates (`WORK_PLAN.md`, `OLD_HISTORY.md`).
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`.
 
 ### N2 progress
 | Stage | State |
@@ -16,49 +15,48 @@ The working tree contains only the uncommitted dev10 source/tests and its Markdo
 | 0 | Done: inventory, design note, and test4 collection. |
 | 1 | Done: standalone mapper, dev3, and mutants. |
 | 2 | Done: shadow, dev4-dev6; accepted after a JIT PLA session on the dev5 build: 0 mismatch lines, `sync_failures=0`, MapPhysicalMemory 2317 compared, SetMemoryAttribute 239, MapMemory 26, UnmapMemory 3, SetHeapSize 1, UnmapPhysicalMemory 1, SetMemoryPermission 0 not exercised; accepted with the recorded limits. |
-| 3 | Stage 3a, 3b-1, and 3b-2 done; Stage 3b-3 implemented and pending commit; 3c remains. |
+| 3 | Stage 3a, 3b-1, 3b-2, and 3b-3 implemented through dev10; Stage 3c JIT validation passed and AOT validation remains. |
 | 4-5 | Not started. |
 
 See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verification).
 
-### Stage 2 limits to remember
-- The writer of extra Locked/Uncached bits on already-mapped pages during MapPhysicalMemory is unidentified.
-- Physical-op comparison is state-only for the relaxed cases; zero mismatches does not prove permission/attribute preservation for those two ops.
-- QueryMemory SVC is not hooked and `Common::PageTable` entries are not compared.
-- Coverage was JIT-only; hunting diagnostics were removed in dev6 and must be re-added if hunting resumes.
-- Full `run.py` and a real `tests/recompiler_smoke` CMake configure were never run for Stage 1/2.
-
-### Stage 3b-2 limits to remember
-- Adapters are compiled into both host trees but nothing calls them; the 3b-2 side-effect table lists divergences to resolve in 3b-3 (MapMemory source host mapping, TLS page-buffer refcount, linear-mapped check by state flag, optimized-process fill skipping).
-- `UnmapMemory`, transfer-memory locks, device locks, and `GetInfo` accounting still need a read before 3b-3.
-- With the optimized-process allocation mode the kernel skips the fill of reused MapPhysicalMemory pages while the native source always fills.
-- Full `run.py`, smoke CMake configure, and PLA sessions were not run.
-
-### Stage 3b-1 limits to remember
-- Headers are kernel-free and unconnected; `SUYU_NATIVE_MEM` does not exist in code before dev10.
-- Dev9 adapters are not yet switched; no kernel adapter, host inclusion, JIT/no-JIT rebuild, or PLA session exists.
-- IPC message copies are supported-path operations, but IPC map-alias (`SetupForIpc`) remains unobserved and unsupported.
-- Dev10 must keep native and `KPageTable` per-process state exclusive; only layout/query helpers and `Common::PageTable` remain on `KPageTable`.
-
-### Stage 3a limits to remember
-- The full `tests/recompiler_smoke/run.py` suite was not run.
-- A real `tests/recompiler_smoke` CMake configure was not run.
-- The no-JIT tree was not rebuilt.
-- No PLA session was run; bag and quit remain unsegmented.
-- nvmap device-map locks and shared/transfer/vi/TLS callers are modeled but not connected; IPC map-alias/SetupForIpc, MapCodeMemory, and unsafe/insecure operations remain unsupported.
-- The writer of extra Locked/Uncached bits remains unidentified.
+### N2 limits to remember
+- Stage 2 shadow limits still matter: the extra Locked/Uncached writer is unidentified, and relaxed physical-op comparisons are state-only.
+- `QueryMemory` is not hooked and `Common::PageTable` entries are not compared.
+- IPC map-alias (`SetupForIpc`), `MapCodeMemory`, and unsafe/insecure operations remain unsupported; other documented kernel divergences remain in [N2_DESIGN.md](N2_DESIGN.md).
+- Full `tests/recompiler_smoke/run.py` and a real smoke CMake configure have never run.
+- Stage 3c JIT validation passed: native memory default-on and `SUYU_NATIVE_MEM=0` both ran without crashes, with `unsupported_ops=0 inconsistency=0` for the native run; steady 301-frame windows averaged 75.3 and 77.2 ms/frame, with frame p99 about 34 ms in both and the 30 FPS cap held. Separate launches did not guarantee identical position/operation, the native-on bag time was not recorded, so no bag-segment A/B or performance-parity claim is made; AOT 3c has not run.
+- The native model is default-on; `SUYU_NATIVE_MEM=0` is the comparison/fallback run, and non-39-bit spaces fall back per process.
+- Unsupported operations and the kept divergences are listed in [N2_DESIGN.md Stage 3b-3 results](N2_DESIGN.md#stage-3b-3-results).
+- If Stage 3c reports an unsupported operation, implement it natively and review it as a new dev stage before proceeding.
 
 ## Handoff
 ### Completed milestones
 - N0 boundary inventory is done and accepted; see [N0_INVENTORY.md](N0_INVENTORY.md).
 - N1 CPU-without-JIT is done and accepted with its recorded performance caveat.
-- N2 Stages 0-2 are complete as summarized above.
+- N2 Stages 0-3b-3 are complete as summarized above; Stage 3c is the next user validation.
+
+### Session 43 summary
+- Dev8 (Stage 3b-1) added kernel-free anonymous mapping, free-area search, and IPC copy rules to the native headers; nothing was connected.
+- Dev9 (Stage 3b-2) added the unconnected kernel adapters (page source, resource-limit accounting, host map, KNativeProcessMemory) and the replaced-kernel side-effect table.
+- Dev10 (Stage 3b-3) made `KProcessPageTable` use the native guest-memory model by default, with per-process fallback for non-39-bit spaces.
+- Unsupported native operations now return `ResultNotImplemented`, count and log their operation/address, and report final counts at process finalize.
+- Native mode wins over the shadow option with a warning; initialization logs `native_mem enabled`.
+- Reviewer P1: grep every caller of a replaced API, including service code such as nvmap; reviewer P2: guard every method that reads block state.
+
+### Session 44 summary
+- Stage 3c JIT validation passed with native memory default-on and with `SUYU_NATIVE_MEM=0`; the native run logged `native_mem enabled` and final `unsupported_ops=0 inconsistency=0`, with no unsupported lines or crash. Logs are `D:\HisuiWakeBuild\diag\cpu_budget\jit_4362604_native_on_log.txt` and `jit_4362604_native_off_log.txt`.
+- In steady 301-frame windows from t=61..111 s, process CPU averaged 75.3 versus 77.2 ms/frame and frame p99 was about 34 ms in both; separate launches, unrecorded native-on bag time, and non-identical position/operation prevent a bag-segment A/B or performance-parity claim. Initial load windows through t=51 s stalled in both runs; AOT 3c has not run.
+- The first two launches froze in `Shadow::CompareBlocks` under `KProcessPageTable::RunShadowed` from `Svc::MapMemory` because the JIT `svc_memory.cpp.obj` was stale and ninja held an empty header dependency entry; deleting the object and rebuilding fixed the run, with no source change.
+- After `vcvars64`, `ninja -t deps` shows no unexpected `#deps 0,` core objects in `src/core`, `src/common`, `src/video_core`, or `src/hid_core`; only the documented video-core `nsight_aftermath_tracker.cpp.obj` and non-core generated/data objects are legitimate. The no-JIT tree has no such core object; its `svc_memory.cpp.obj` has 247 dependencies, is older than the header, and must be timestamp-checked after the next build.
+- Diagnostics used DbgHelp `StackWalk64` with a PDB GUID/Age check; scratch files were removed with `cleanup_scratch.ps1`.
 
 ## Immediate next action
-1. The user commits `v0.0.3-dev10`.
-2. Run the 3c user PLA sessions: JIT and AOT, including bag and quit segments, with `unsupported_ops=0`; compare CPU ms/frame and p99 frame interval with `SUYU_NATIVE_MEM=0`. Back up save data first.
-3. Optional cleanups: run full `run.py` and a real `tests/recompiler_smoke` CMake configure.
-4. Dev17 title confirmation remains pending.
+1. The user commits the Markdown updates as a normal commit, with no devN entry.
+2. Reconfigure both host trees with the standing procedure and check `GIT_REV`, then confirm the no-JIT `svc_memory.cpp.obj` timestamp updated after its next build.
+3. Run the AOT Stage 3c session: commit, full export, bag and quit, check `native_mem enabled` and `unsupported_ops=0`, and compare with `SUYU_NATIVE_MEM=0`; if anything freezes in `RunShadowed`, perform the same stale-object check.
+4. If `unsupported_ops>0`, follow the existing rule and implement it natively as a new dev stage.
+5. Keep the optional cleanups and the dev17 title item; do not start Stages 4-5.
 
 ## Open items
 - Qt combo-index bug: `src/suyu/configuration/configure_audio.cpp:72` maps Libretro index 4 to value 5; value 4 is Null-sink.
@@ -88,6 +86,7 @@ Keep diagnostics execution-neutral when off, exact-0 default-on semantics, ABI/r
 - The `slots` identifier collides with the Qt keyword macro in widely included headers; use another name.
 - From Git Bash, `cmd.exe /c <bat>` can drop into interactive cmd and hang; run vcvars scripts through the PowerShell tool.
 - Header-mutant sweeps take about 15 s per mutant with cl; record a state-only/relaxed comparison as a weakened check.
+- A freeze in a kernel header-only change whose environment switch is off may be a stale object with an empty ninja deps entry; run `ninja -t deps` and search `#deps 0,` before changing code.
 
 ## How to proceed
 Read the start checklist, verify evidence, use one worker at a time, and record only verified facts. Per stage: plan, implement with a unit test and header mutants, Code reviewer, host build, md Implementer batch, Japanese report with file list and a commit message ending in `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`, then wait for the user's commit.

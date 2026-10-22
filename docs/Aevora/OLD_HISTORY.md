@@ -2749,3 +2749,34 @@ HEAD is `ca825f8 v0.0.3-dev5: harden the native memory shadow comparison (N2 sta
 - The writer of the extra Locked/Uncached bits on already-mapped pages during `MapPhysicalMemory` was not identified. Because physical-op comparison relaxes already-mapped, still-non-Free pages to `state` only, zero mismatches does not prove permission/attribute preservation for `MapPhysicalMemory`/`UnmapPhysicalMemory`; the removed event ring and block dumps must be re-added if hunting resumes.
 - The shadow does not compare `Common::PageTable` entries or hook the `QueryMemory` SVC; alias validity still uses alias records, and unhooked mutators are absorbed by the next re-adoption rather than checked. The 4 GiB shadow capacity is made trivially agreeing for a real `LimitReached` on that operation by temporarily using pre-call normal bytes, then restoring it.
 
+## Archived on 2026-10-22 from WORK_PLAN.md (session 43 cleanup)
+
+### Stage 2 limits to remember
+- The writer of extra Locked/Uncached bits on already-mapped pages during MapPhysicalMemory is unidentified.
+- Physical-op comparison is state-only for the relaxed cases; zero mismatches does not prove permission/attribute preservation for those two ops.
+- QueryMemory SVC is not hooked and `Common::PageTable` entries are not compared.
+- Coverage was JIT-only; hunting diagnostics were removed in dev6 and must be re-added if hunting resumes.
+- Full `run.py` and a real `tests/recompiler_smoke` CMake configure were never run for Stage 1/2.
+
+### Stage 3b-2 limits to remember
+- Adapters are compiled into both host trees but nothing calls them; the 3b-2 side-effect table lists divergences to resolve in 3b-3 (MapMemory source host mapping, TLS page-buffer refcount, linear-mapped check by state flag, optimized-process fill skipping).
+- `UnmapMemory`, transfer-memory locks, device locks, and `GetInfo` accounting still need a read before 3b-3.
+- With the optimized-process allocation mode the kernel skips the fill of reused MapPhysicalMemory pages while the native source always fills.
+- Full `run.py`, smoke CMake configure, and PLA sessions were not run.
+
+### Stage 3b-1 limits to remember
+- Headers are kernel-free and unconnected; `SUYU_NATIVE_MEM` does not exist in code before dev10.
+- Dev9 adapters are not yet switched; no kernel adapter, host inclusion, JIT/no-JIT rebuild, or PLA session exists.
+- IPC message copies are supported-path operations, but IPC map-alias (`SetupForIpc`) remains unobserved and unsupported.
+- Dev10 must keep native and `KPageTable` per-process state exclusive; only layout/query helpers and `Common::PageTable` remain on `KPageTable`.
+
+### Stage 3a limits to remember
+- The full `tests/recompiler_smoke/run.py` suite was not run.
+- A real `tests/recompiler_smoke` CMake configure was not run.
+- The no-JIT tree was not rebuilt.
+- No PLA session was run; bag and quit remain unsegmented.
+- nvmap device-map locks and shared/transfer/vi/TLS callers are modeled but not connected; IPC map-alias/SetupForIpc, MapCodeMemory, and unsafe/insecure operations remain unsupported.
+- The writer of extra Locked/Uncached bits remains unidentified.
+
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`.
+
