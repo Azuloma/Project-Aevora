@@ -2,6 +2,20 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev9 - Unreleased
+
+*Development entry 9 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added kernel-free pure conversions in `native_kernel_convert.h` and kernel adapters in `k_native_memory_adapters.h`: a physical page source over `KMemoryManager`, host mapping over `Core::Memory`, DeviceMemory access, page-group conversion with Open/Close, `KMemoryInfo` conversion, and per-process ownership with resource-limit accounting.
+- Added compile-time checks of kernel result and encoding constants, plus the 12-mutant native-kernel-convert unit.
+
+### Changed
+
+- Added `MemoryInfo.device_count` and `KPageTableBase::GetHeapFillValue()`.
+- Nothing is switched and no option exists yet; `SUYU_NATIVE_MEM` does not exist in code before dev10.
+
 ## v0.0.3-dev8 - Unreleased
 
 *Development entry 8 toward v0.0.3. Not a release; no build artifacts are published.*

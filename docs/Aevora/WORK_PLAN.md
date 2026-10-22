@@ -6,9 +6,9 @@ Handoff prepared: 2026-10-22. See [session 42 archive](OLD_HISTORY.md#archived-o
 Determine whether PLA can run through Suyu-derived static CPU recompilation, then improve the verified runtime. The N0-N10/G1-G4 end goal is in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md).
 
 ## Status
-HEAD is `d051efb v0.0.3-dev7` (Stage 3a, committed); working tree contains uncommitted `v0.0.3-dev8` (N2 Stage 3b-1 kernel-free headers only), pending the user's commit.
-Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`.
-The working tree contains only the uncommitted dev8 source/tests and its Markdown record.
+HEAD is `ddfb960 v0.0.3-dev8` (Stage 3b-1, committed); the working tree contains uncommitted `v0.0.3-dev9` (N2 Stage 3b-2 adapters, unused), pending the user's commit.
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`.
+The working tree contains only the uncommitted dev9 source/tests and its Markdown record.
 
 ### N2 progress
 | Stage | State |
@@ -16,7 +16,7 @@ The working tree contains only the uncommitted dev8 source/tests and its Markdow
 | 0 | Done: inventory, design note, and test4 collection. |
 | 1 | Done: standalone mapper, dev3, and mutants. |
 | 2 | Done: shadow, dev4-dev6; accepted after a JIT PLA session on the dev5 build: 0 mismatch lines, `sync_failures=0`, MapPhysicalMemory 2317 compared, SetMemoryAttribute 239, MapMemory 26, UnmapMemory 3, SetHeapSize 1, UnmapPhysicalMemory 1, SetMemoryPermission 0 not exercised; accepted with the recorded limits. |
-| 3 | Stage 3a done; Stage 3b-1 done pending commit; Stage 3b-2, 3b-3, and 3c remain. |
+| 3 | Stage 3a and 3b-1 done; Stage 3b-2 done pending commit; Stage 3b-3 and 3c remain. |
 | 4-5 | Not started. |
 
 See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verification).
@@ -27,6 +27,12 @@ See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verif
 - QueryMemory SVC is not hooked and `Common::PageTable` entries are not compared.
 - Coverage was JIT-only; hunting diagnostics were removed in dev6 and must be re-added if hunting resumes.
 - Full `run.py` and a real `tests/recompiler_smoke` CMake configure were never run for Stage 1/2.
+
+### Stage 3b-2 limits to remember
+- Adapters are compiled into both host trees but nothing calls them; the 3b-2 side-effect table lists divergences to resolve in 3b-3 (MapMemory source host mapping, TLS page-buffer refcount, linear-mapped check by state flag, optimized-process fill skipping).
+- `UnmapMemory`, transfer-memory locks, device locks, and `GetInfo` accounting still need a read before 3b-3.
+- With the optimized-process allocation mode the kernel skips the fill of reused MapPhysicalMemory pages while the native source always fills.
+- Full `run.py`, smoke CMake configure, and PLA sessions were not run.
 
 ### Stage 3b-1 limits to remember
 - Headers are kernel-free and unconnected; `SUYU_NATIVE_MEM` does not exist in code before dev10.
@@ -49,8 +55,8 @@ See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verif
 - N2 Stages 0-2 are complete as summarized above.
 
 ## Immediate next action
-1. The user commits `v0.0.3-dev8` (Stage 3b-1 kernel-free headers and documentation).
-2. Next implement Stage 3b-2: add adapters without switching `KProcessPageTable`, record exact replaced-kernel side effects in N2_DESIGN, and run JIT/no-JIT host builds.
+1. The user commits `v0.0.3-dev9`.
+2. Next implement Stage 3b-3: switch `KProcessPageTable` to native-or-`KPageTable` with `SUYU_NATIVE_MEM` default on (`=0` disables), exclusive with the Stage 2 shadow, counted fail-fast stubs, per-process fallback for non-39-bit layouts; the user should back up save data before running 3c.
 3. Optional cleanups: run full `run.py`, a real `tests/recompiler_smoke` CMake configure, and a no-JIT/AOT shadow session.
 4. Dev17 title confirmation remains pending.
 

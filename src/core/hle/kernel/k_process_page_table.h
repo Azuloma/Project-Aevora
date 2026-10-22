@@ -14,6 +14,7 @@
 
 #include "common/env_option.h"
 #include "common/logging.h"
+#include "core/hle/kernel/k_native_memory_adapters.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_scoped_lock.h"
 #include "core/hle/kernel/svc_results.h"

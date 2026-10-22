@@ -706,6 +706,10 @@ public:
         return m_allocate_option;
     }
 
+    u8 GetHeapFillValue() const {
+        return m_heap_fill_value;
+    }
+
     u32 GetAddressSpaceWidth() const {
         return m_address_space_width;
     }

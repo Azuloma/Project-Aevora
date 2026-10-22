@@ -424,9 +424,12 @@ int DeviceMapLocksAreCounted() {
     CHECK(!is_io);
     CHECK_RESULT(f.memory.LockForMapDevice(base, 0x4000, 0, false, true, is_io), Result::Success);
     CHECK((f.memory.Space().QueryInfo(base).attribute & AttributeDeviceShared) != 0);
+    CHECK(f.memory.Space().QueryInfo(base).device_count == 2);
+    CHECK(f.memory.Space().QueryInfo(base + 0x4000).device_count == 1);
 
     CHECK_RESULT(f.memory.UnlockForDevice(base, 0x8000), Result::Success);
     CHECK((f.memory.Space().QueryInfo(base).attribute & AttributeDeviceShared) != 0);
+    CHECK(f.memory.Space().QueryInfo(base).device_count == 1);
     CHECK((f.memory.Space().QueryInfo(base + 0x4000).attribute & AttributeDeviceShared) == 0);
     CHECK_RESULT(f.memory.UnlockForDevice(base, 0x8000), Result::InvalidCurrentMemory);
     CHECK_RESULT(f.memory.UnlockForDevice(base, 0x4000), Result::Success);

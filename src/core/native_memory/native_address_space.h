@@ -427,6 +427,7 @@ struct MemoryInfo {
     MemoryState state = MemoryState::Free;
     u8 attribute = AttributeNone;
     u8 permission = 0;
+    std::uint16_t device_count = 0;
 };
 
 struct StoredBlock {
@@ -505,7 +506,7 @@ public:
         }
         const auto it = FindBlock(address);
         return {it->first, it->second.end - it->first, it->second.state, it->second.attribute,
-                static_cast<u8>(it->second.permission & PermUserMask)};
+                static_cast<u8>(it->second.permission & PermUserMask), it->second.device_count};
     }
 
     Result MapProcessMemory(u64 address, u64 size, MemoryState state, Permission permission) {
