@@ -2,6 +2,24 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev6 - Unreleased
+
+*Development entry 6 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Changed
+
+- Removed the temporary native-memory-shadow event ring, before/pre/after block dumps, and `std::source_location` event names used to hunt the unidentified writer. Mismatch lines, periodic/final summaries, atomic overlap detection, bystander guards, and the capacity override remain; `LogShadowReports` now runs inside the single shadow-mutex block.
+
+### Verified
+
+- A real JIT PLA session on the dev5 build (`ca825f8`) with `SUYU_NATIVE_MEM_SHADOW=1` recorded 0 `native_mem_shadow mismatch` lines and `sync_failures=0`; final compared/result/state/boundary/skipped counts were MapMemory 26/0/0/8/0, UnmapMemory 3/0/0/0/0, SetMemoryPermission 0/0/0/0/0, SetMemoryAttribute 239/0/0/0/0, SetHeapSize 1/0/0/0/0, MapPhysicalMemory 2317/0/0/71/23, and UnmapPhysicalMemory 1/0/0/0/0.
+- JIT and no-JIT host trees built after dev6 with 0 errors; `suyu.exe` and `suyu-cmd.exe` linked. The unit test and mutants were unchanged and not re-run.
+
+### Known limitations / held items
+
+- The physical-op state-only relaxation remains, so zero mismatches does not prove permission/attribute preservation of already-mapped pages for `MapPhysicalMemory`/`UnmapPhysicalMemory`; the writer remains unidentified. The dev6 build has not had a real session, and no AOT/no-JIT session was run.
+- A future mismatch reports only its mismatch line and summary; the removed event-ring and block-dump diagnostics must be re-added if writer hunting resumes. Stage 3 (`SUYU_NATIVE_MEM` primary mode) requires user approval.
+
 ## v0.0.3-dev5 - Unreleased
 
 *Development entry 5 toward v0.0.3. Not a release; no build artifacts are published.*

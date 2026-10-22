@@ -6,14 +6,10 @@
 
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <cstdlib>
-#include <functional>
 #include <memory>
 #include <mutex>
-#include <source_location>
-#include <thread>
 #include <vector>
 
 #include "common/env_option.h"
@@ -40,52 +36,17 @@ private:
     static constexpr u64 ShadowEntryUnit = (1ULL << 32) | 1;
     std::atomic<u64> m_shadow_state{0};
 
-    struct ShadowEvent {
-        u64 sequence = 0;
-        size_t thread_hash = 0;
-        const char* name = "";
-        bool begin = false;
-    };
-    static constexpr size_t ShadowEventCount = 24;
-    std::mutex m_shadow_event_mutex;
-    std::array<ShadowEvent, ShadowEventCount> m_shadow_events{};
-    u64 m_shadow_event_total = 0;
-
-    void RecordShadowEvent(const char* name, bool begin) {
-        std::scoped_lock lk{m_shadow_event_mutex};
-        m_shadow_events[m_shadow_event_total % ShadowEventCount] = {
-            m_shadow_event_total, std::hash<std::thread::id>{}(std::this_thread::get_id()), name,
-            begin};
-        ++m_shadow_event_total;
-    }
-
-    void LogShadowEvents() {
-        std::scoped_lock lk{m_shadow_event_mutex};
-        const u64 first = m_shadow_event_total > ShadowEventCount
-                              ? m_shadow_event_total - ShadowEventCount
-                              : 0;
-        for (u64 index = first; index < m_shadow_event_total; ++index) {
-            const ShadowEvent& event = m_shadow_events[index % ShadowEventCount];
-            LOG_WARNING(Kernel, "native_mem_shadow event #{} thread={:#x} {} {}", event.sequence,
-                        event.thread_hash, event.begin ? "begin" : "end", event.name);
-        }
-    }
-
     // Unhooked mutators mark an overlap so a concurrent comparison is skipped, not misjudged.
     class ShadowBystander {
     public:
-        explicit ShadowBystander(
-            KProcessPageTable& table,
-            const char* name = std::source_location::current().function_name())
-            : m_table(table), m_name(name), m_counted(table.m_shadow != nullptr) {
+        explicit ShadowBystander(KProcessPageTable& table)
+            : m_table(table), m_counted(table.m_shadow != nullptr) {
             if (m_counted) {
                 m_table.m_shadow_state.fetch_add(ShadowEntryUnit);
-                m_table.RecordShadowEvent(m_name, true);
             }
         }
         ~ShadowBystander() {
             if (m_counted) {
-                m_table.RecordShadowEvent(m_name, false);
                 m_table.m_shadow_state.fetch_sub(1);
             }
         }
@@ -94,7 +55,6 @@ private:
 
     private:
         KProcessPageTable& m_table;
-        const char* m_name;
         bool m_counted;
     };
 
@@ -180,23 +140,6 @@ private:
         return address + size < address ? ~0ULL : address + size;
     }
 
-    static void LogBlocksInRange(const char* label, const std::vector<NativeMemory::StoredBlock>& blocks,
-                                 u64 address, u64 size) {
-        constexpr size_t MaxLoggedBlocks = 16;
-        size_t logged = 0;
-        for (const NativeMemory::StoredBlock& block : blocks) {
-            if (block.base + block.size <= address || block.base >= SaturatedEnd(address, size)) {
-                continue;
-            }
-            if (logged++ == MaxLoggedBlocks) {
-                break;
-            }
-            LOG_WARNING(Kernel, "native_mem_shadow {} base={:#x} size={:#x} state={:#x} perm={:#x} attr={:#x}",
-                        label, block.base, block.size, static_cast<u32>(block.state),
-                        block.permission, block.attribute);
-        }
-    }
-
     void LogShadowReports() {
         for (const std::string& report : m_shadow->TakeReports()) {
             LOG_WARNING(Kernel, "native_mem_shadow mismatch: {}", report);
@@ -221,24 +164,19 @@ private:
         const u64 entered_state = m_shadow_state.fetch_add(ShadowEntryUnit);
         const bool entered_alone = (entered_state & 0xFFFFFFFFULL) == 0;
         const u64 entry_count = (entered_state >> 32) + 1;
-        RecordShadowEvent(NativeMemory::ShadowOpName(op).data(), true);
         const u64 space_start = GetInteger(m_page_table.GetAddressSpaceStart());
         const auto before = ObserveBlocks(space_start, space_start + m_page_table.GetAddressSpaceSize());
         const u64 normal_bytes_before = m_page_table.GetNormalMemorySize();
-        const auto pre_range = ObserveBlocks(address, SaturatedEnd(address, size));
         const Result real = real_fn();
         const auto after = ObserveBlocks(address, SaturatedEnd(address, size));
         const auto second_after = second_address == 0
                                       ? std::vector<NativeMemory::StoredBlock>{}
                                       : ObserveBlocks(second_address, SaturatedEnd(second_address, size));
         const bool overlapped = !entered_alone || (m_shadow_state.load() >> 32) != entry_count;
-        RecordShadowEvent(NativeMemory::ShadowOpName(op).data(), false);
         m_shadow_state.fetch_sub(1);
 
-        bool mismatch_found = false;
         {
             std::scoped_lock lk{m_shadow->Mutex()};
-            const u64 mismatches_before = m_shadow->TotalMismatches();
             if (overlapped) {
                 m_shadow->CountSkipped(op);
             } else {
@@ -257,17 +195,7 @@ private:
                 if (second_address != 0) {
                     m_shadow->CompareBlocks(op, second_address, size, second_after, before);
                 }
-                mismatch_found = m_shadow->TotalMismatches() != mismatches_before;
             }
-        }
-        if (mismatch_found) {
-            LogBlocksInRange("before", before, address, size);
-            LogBlocksInRange("pre", pre_range, address, size);
-            LogBlocksInRange("after", after, address, size);
-            LogShadowEvents();
-        }
-        {
-            std::scoped_lock lk{m_shadow->Mutex()};
             LogShadowReports();
         }
         R_RETURN(real);

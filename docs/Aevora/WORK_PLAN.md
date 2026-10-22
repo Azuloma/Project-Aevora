@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `8133d92 v0.0.3-dev4: rename a mapper local that collided with the Qt slots macro`. Stage 2 dev5 is implemented in uncommitted changes as the follow-up to `v0.0.3-dev4`: the opt-in native memory shadow uses atomic overlap tracking, reviewed `ShadowBystander` guards, post-mutex diagnostics, 4 GiB capacity handling, and physical-op relaxation. The 17-check shadow unit passed, all 20 header mutants exited 1 under the `D:\HisuiWakeBuild` scratch script runner, and JIT/no-JIT host builds linked both frontends with 0 errors. A user JIT PLA session with the flag enabled (before the review fixes) had 0 mismatch lines and `sync_failures=0`; full `run.py`, a real test CMake configure, and a real session with the final dev5 code remain unverified. The repository origin moved to `https://github.com/project-aevora/project.aevora-main` (the old `Azuloma/project.aevora-main` URL redirects).
+HEAD is `ca825f8 v0.0.3-dev5: harden the native memory shadow comparison (N2 stage 2)`. Dev6 is the current uncommitted follow-up: it removes the temporary event ring and before/pre/after block dumps used to hunt the unidentified writer while retaining mismatch lines, summaries, overlap detection, bystander guards, and the capacity override. A real JIT PLA session on dev5 with `SUYU_NATIVE_MEM_SHADOW=1` recorded 0 mismatch lines and `sync_failures=0`; final counts were MapMemory 26/0/0/8/0, UnmapMemory 3/0/0/0/0, SetMemoryPermission 0/0/0/0/0, SetMemoryAttribute 239/0/0/0/0, SetHeapSize 1/0/0/0/0, MapPhysicalMemory 2317/0/0/71/23, and UnmapPhysicalMemory 1/0/0/0/0. JIT and no-JIT host trees built after dev6 with 0 errors and linked both frontends; the unit test and mutants were unchanged and not re-run. The repository origin moved to `https://github.com/project-aevora/project.aevora-main` (the old `Azuloma/project.aevora-main` URL redirects).
 
 ## Handoff
 
@@ -25,11 +25,10 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 
 ## Immediate next action
 
-1. The user commits dev5 with the message `v0.0.3-dev5: harden the native memory shadow comparison (N2 stage 2)`.
-2. The user may re-run a JIT supported-path play with `SUYU_NATIVE_MEM_SHADOW=1` and share the `native_mem_shadow` log to confirm zero mismatches with the fixed code.
-3. Keep or remove the event-ring and mismatch diagnostics based on the user's decision.
-4. Begin Stage 3 (`SUYU_NATIVE_MEM` primary mode) only after the user approves.
-5. The dev17 title confirmation remains pending.
+1. The user commits dev6 with the message `v0.0.3-dev6: remove temporary native memory shadow hunt diagnostics`.
+2. If writer hunting is needed again, re-add the removed event-ring and before/pre/after block-dump diagnostics; a future mismatch currently reports only its mismatch line and summary.
+3. Begin Stage 3 (`SUYU_NATIVE_MEM` primary mode) only after the user approves.
+4. The dev17 title confirmation remains pending.
 
 ## Open items
 
@@ -46,8 +45,8 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 - Old N0 follow-ups: inventory under the AOT launcher, scan stall time, SVC 0x23 stash limit, IPC attribution beyond the SDK, gate on Linux, and typed-label input.
 - The full `tests/recompiler_smoke/run.py` suite was not run, and the no-JIT tree was not rebuilt after Stage 0; bag and quit were not segmented in test4.
 - The full `tests/recompiler_smoke/run.py` suite was not run for N2 Stage 1; CMake wiring was verified only through a `cmake -P` script-mode run, not a real configure. Stage 2 must decide whether to model the kernel's disable-merge block attributes, which can make `QueryMemory` base/size smaller after adjacent `MapMemory` calls than in the mapper that only coalesces identical neighbours.
-- N2 Stage 2 has not had a full `run.py` run, a real `tests/recompiler_smoke` CMake configure, or a real supported-path session with the final dev5 code; the observed session was JIT-only and pre-review-fix. AOT/no-JIT session coverage remains absent.
-- The writer of the extra Locked/Uncached bits on already-mapped pages during `MapPhysicalMemory` was not identified: it was not hooked or guarded in the event ring, the pre-call snapshot equals the before snapshot, and the change appears by the after snapshot. Because physical-op comparison relaxes already-mapped, still-non-Free pages to `state` only, zero mismatches does not prove permission/attribute preservation for `MapPhysicalMemory`/`UnmapPhysicalMemory`.
+- N2 Stage 2 has not had a full `run.py` run, a real `tests/recompiler_smoke` CMake configure, or a real supported-path session with the dev6 code; the verified real session was JIT-only on dev5. AOT/no-JIT session coverage remains absent. The unit test and mutants were unchanged and not re-run after dev6.
+- The writer of the extra Locked/Uncached bits on already-mapped pages during `MapPhysicalMemory` was not identified. Because physical-op comparison relaxes already-mapped, still-non-Free pages to `state` only, zero mismatches does not prove permission/attribute preservation for `MapPhysicalMemory`/`UnmapPhysicalMemory`; the removed event ring and block dumps must be re-added if hunting resumes.
 - The shadow does not compare `Common::PageTable` entries or hook the `QueryMemory` SVC; alias validity still uses alias records, and unhooked mutators are absorbed by the next re-adoption rather than checked. The 4 GiB shadow capacity is made trivially agreeing for a real `LimitReached` on that operation by temporarily using pre-call normal bytes, then restoring it.
 
 ## Measurement setup
