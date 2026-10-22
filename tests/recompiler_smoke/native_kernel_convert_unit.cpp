@@ -38,6 +38,31 @@ int HostPermissionFollowsTheKernelBitTests() {
     return 0;
 }
 
+int StoredPermissionInvertsOnlySvcEncodings() {
+    for (const Permission permission :
+         {Permission::None, Permission::Read, Permission::ReadWrite, Permission::ReadExecute}) {
+        Permission back = permission == Permission::Read ? Permission::None : Permission::Read;
+        CHECK(FromStoredPermission(ToStoredPermission(permission), back));
+        CHECK(back == permission);
+    }
+    Permission untouched = Permission::ReadWrite;
+    CHECK(!FromStoredPermission(PermKernelRead, untouched));
+    CHECK(!FromStoredPermission(2 | PermKernelRead | PermKernelWrite, untouched));
+    CHECK(!FromStoredPermission(0, untouched));
+    CHECK(untouched == Permission::ReadWrite);
+    return 0;
+}
+
+int PageGroupIdentityIgnoresHowPagesAreSplit() {
+    const std::vector<PhysicalExtent> whole{{0x10000, 0x4000}};
+    CHECK(SamePhysicalPages(whole, {{0x10000, 0x1000}, {0x11000, 0x3000}}));
+    CHECK(!SamePhysicalPages(whole, {{0x10000, 0x1000}, {0x12000, 0x3000}}));
+    CHECK(!SamePhysicalPages(whole, {{0x10000, 0x3000}}));
+    CHECK(!SamePhysicalPages(whole, {{0x20000, 0x4000}}));
+    CHECK(!SamePhysicalPages({{0x1000, 0x1000}, {0x5000, 0x1000}}, {{0x5000, 0x1000}, {0x1000, 0x1000}}));
+    return 0;
+}
+
 int PhysicalAddressesRoundTripThroughTheDramBase() {
     u64 offset = 0;
     CHECK(PhysicalToDramOffset(kDramBase + 0x12000, kDramBase, offset));
@@ -241,6 +266,8 @@ int KernelResultCodesStayDistinct() {
 
 int main() {
     CHECK(HostPermissionFollowsTheKernelBitTests() == 0);
+    CHECK(StoredPermissionInvertsOnlySvcEncodings() == 0);
+    CHECK(PageGroupIdentityIgnoresHowPagesAreSplit() == 0);
     CHECK(PhysicalAddressesRoundTripThroughTheDramBase() == 0);
     CHECK(CapacityIsUsePlusLimitHeadroom() == 0);
     CHECK(ResourceLimitBoundsPhysicalMemory() == 0);

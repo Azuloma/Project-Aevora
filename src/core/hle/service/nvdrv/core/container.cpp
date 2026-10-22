@@ -70,7 +70,7 @@ SessionId Container::OpenSession(Kernel::KProcess* process) {
     session.ref_count = 1;
     // Optimization
     if (process->IsApplication()) {
-        auto& page_table = process->GetPageTable().GetBasePageTable();
+        auto& page_table = process->GetPageTable();
         auto heap_start = page_table.GetHeapRegionStart();
 
         Kernel::KProcessAddress cur_addr = heap_start;

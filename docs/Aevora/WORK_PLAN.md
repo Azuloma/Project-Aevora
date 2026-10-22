@@ -6,9 +6,9 @@ Handoff prepared: 2026-10-22. See [session 42 archive](OLD_HISTORY.md#archived-o
 Determine whether PLA can run through Suyu-derived static CPU recompilation, then improve the verified runtime. The N0-N10/G1-G4 end goal is in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md).
 
 ## Status
-HEAD is `ddfb960 v0.0.3-dev8` (Stage 3b-1, committed); the working tree contains uncommitted `v0.0.3-dev9` (N2 Stage 3b-2 adapters, unused), pending the user's commit.
-Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`.
-The working tree contains only the uncommitted dev9 source/tests and its Markdown record.
+HEAD is `aebd786 v0.0.3-dev9` (N2 Stage 3b-2, committed); the working tree contains uncommitted `v0.0.3-dev10` (N2 Stage 3b-3 native primary page table), pending the user's commit.
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`.
+The working tree contains only the uncommitted dev10 source/tests and its Markdown record.
 
 ### N2 progress
 | Stage | State |
@@ -16,7 +16,7 @@ The working tree contains only the uncommitted dev9 source/tests and its Markdow
 | 0 | Done: inventory, design note, and test4 collection. |
 | 1 | Done: standalone mapper, dev3, and mutants. |
 | 2 | Done: shadow, dev4-dev6; accepted after a JIT PLA session on the dev5 build: 0 mismatch lines, `sync_failures=0`, MapPhysicalMemory 2317 compared, SetMemoryAttribute 239, MapMemory 26, UnmapMemory 3, SetHeapSize 1, UnmapPhysicalMemory 1, SetMemoryPermission 0 not exercised; accepted with the recorded limits. |
-| 3 | Stage 3a and 3b-1 done; Stage 3b-2 done pending commit; Stage 3b-3 and 3c remain. |
+| 3 | Stage 3a, 3b-1, and 3b-2 done; Stage 3b-3 implemented and pending commit; 3c remains. |
 | 4-5 | Not started. |
 
 See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verification).
@@ -55,9 +55,9 @@ See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verif
 - N2 Stages 0-2 are complete as summarized above.
 
 ## Immediate next action
-1. The user commits `v0.0.3-dev9`.
-2. Next implement Stage 3b-3: switch `KProcessPageTable` to native-or-`KPageTable` with `SUYU_NATIVE_MEM` default on (`=0` disables), exclusive with the Stage 2 shadow, counted fail-fast stubs, per-process fallback for non-39-bit layouts; the user should back up save data before running 3c.
-3. Optional cleanups: run full `run.py`, a real `tests/recompiler_smoke` CMake configure, and a no-JIT/AOT shadow session.
+1. The user commits `v0.0.3-dev10`.
+2. Run the 3c user PLA sessions: JIT and AOT, including bag and quit segments, with `unsupported_ops=0`; compare CPU ms/frame and p99 frame interval with `SUYU_NATIVE_MEM=0`. Back up save data first.
+3. Optional cleanups: run full `run.py` and a real `tests/recompiler_smoke` CMake configure.
 4. Dev17 title confirmation remains pending.
 
 ## Open items

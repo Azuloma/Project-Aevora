@@ -2,6 +2,30 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev10 - Unreleased
+
+*Development entry 10 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the native guest-memory primary page-table path in `KProcessPageTable`, selected by `SUYU_NATIVE_MEM` at initialization (default on; `=0` disables it), with per-process fallback to `KPageTable` for non-39-bit address spaces.
+- Added native implementations for supported permissions, attributes, heap and physical memory, mappings, page groups, transfer/device locks, IPC copies, and memory queries; unsupported operations are counted and fail with `ResultNotImplemented` and an operation/address log.
+- Added `KNativeProcessMemory::WithBoth`, stored-permission conversion, physical-page identity checks, and three conversion/accounting mutants.
+
+### Changed
+
+- Native mode is exclusive with the Stage 2 shadow; native wins with a warning when both options are enabled. `KPageTable` remains for layout/query helpers and its `Common::PageTable` implementation.
+- Updated the nvmap container to query through `KProcessPageTable::QueryInfo`.
+
+### Verification
+
+- The two native-kernel-convert unit-test groups passed; the three new mutants exited 1 at their intended checks. JIT (304 steps) and no-JIT (298 steps) host trees rebuilt with 0 errors and linked `suyu.exe` and `suyu-cmd.exe`.
+- Code-review findings for nvmap device locks, page-group identity, and static/IO mapping plus mixed-source IPC guards were fixed.
+
+### Not run
+
+- The full `run.py`, a real smoke CMake configure, and PLA sessions were not run. Back up save data before 3c because native memory is default-on.
+
 ## v0.0.3-dev9 - Unreleased
 
 *Development entry 9 toward v0.0.3. Not a release; no build artifacts are published.*

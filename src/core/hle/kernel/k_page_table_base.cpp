@@ -5800,4 +5800,8 @@ void KPageTableBase::FinalizeUpdate(PageLinkedList* page_list) {
     }
 }
 
+void KPageTableBase::InvalidateInstructionCacheRange(KProcessAddress address, size_t size) {
+    InvalidateInstructionCache(m_system.Kernel(), this, address, size);
+}
+
 } // namespace Kernel

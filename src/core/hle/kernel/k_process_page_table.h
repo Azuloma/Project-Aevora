@@ -25,13 +25,22 @@ namespace Kernel {
 
 namespace NativeMemory = Core::NativeMemory;
 
+// Declared in k_thread.h; the IPC copies write to and read from the calling process.
+Core::Memory::Memory& GetCurrentMemory(KernelCore& kernel);
+
+// With the native model active, block state lives in m_native and m_page_table keeps only the layout
+// and the Common::PageTable. Operations the model does not support fail with a counted log line.
 class KProcessPageTable {
 private:
     // Matches the default DeviceMemory backing; the real limit is the process resource limit.
     static constexpr u64 ShadowPhysicalCapacityBytes = 4ULL << 30;
     static constexpr u64 ShadowSummaryInterval = 64;
+    static constexpr u32 NativeAddressSpaceWidth = 39;
 
     KPageTable m_page_table;
+    KernelCore& m_kernel;
+    std::unique_ptr<NativeAdapters::KNativeProcessMemory> m_native;
+    std::atomic<u64> m_native_unsupported_ops{0};
     std::unique_ptr<NativeMemory::Shadow> m_shadow;
     // High 32 bits count entries, low 32 bits count calls in flight; one atomic keeps them consistent.
     static constexpr u64 ShadowEntryUnit = (1ULL << 32) | 1;
@@ -62,6 +71,111 @@ private:
     static bool IsShadowRequested() {
         const char* value = std::getenv("SUYU_NATIVE_MEM_SHADOW");
         return Common::EnvFlagDefaultOff(value ? value : "");
+    }
+
+    static bool IsNativeRequested() {
+        const char* value = std::getenv("SUYU_NATIVE_MEM");
+        return Common::EnvFlagDefaultOn(value ? value : "");
+    }
+
+    Result Unsupported(const char* operation, u64 address) {
+        m_native_unsupported_ops.fetch_add(1);
+        LOG_ERROR(Kernel,
+                  "native_mem: {} at {:#x} is not supported by the native model (SUYU_NATIVE_MEM=0 "
+                  "restores the kernel page table)",
+                  operation, address);
+        return ResultNotImplemented;
+    }
+
+    static bool ToNativePermission(KMemoryPermission permission, NativeMemory::Permission& out) {
+        return NativeMemory::FromStoredPermission(static_cast<u8>(permission), out);
+    }
+
+    static NativeMemory::CopyRule MakeCopyRule(KMemoryState state_mask, KMemoryState state,
+                                               KMemoryPermission test_permission,
+                                               KMemoryAttribute attribute_mask,
+                                               KMemoryAttribute attribute) {
+        return {static_cast<u32>(state_mask), static_cast<u32>(state),
+                static_cast<u8>(test_permission), static_cast<u8>(attribute_mask),
+                static_cast<u8>(attribute)};
+    }
+
+    static bool IsAnonymousMapState(KMemoryState state) {
+        return state == KMemoryState::Code || state == KMemoryState::CodeData ||
+               state == KMemoryState::Stack;
+    }
+
+    // The linear side is read and written straight in DeviceMemory; the user side stays with the callers.
+    Result ReadNativeLinear(KProcessAddress address, size_t size, const NativeMemory::CopyRule& rule,
+                            void* out) {
+        NativeAdapters::KernelPhysicalAccess access{m_kernel.System().DeviceMemory()};
+        return NativeAdapters::ToKernelResult(
+            m_native->WithSpace([&](const NativeMemory::MappedAddressSpace& space) {
+                return space.ReadLinear(GetInteger(address), size, rule, access, out);
+            }));
+    }
+
+    Result WriteNativeLinear(KProcessAddress address, size_t size, const NativeMemory::CopyRule& rule,
+                             const void* data) {
+        NativeAdapters::KernelPhysicalAccess access{m_kernel.System().DeviceMemory()};
+        return NativeAdapters::ToKernelResult(
+            m_native->WithSpace([&](const NativeMemory::MappedAddressSpace& space) {
+                return space.WriteLinear(GetInteger(address), size, rule, access, data);
+            }));
+    }
+
+    // A null destination rule skips the destination check; both tables must be native or neither.
+    Result CopyNativeHeapToHeap(KProcessPageTable& dst_page_table, KProcessAddress dst_addr,
+                                size_t size, const NativeMemory::CopyRule* dst_rule,
+                                KProcessAddress src_addr, const NativeMemory::CopyRule& src_rule) {
+        if (!m_native || !dst_page_table.m_native) {
+            return Unsupported("CopyMemoryFromHeapToHeap between native and kernel page tables",
+                               GetInteger(src_addr));
+        }
+        NativeAdapters::KernelPhysicalAccess access{m_kernel.System().DeviceMemory()};
+        return NativeAdapters::ToKernelResult(NativeAdapters::KNativeProcessMemory::WithBoth(
+            *m_native, *dst_page_table.m_native,
+            [&](const NativeMemory::MappedAddressSpace& src,
+                const NativeMemory::MappedAddressSpace& dst) {
+                return NativeMemory::MappedAddressSpace::CopyLinear(
+                    src, GetInteger(src_addr), src_rule, dst, GetInteger(dst_addr), dst_rule, size,
+                    access);
+            }));
+    }
+
+    void CreateNativeMemory(KResourceLimit* resource_limit, Core::Memory::Memory& memory) {
+        m_native = std::make_unique<NativeAdapters::KNativeProcessMemory>(
+            NativeAdapters::KNativeProcessMemory::Config{
+                .kernel = m_kernel,
+                .device_memory = m_kernel.System().DeviceMemory(),
+                .block_info_manager = m_page_table.GetBlockInfoManager(),
+                .memory = memory,
+                .page_table = m_page_table.GetImpl(),
+                .resource_limit = resource_limit,
+                .allocate_option = m_page_table.GetAllocateOption(),
+                .fill_value = m_page_table.GetHeapFillValue(),
+                .layout = ObserveLayout(),
+                .physical_capacity_bytes = ~0ULL,
+            });
+    }
+
+    u64 NativeStateBytes(NativeMemory::MemoryState state) const {
+        return m_native->WithSpace([&](const NativeMemory::MappedAddressSpace& space) {
+            const u64 end = GetInteger(m_page_table.GetAddressSpaceStart()) +
+                            m_page_table.GetAddressSpaceSize();
+            u64 bytes = 0;
+            for (u64 cursor = GetInteger(m_page_table.GetAddressSpaceStart()); cursor < end;) {
+                const NativeMemory::MemoryInfo info = space.Space().QueryInfo(cursor);
+                if (info.state == state) {
+                    bytes += info.size;
+                }
+                if (info.size == 0 || info.base + info.size <= cursor) {
+                    break;
+                }
+                cursor = info.base + info.size;
+            }
+            return bytes;
+        });
     }
 
     static NativeMemory::Result ClassifyResult(Result result) {
@@ -203,7 +317,7 @@ private:
     }
 
 public:
-    KProcessPageTable(KernelCore& kernel) : m_page_table(kernel) {}
+    KProcessPageTable(KernelCore& kernel) : m_page_table(kernel), m_kernel(kernel) {}
 
     Result Initialize(Svc::CreateProcessFlag as_type, bool enable_aslr, bool enable_das_merge,
                       bool from_back, KMemoryManager::Pool pool, KProcessAddress code_address,
@@ -213,6 +327,19 @@ public:
         R_TRY(m_page_table.InitializeForProcess(as_type, enable_aslr, enable_das_merge, from_back,
                                                 pool, code_address, code_size, system_resource,
                                                 resource_limit, memory, aslr_space_start));
+        if (IsNativeRequested()) {
+            if (m_page_table.GetAddressSpaceWidth() == NativeAddressSpaceWidth) {
+                CreateNativeMemory(resource_limit, memory);
+                LOG_INFO(Kernel, "native_mem enabled");
+                if (IsShadowRequested()) {
+                    LOG_WARNING(Kernel,
+                                "native_mem_shadow ignored: the native model is the primary page table");
+                }
+                R_SUCCEED();
+            }
+            LOG_INFO(Kernel, "native_mem skipped for a {}-bit address space; using KPageTable",
+                     m_page_table.GetAddressSpaceWidth());
+        }
         if (IsShadowRequested()) {
             m_shadow = std::make_unique<NativeMemory::Shadow>(ObserveLayout(),
                                                               ShadowPhysicalCapacityBytes);
@@ -222,6 +349,14 @@ public:
     }
 
     void Finalize() {
+        if (m_native) {
+            const u64 inconsistency = m_native->WithSpace([](const NativeMemory::MappedAddressSpace& space) {
+                return space.InconsistencyCount();
+            });
+            LOG_INFO(Kernel, "native_mem final unsupported_ops={} inconsistency={}",
+                     m_native_unsupported_ops.load(), inconsistency);
+            m_native.reset();
+        }
         if (m_shadow) {
             LOG_INFO(Kernel, "native_mem_shadow final compared/result/state/boundary/skipped: {}",
                      m_shadow->Summary());
@@ -248,6 +383,14 @@ public:
     }
 
     Result SetMemoryPermission(KProcessAddress addr, size_t size, Svc::MemoryPermission perm) {
+        if (m_native) {
+            NativeMemory::Permission permission;
+            R_UNLESS(ToNativePermission(ConvertToKMemoryPermission(perm), permission),
+                     ResultInvalidNewMemoryPermission);
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.SetMemoryPermission(GetInteger(addr), size, permission);
+            }));
+        }
         const u32 raw_permission = static_cast<u32>(perm);
         const auto shadow_permission = static_cast<NativeMemory::Permission>(
             raw_permission <= 3 ? raw_permission : 0xFF);
@@ -261,12 +404,30 @@ public:
 
     Result SetProcessMemoryPermission(KProcessAddress addr, size_t size,
                                       Svc::MemoryPermission perm) {
+        if (m_native) {
+            NativeMemory::Permission permission;
+            R_UNLESS(ToNativePermission(ConvertToKMemoryPermission(perm), permission),
+                     ResultInvalidNewMemoryPermission);
+            R_TRY(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.SetProcessMemoryPermission(GetInteger(addr), size, permission);
+            }));
+            if (perm == Svc::MemoryPermission::ReadExecute) {
+                m_page_table.InvalidateInstructionCacheRange(addr, size);
+            }
+            R_SUCCEED();
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.SetProcessMemoryPermission(addr, size, perm));
     }
 
     Result SetMemoryAttribute(KProcessAddress addr, size_t size, KMemoryAttribute mask,
                               KMemoryAttribute attr) {
+        if (m_native) {
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.SetMemoryAttribute(GetInteger(addr), size, static_cast<u8>(mask),
+                                                static_cast<u8>(attr));
+            }));
+        }
         R_RETURN(RunShadowed(
             NativeMemory::ShadowOp::SetMemoryAttribute, GetInteger(addr), size, 0,
             [&] { return m_page_table.SetMemoryAttribute(addr, size, mask, attr); },
@@ -278,6 +439,13 @@ public:
 
     Result SetHeapSize(KProcessAddress* out, size_t size) {
         u64 shadow_out = 0;
+        if (m_native) {
+            R_TRY(m_native->Run(true, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.SetHeapSize(shadow_out, size);
+            }));
+            *out = KProcessAddress{shadow_out};
+            R_SUCCEED();
+        }
         R_RETURN(RunShadowed(
             NativeMemory::ShadowOp::SetHeapSize, GetInteger(m_page_table.GetHeapRegionStart()),
             m_page_table.GetHeapRegionSize(), 0,
@@ -287,6 +455,12 @@ public:
 
     Result SetMaxHeapSize(size_t size) {
         R_TRY(m_page_table.SetMaxHeapSize(size));
+        if (m_native) {
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                space.SetMaxHeapSize(size);
+                return NativeMemory::Result::Success;
+            }));
+        }
         if (m_shadow) {
             std::scoped_lock lk{m_shadow->Mutex()};
             m_shadow->Space().SetMaxHeapSize(size);
@@ -296,22 +470,44 @@ public:
 
     Result QueryInfo(KMemoryInfo* out_info, Svc::PageInfo* out_page_info,
                      KProcessAddress addr) const {
+        if (m_native) {
+            *out_info = NativeAdapters::ToKernelMemoryInfo(
+                m_native->WithSpace([&](const NativeMemory::MappedAddressSpace& space) {
+                    return space.Space().QueryInfo(GetInteger(addr));
+                }));
+            out_page_info->flags = 0;
+            R_SUCCEED();
+        }
         R_RETURN(m_page_table.QueryInfo(out_info, out_page_info, addr));
     }
 
     Result QueryPhysicalAddress(Svc::lp64::PhysicalMemoryInfo* out, KProcessAddress address) {
+        if (m_native) {
+            return Unsupported("QueryPhysicalAddress", GetInteger(address));
+        }
         R_RETURN(m_page_table.QueryPhysicalAddress(out, address));
     }
 
     Result QueryStaticMapping(KProcessAddress* out, KPhysicalAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("QueryStaticMapping", GetInteger(address));
+        }
         R_RETURN(m_page_table.QueryStaticMapping(out, address, size));
     }
 
     Result QueryIoMapping(KProcessAddress* out, KPhysicalAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("QueryIoMapping", GetInteger(address));
+        }
         R_RETURN(m_page_table.QueryIoMapping(out, address, size));
     }
 
     Result MapMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
+        if (m_native) {
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.MapMemory(GetInteger(dst_address), GetInteger(src_address), size);
+            }));
+        }
         R_RETURN(RunShadowed(
             NativeMemory::ShadowOp::MapMemory, GetInteger(dst_address), size,
             GetInteger(src_address),
@@ -322,6 +518,11 @@ public:
     }
 
     Result UnmapMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
+        if (m_native) {
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.UnmapMemory(GetInteger(dst_address), GetInteger(src_address), size);
+            }));
+        }
         R_RETURN(RunShadowed(
             NativeMemory::ShadowOp::UnmapMemory, GetInteger(dst_address), size,
             GetInteger(src_address),
@@ -332,82 +533,194 @@ public:
     }
 
     Result MapCodeMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
+        if (m_native) {
+            return Unsupported("MapCodeMemory", GetInteger(dst_address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapCodeMemory(dst_address, src_address, size));
     }
 
     Result UnmapCodeMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
+        if (m_native) {
+            return Unsupported("UnmapCodeMemory", GetInteger(dst_address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnmapCodeMemory(dst_address, src_address, size));
     }
 
     Result MapIo(KPhysicalAddress phys_addr, size_t size, KMemoryPermission perm) {
+        if (m_native) {
+            return Unsupported("MapIo", GetInteger(phys_addr));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapIo(phys_addr, size, perm));
     }
 
     Result MapIoRegion(KProcessAddress dst_address, KPhysicalAddress phys_addr, size_t size,
                        Svc::MemoryMapping mapping, Svc::MemoryPermission perm) {
+        if (m_native) {
+            return Unsupported("MapIoRegion", GetInteger(dst_address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapIoRegion(dst_address, phys_addr, size, mapping, perm));
     }
 
     Result UnmapIoRegion(KProcessAddress dst_address, KPhysicalAddress phys_addr, size_t size,
                          Svc::MemoryMapping mapping) {
+        if (m_native) {
+            return Unsupported("UnmapIoRegion", GetInteger(dst_address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnmapIoRegion(dst_address, phys_addr, size, mapping));
     }
 
     Result MapStatic(KPhysicalAddress phys_addr, size_t size, KMemoryPermission perm) {
+        if (m_native) {
+            return Unsupported("MapStatic", GetInteger(phys_addr));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapStatic(phys_addr, size, perm));
     }
 
     Result MapRegion(KMemoryRegionType region_type, KMemoryPermission perm) {
+        if (m_native) {
+            return Unsupported("MapRegion", 0);
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapRegion(region_type, perm));
     }
 
     Result MapInsecureMemory(KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("MapInsecureMemory", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapInsecureMemory(address, size));
     }
 
     Result UnmapInsecureMemory(KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("UnmapInsecureMemory", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnmapInsecureMemory(address, size));
     }
 
     Result MapPageGroup(KProcessAddress addr, const KPageGroup& pg, KMemoryState state,
                         KMemoryPermission perm) {
+        if (m_native) {
+            if (state != KMemoryState::Shared && state != KMemoryState::IoMemory) {
+                return Unsupported("MapPageGroup", GetInteger(addr));
+            }
+            NativeMemory::Permission permission;
+            R_UNLESS(ToNativePermission(perm, permission), ResultInvalidNewMemoryPermission);
+            std::vector<NativeMemory::PhysicalExtent> extents;
+            NativeAdapters::PageGroupToExtents(pg, extents);
+            const u64 size = pg.GetNumPages() * PageSize;
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return state == KMemoryState::Shared
+                           ? space.MapSharedMemory(GetInteger(addr), size, permission, extents)
+                           : space.MapIoMemory(GetInteger(addr), size, permission, extents);
+            }));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapPageGroup(addr, pg, state, perm));
     }
 
     Result UnmapPageGroup(KProcessAddress address, const KPageGroup& pg, KMemoryState state) {
+        if (m_native) {
+            if (state != KMemoryState::Shared && state != KMemoryState::IoMemory) {
+                return Unsupported("UnmapPageGroup", GetInteger(address));
+            }
+            const u64 size = pg.GetNumPages() * PageSize;
+            std::vector<NativeMemory::PhysicalExtent> expected;
+            NativeAdapters::PageGroupToExtents(pg, expected);
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                // Like IsValidPageGroup: only the pages this group mapped may be unmapped.
+                std::vector<NativeMemory::PhysicalExtent> mapped;
+                if (!space.QueryPhysicalExtents(GetInteger(address), size, mapped) ||
+                    !NativeMemory::SamePhysicalPages(mapped, expected)) {
+                    return NativeMemory::Result::InvalidCurrentMemory;
+                }
+                return state == KMemoryState::Shared
+                           ? space.UnmapSharedMemory(GetInteger(address), size)
+                           : space.UnmapIoMemory(GetInteger(address), size);
+            }));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnmapPageGroup(address, pg, state));
     }
 
+    // Only the thread-local page is mapped from a caller-owned physical page.
     Result MapPages(KProcessAddress* out_addr, size_t num_pages, size_t alignment,
                     KPhysicalAddress phys_addr, KMemoryState state, KMemoryPermission perm) {
+        if (m_native) {
+            if (state != KMemoryState::ThreadLocal || num_pages != 1 || alignment != PageSize ||
+                perm != KMemoryPermission::UserReadWrite) {
+                return Unsupported("MapPages(physical)", GetInteger(phys_addr));
+            }
+            u64 address = 0;
+            R_TRY(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.MapThreadLocalPageAnywhere(address,
+                                                        NativeAdapters::ToDramOffset(phys_addr),
+                                                        m_page_table.GetNumGuardPages());
+            }));
+            *out_addr = KProcessAddress{address};
+            R_SUCCEED();
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapPages(out_addr, num_pages, alignment, phys_addr, state, perm));
     }
 
     Result MapPages(KProcessAddress* out_addr, size_t num_pages, KMemoryState state,
                     KMemoryPermission perm) {
+        if (m_native) {
+            NativeMemory::Permission permission;
+            if (!IsAnonymousMapState(state) || !ToNativePermission(perm, permission)) {
+                return Unsupported("MapPages(anywhere)", num_pages);
+            }
+            u64 address = 0;
+            R_TRY(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.MapPagesAnywhere(address, num_pages * PageSize,
+                                              static_cast<NativeMemory::MemoryState>(state),
+                                              permission, m_page_table.GetNumGuardPages());
+            }));
+            *out_addr = KProcessAddress{address};
+            R_SUCCEED();
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapPages(out_addr, num_pages, state, perm));
     }
 
     Result MapPages(KProcessAddress address, size_t num_pages, KMemoryState state,
                     KMemoryPermission perm) {
+        if (m_native) {
+            NativeMemory::Permission permission;
+            if (!IsAnonymousMapState(state) || !ToNativePermission(perm, permission)) {
+                return Unsupported("MapPages(fixed)", GetInteger(address));
+            }
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.MapPages(GetInteger(address), num_pages * PageSize,
+                                      static_cast<NativeMemory::MemoryState>(state), permission);
+            }));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapPages(address, num_pages, state, perm));
     }
 
     Result UnmapPages(KProcessAddress addr, size_t num_pages, KMemoryState state) {
+        if (m_native) {
+            const bool is_thread_local = state == KMemoryState::ThreadLocal && num_pages == 1;
+            if (!is_thread_local && !IsAnonymousMapState(state)) {
+                return Unsupported("UnmapPages", GetInteger(addr));
+            }
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return is_thread_local
+                           ? space.UnmapThreadLocalPage(GetInteger(addr))
+                           : space.UnmapPages(GetInteger(addr), num_pages * PageSize,
+                                              static_cast<NativeMemory::MemoryState>(state));
+            }));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnmapPages(addr, num_pages, state));
     }
@@ -416,50 +729,85 @@ public:
                                 KMemoryState state_mask, KMemoryState state,
                                 KMemoryPermission perm_mask, KMemoryPermission perm,
                                 KMemoryAttribute attr_mask, KMemoryAttribute attr) {
+        if (m_native) {
+            return Unsupported("MakeAndOpenPageGroup", GetInteger(address));
+        }
         R_RETURN(m_page_table.MakeAndOpenPageGroup(out, address, num_pages, state_mask, state,
                                                    perm_mask, perm, attr_mask, attr));
     }
 
     Result InvalidateProcessDataCache(KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("InvalidateProcessDataCache", GetInteger(address));
+        }
         R_RETURN(m_page_table.InvalidateProcessDataCache(address, size));
     }
 
     Result ReadDebugMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
+        if (m_native) {
+            return Unsupported("ReadDebugMemory", GetInteger(src_address));
+        }
         R_RETURN(m_page_table.ReadDebugMemory(dst_address, src_address, size));
     }
 
     Result ReadDebugIoMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size,
                              KMemoryState state) {
+        if (m_native) {
+            return Unsupported("ReadDebugIoMemory", GetInteger(src_address));
+        }
         R_RETURN(m_page_table.ReadDebugIoMemory(dst_address, src_address, size, state));
     }
 
     Result WriteDebugMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
+        if (m_native) {
+            return Unsupported("WriteDebugMemory", GetInteger(dst_address));
+        }
         R_RETURN(m_page_table.WriteDebugMemory(dst_address, src_address, size));
     }
 
     Result WriteDebugIoMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size,
                               KMemoryState state) {
+        if (m_native) {
+            return Unsupported("WriteDebugIoMemory", GetInteger(dst_address));
+        }
         R_RETURN(m_page_table.WriteDebugIoMemory(dst_address, src_address, size, state));
     }
 
     Result LockForMapDeviceAddressSpace(bool* out_is_io, KProcessAddress address, size_t size,
                                         KMemoryPermission perm, bool is_aligned, bool check_heap) {
+        if (m_native) {
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.LockForMapDevice(GetInteger(address), size, static_cast<u8>(perm),
+                                              is_aligned, check_heap, *out_is_io);
+            }));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.LockForMapDeviceAddressSpace(out_is_io, address, size, perm,
                                                            is_aligned, check_heap));
     }
 
     Result LockForUnmapDeviceAddressSpace(KProcessAddress address, size_t size, bool check_heap) {
+        if (m_native) {
+            return Unsupported("LockForUnmapDeviceAddressSpace", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.LockForUnmapDeviceAddressSpace(address, size, check_heap));
     }
 
     Result UnlockForDeviceAddressSpace(KProcessAddress address, size_t size) {
+        if (m_native) {
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.UnlockForDevice(GetInteger(address), size);
+            }));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnlockForDeviceAddressSpace(address, size));
     }
 
     Result UnlockForDeviceAddressSpacePartialMap(KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("UnlockForDeviceAddressSpacePartialMap", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnlockForDeviceAddressSpacePartialMap(address, size));
     }
@@ -467,48 +815,90 @@ public:
     Result OpenMemoryRangeForMapDeviceAddressSpace(KPageTableBase::MemoryRange* out,
                                                    KProcessAddress address, size_t size,
                                                    KMemoryPermission perm, bool is_aligned) {
+        if (m_native) {
+            return Unsupported("OpenMemoryRangeForMapDeviceAddressSpace", GetInteger(address));
+        }
         R_RETURN(m_page_table.OpenMemoryRangeForMapDeviceAddressSpace(out, address, size, perm,
                                                                       is_aligned));
     }
 
     Result OpenMemoryRangeForUnmapDeviceAddressSpace(KPageTableBase::MemoryRange* out,
                                                      KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("OpenMemoryRangeForUnmapDeviceAddressSpace", GetInteger(address));
+        }
         R_RETURN(m_page_table.OpenMemoryRangeForUnmapDeviceAddressSpace(out, address, size));
     }
 
     Result LockForIpcUserBuffer(KPhysicalAddress* out, KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("LockForIpcUserBuffer", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.LockForIpcUserBuffer(out, address, size));
     }
 
     Result UnlockForIpcUserBuffer(KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("UnlockForIpcUserBuffer", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnlockForIpcUserBuffer(address, size));
     }
 
     Result LockForTransferMemory(KPageGroup* out, KProcessAddress address, size_t size,
                                  KMemoryPermission perm) {
+        if (m_native) {
+            NativeMemory::Permission permission;
+            R_UNLESS(ToNativePermission(perm, permission), ResultInvalidNewMemoryPermission);
+            std::vector<NativeMemory::PhysicalExtent> extents;
+            R_TRY(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.LockForTransferMemory(GetInteger(address), size, permission, extents);
+            }));
+            const Result grouped = NativeAdapters::ExtentsToOpenedPageGroup(m_kernel, *out, extents);
+            if (grouped.IsError()) {
+                out->Finalize();
+                R_TRY(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                    return space.UnlockForTransferMemory(GetInteger(address), size);
+                }));
+            }
+            R_RETURN(grouped);
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.LockForTransferMemory(out, address, size, perm));
     }
 
     Result UnlockForTransferMemory(KProcessAddress address, size_t size, const KPageGroup& pg) {
+        if (m_native) {
+            R_RETURN(m_native->Run(false, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.UnlockForTransferMemory(GetInteger(address), size);
+            }));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnlockForTransferMemory(address, size, pg));
     }
 
     Result LockForCodeMemory(KPageGroup* out, KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("LockForCodeMemory", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.LockForCodeMemory(out, address, size));
     }
 
     Result UnlockForCodeMemory(KProcessAddress address, size_t size, const KPageGroup& pg) {
+        if (m_native) {
+            return Unsupported("UnlockForCodeMemory", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnlockForCodeMemory(address, size, pg));
     }
 
     Result OpenMemoryRangeForProcessCacheOperation(KPageTableBase::MemoryRange* out,
                                                    KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("OpenMemoryRangeForProcessCacheOperation", GetInteger(address));
+        }
         R_RETURN(m_page_table.OpenMemoryRangeForProcessCacheOperation(out, address, size));
     }
 
@@ -516,6 +906,16 @@ public:
                                       KProcessAddress src_addr, KMemoryState src_state_mask,
                                       KMemoryState src_state, KMemoryPermission src_test_perm,
                                       KMemoryAttribute src_attr_mask, KMemoryAttribute src_attr) {
+        if (m_native) {
+            std::vector<u8> bytes(size);
+            R_TRY(ReadNativeLinear(src_addr, size,
+                                   MakeCopyRule(src_state_mask, src_state, src_test_perm,
+                                                src_attr_mask, src_attr),
+                                   bytes.data()));
+            R_UNLESS(GetCurrentMemory(m_kernel).WriteBlock(GetInteger(dst_addr), bytes.data(), size),
+                     ResultInvalidCurrentMemory);
+            R_SUCCEED();
+        }
         R_RETURN(m_page_table.CopyMemoryFromLinearToUser(dst_addr, size, src_addr, src_state_mask,
                                                          src_state, src_test_perm, src_attr_mask,
                                                          src_attr));
@@ -525,6 +925,12 @@ public:
                                         KMemoryState src_state_mask, KMemoryState src_state,
                                         KMemoryPermission src_test_perm,
                                         KMemoryAttribute src_attr_mask, KMemoryAttribute src_attr) {
+        if (m_native) {
+            R_RETURN(ReadNativeLinear(src_addr, size,
+                                      MakeCopyRule(src_state_mask, src_state, src_test_perm,
+                                                   src_attr_mask, src_attr),
+                                      dst_addr));
+        }
         R_RETURN(m_page_table.CopyMemoryFromLinearToKernel(dst_addr, size, src_addr, src_state_mask,
                                                            src_state, src_test_perm, src_attr_mask,
                                                            src_attr));
@@ -535,6 +941,15 @@ public:
                                       KMemoryPermission dst_test_perm,
                                       KMemoryAttribute dst_attr_mask, KMemoryAttribute dst_attr,
                                       KProcessAddress src_addr) {
+        if (m_native) {
+            std::vector<u8> bytes(size);
+            R_UNLESS(GetCurrentMemory(m_kernel).ReadBlock(GetInteger(src_addr), bytes.data(), size),
+                     ResultInvalidCurrentMemory);
+            R_RETURN(WriteNativeLinear(dst_addr, size,
+                                       MakeCopyRule(dst_state_mask, dst_state, dst_test_perm,
+                                                    dst_attr_mask, dst_attr),
+                                       bytes.data()));
+        }
         R_RETURN(m_page_table.CopyMemoryFromUserToLinear(dst_addr, size, dst_state_mask, dst_state,
                                                          dst_test_perm, dst_attr_mask, dst_attr,
                                                          src_addr));
@@ -545,6 +960,12 @@ public:
                                         KMemoryPermission dst_test_perm,
                                         KMemoryAttribute dst_attr_mask, KMemoryAttribute dst_attr,
                                         void* src_addr) {
+        if (m_native) {
+            R_RETURN(WriteNativeLinear(dst_addr, size,
+                                       MakeCopyRule(dst_state_mask, dst_state, dst_test_perm,
+                                                    dst_attr_mask, dst_attr),
+                                       src_addr));
+        }
         R_RETURN(m_page_table.CopyMemoryFromKernelToLinear(dst_addr, size, dst_state_mask,
                                                            dst_state, dst_test_perm, dst_attr_mask,
                                                            dst_attr, src_addr));
@@ -557,6 +978,13 @@ public:
                                     KProcessAddress src_addr, KMemoryState src_state_mask,
                                     KMemoryState src_state, KMemoryPermission src_test_perm,
                                     KMemoryAttribute src_attr_mask, KMemoryAttribute src_attr) {
+        if (m_native || dst_page_table.m_native) {
+            const NativeMemory::CopyRule dst_rule =
+                MakeCopyRule(dst_state_mask, dst_state, dst_test_perm, dst_attr_mask, dst_attr);
+            R_RETURN(CopyNativeHeapToHeap(dst_page_table, dst_addr, size, &dst_rule, src_addr,
+                                          MakeCopyRule(src_state_mask, src_state, src_test_perm,
+                                                       src_attr_mask, src_attr)));
+        }
         R_RETURN(m_page_table.CopyMemoryFromHeapToHeap(
             dst_page_table.m_page_table, dst_addr, size, dst_state_mask, dst_state, dst_test_perm,
             dst_attr_mask, dst_attr, src_addr, src_state_mask, src_state, src_test_perm,
@@ -569,6 +997,11 @@ public:
         KMemoryAttribute dst_attr_mask, KMemoryAttribute dst_attr, KProcessAddress src_addr,
         KMemoryState src_state_mask, KMemoryState src_state, KMemoryPermission src_test_perm,
         KMemoryAttribute src_attr_mask, KMemoryAttribute src_attr) {
+        if (m_native || dst_page_table.m_native) {
+            R_RETURN(CopyNativeHeapToHeap(dst_page_table, dst_addr, size, nullptr, src_addr,
+                                          MakeCopyRule(src_state_mask, src_state, src_test_perm,
+                                                       src_attr_mask, src_attr)));
+        }
         R_RETURN(m_page_table.CopyMemoryFromHeapToHeapWithoutCheckDestination(
             dst_page_table.m_page_table, dst_addr, size, dst_state_mask, dst_state, dst_test_perm,
             dst_attr_mask, dst_attr, src_addr, src_state_mask, src_state, src_test_perm,
@@ -578,6 +1011,9 @@ public:
     Result SetupForIpc(KProcessAddress* out_dst_addr, size_t size, KProcessAddress src_addr,
                        KProcessPageTable& src_page_table, KMemoryPermission test_perm,
                        KMemoryState dst_state, bool send) {
+        if (m_native || src_page_table.m_native) {
+            return Unsupported("SetupForIpc", GetInteger(src_addr));
+        }
         ShadowBystander bystander{*this};
         ShadowBystander source_bystander{src_page_table};
         R_RETURN(m_page_table.SetupForIpc(out_dst_addr, size, src_addr, src_page_table.m_page_table,
@@ -585,16 +1021,27 @@ public:
     }
 
     Result CleanupForIpcServer(KProcessAddress address, size_t size, KMemoryState dst_state) {
+        if (m_native) {
+            return Unsupported("CleanupForIpcServer", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.CleanupForIpcServer(address, size, dst_state));
     }
 
     Result CleanupForIpcClient(KProcessAddress address, size_t size, KMemoryState dst_state) {
+        if (m_native) {
+            return Unsupported("CleanupForIpcClient", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.CleanupForIpcClient(address, size, dst_state));
     }
 
     Result MapPhysicalMemory(KProcessAddress address, size_t size) {
+        if (m_native) {
+            R_RETURN(m_native->Run(true, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.MapPhysicalMemory(GetInteger(address), size);
+            }));
+        }
         R_RETURN(RunShadowed(
             NativeMemory::ShadowOp::MapPhysicalMemory, GetInteger(address), size, 0,
             [&] { return m_page_table.MapPhysicalMemory(address, size); },
@@ -604,6 +1051,11 @@ public:
     }
 
     Result UnmapPhysicalMemory(KProcessAddress address, size_t size) {
+        if (m_native) {
+            R_RETURN(m_native->Run(true, [&](NativeMemory::MappedAddressSpace& space) {
+                return space.UnmapPhysicalMemory(GetInteger(address), size);
+            }));
+        }
         R_RETURN(RunShadowed(
             NativeMemory::ShadowOp::UnmapPhysicalMemory, GetInteger(address), size, 0,
             [&] { return m_page_table.UnmapPhysicalMemory(address, size); },
@@ -613,17 +1065,26 @@ public:
     }
 
     Result MapPhysicalMemoryUnsafe(KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("MapPhysicalMemoryUnsafe", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.MapPhysicalMemoryUnsafe(address, size));
     }
 
     Result UnmapPhysicalMemoryUnsafe(KProcessAddress address, size_t size) {
+        if (m_native) {
+            return Unsupported("UnmapPhysicalMemoryUnsafe", GetInteger(address));
+        }
         ShadowBystander bystander{*this};
         R_RETURN(m_page_table.UnmapPhysicalMemoryUnsafe(address, size));
     }
 
     Result UnmapProcessMemory(KProcessAddress dst_address, size_t size,
                               KProcessPageTable& src_page_table, KProcessAddress src_address) {
+        if (m_native || src_page_table.m_native) {
+            return Unsupported("UnmapProcessMemory", GetInteger(dst_address));
+        }
         ShadowBystander bystander{*this};
         ShadowBystander source_bystander{src_page_table};
         R_RETURN(m_page_table.UnmapProcessMemory(dst_address, size, src_page_table.m_page_table,
@@ -700,21 +1161,29 @@ public:
     }
 
     size_t GetNormalMemorySize() const {
+        if (m_native) {
+            return m_native->WithSpace([](const NativeMemory::MappedAddressSpace& space) {
+                return space.Space().PhysicalBytesInUse();
+            });
+        }
         return m_page_table.GetNormalMemorySize();
     }
 
     size_t GetCodeSize() const {
-        return m_page_table.GetCodeSize();
+        return m_native ? NativeStateBytes(NativeMemory::MemoryState::Code)
+                        : m_page_table.GetCodeSize();
     }
     size_t GetCodeDataSize() const {
-        return m_page_table.GetCodeDataSize();
+        return m_native ? NativeStateBytes(NativeMemory::MemoryState::CodeData)
+                        : m_page_table.GetCodeDataSize();
     }
 
+    // The native model has no alias-code states because MapCodeMemory is unsupported.
     size_t GetAliasCodeSize() const {
-        return m_page_table.GetAliasCodeSize();
+        return m_native ? 0 : m_page_table.GetAliasCodeSize();
     }
     size_t GetAliasCodeDataSize() const {
-        return m_page_table.GetAliasCodeDataSize();
+        return m_native ? 0 : m_page_table.GetAliasCodeDataSize();
     }
 
     u32 GetAllocateOption() const {

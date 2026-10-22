@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <initializer_list>
 #include <vector>
 
 #include "core/native_memory/native_address_space.h"
@@ -31,6 +32,45 @@ constexpr HostPermissionFlags ToHostPermissionFlags(u8 stored_permission, bool e
     flags.write = (stored_permission & UserWriteBits) != 0;
     flags.execute = execute_supported && (stored_permission & UserExecuteBit) != 0;
     return flags;
+}
+
+// Inverse of ToStoredPermission for the four encodings an SVC can produce; any other value is false.
+constexpr bool FromStoredPermission(u8 stored_permission, Permission& out) {
+    for (const Permission candidate :
+         {Permission::None, Permission::Read, Permission::ReadWrite, Permission::ReadExecute}) {
+        if (ToStoredPermission(candidate) == stored_permission) {
+            out = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+// True if both lists cover the same physical bytes in the same order, however they are split.
+inline bool SamePhysicalPages(const std::vector<PhysicalExtent>& first,
+                              const std::vector<PhysicalExtent>& second) {
+    const auto merged = [](const std::vector<PhysicalExtent>& extents) {
+        std::vector<PhysicalExtent> out;
+        for (const PhysicalExtent& extent : extents) {
+            if (!out.empty() && out.back().phys + out.back().size == extent.phys) {
+                out.back().size += extent.size;
+            } else {
+                out.push_back(extent);
+            }
+        }
+        return out;
+    };
+    const std::vector<PhysicalExtent> a = merged(first);
+    const std::vector<PhysicalExtent> b = merged(second);
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (a[i].phys != b[i].phys || a[i].size != b[i].size) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // KPhysicalAddress is DramMemoryMap::Base plus the DeviceMemory offset the native layer stores.

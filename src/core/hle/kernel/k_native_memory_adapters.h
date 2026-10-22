@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -26,8 +27,8 @@
 #include "core/native_memory/native_kernel_convert.h"
 #include "core/native_memory/native_process_memory.h"
 
-// Adapters from the kernel-free native memory layer to the kernel. Nothing here is wired into
-// KProcessPageTable yet; the side effects of the replaced KPageTableBase calls are in N2_DESIGN.
+// Adapters from the kernel-free native memory layer to the kernel, used by KProcessPageTable; the
+// side effects of the replaced KPageTableBase calls are in N2_DESIGN.
 namespace Kernel::NativeAdapters {
 
 namespace Native = Core::NativeMemory;
@@ -317,6 +318,22 @@ public:
     auto WithSpace(Query&& query) {
         KScopedLightLock lock{m_lock};
         return std::forward<Query>(query)(std::as_const(m_space));
+    }
+
+    // Locks both owners in address order so two crossing copies cannot deadlock.
+    template <typename Query>
+    static auto WithBoth(KNativeProcessMemory& first, KNativeProcessMemory& second, Query&& query) {
+        if (&first == &second) {
+            return first.WithSpace([&](const Native::MappedAddressSpace& space) {
+                return query(space, space);
+            });
+        }
+        const bool first_is_low = std::less<const KNativeProcessMemory*>{}(&first, &second);
+        KNativeProcessMemory& low = first_is_low ? first : second;
+        KNativeProcessMemory& high = first_is_low ? second : first;
+        KScopedLightLock low_lock{low.m_lock};
+        KScopedLightLock high_lock{high.m_lock};
+        return query(std::as_const(first.m_space), std::as_const(second.m_space));
     }
 
 private:

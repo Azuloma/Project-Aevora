@@ -710,6 +710,9 @@ public:
         return m_heap_fill_value;
     }
 
+    // Drops cached translations of the range in every core's JIT of this process.
+    void InvalidateInstructionCacheRange(KProcessAddress address, size_t size);
+
     u32 GetAddressSpaceWidth() const {
         return m_address_space_width;
     }
