@@ -1,6 +1,6 @@
 # N2 Native Guest Memory Design
 
-Status: Stage 0 design note, 2026-10-22 (test4). This document records verified observations and the staged plan for replacing the supported-path kernel memory manager with a native guest mapper.
+Status: Stage 3a design note, 2026-10-22. This document records verified observations and the staged plan for replacing the supported-path kernel memory manager with a native guest mapper.
 
 ## Purpose
 
@@ -50,7 +50,7 @@ The address layout is exactly the same as `KPageTable`'s layout so that `SUYU_NA
 | 0 | Record the design note and collect the opt-in detailed memory inventory. | User review/commit, then a real collection play; analyze `[memory]` and `[memory_paused]` rows. |
 | 1 | Build an unconnected native mapper under `src/core/native_memory/`; implement the alias-region allocator and query first, then map, unmap, protect, shared memory, heap, and physical memory, each with a deliberately weakened negative control. Defer IPC map-alias to a fail-fast stub. | Standalone unit tests pass and each negative control fails fast. |
 | 2 | Add shadow comparison behind `SUYU_NATIVE_MEM_SHADOW=1`. | Compare per-SVC results, `QueryMemory` output, and page entries; supported-path mismatch count is zero. |
-| 3 | Make the mapper primary behind `SUYU_NATIVE_MEM` (`=0` disables), and rewire TLS, shared/transfer memory, IPC mapping, nvmap, and vi. | Fallbacks are counted/logged; supported-path play and CPU ms/frame are recorded; option name/default are confirmed. |
+| 3 | Execute Stage 3a standalone, then Stage 3b wiring and Stage 3c PLA validation. | Stage 3a unit/mutants and host build; Stage 3b counted fail-fast stubs; Stage 3c JIT/AOT play and CPU ms/frame comparison. |
 | 4 | Remove kernel memory-manager symbols from the no-JIT native build, add fail-fast stubs for unsupported callers, and bypass `KernelCore` memory initialization. | `--require-absent N1,N2` passes and unsupported calls name the operation and address. |
 | 5 | Full export, supported-path play, gate, measurement, and documentation acceptance. | User-observed checklist, structural gate, and CPU ms/frame report. |
 
@@ -75,6 +75,24 @@ Observed in the JIT-capable `suyu-cmd` collection (title, village, field, catch,
 - Observed low-byte memory states were Free `0x0`, Code `0x4DC7E03`, CodeData `0xFFEBD04`, Normal `0x77EBD05`, Stack `0x45C3C0B`, ThreadLocal `0x400000C`, and Inaccessible `0x10`.
 
 Verification: `smoke_boundary_inventory_unit` passed with `cl` and `/Zc:preprocessor` (exit 0); the JIT host `rebuild-suyu.bat` completed 24/24 steps with 0 errors and linked `suyu-cmd.exe`. The full `tests/recompiler_smoke/run.py` suite was not run, and the no-JIT tree was not rebuilt. Merged evidence and scripts remain local at `D:\HisuiWakeBuild\diag\n0\test4\memory_merged.txt`, `D:\HisuiWakeBuild\diag\n0\merge_memory.py`, and `D:\HisuiWakeBuild\diag\n0\summarize_memory.py`.
+
+## Stage 3 plan
+
+Stage 3 is split into three sub-stages:
+
+- **3a — standalone backing and host mapping:** completed in `v0.0.3-dev7` by adding `MappedAddressSpace` with injected `PhysicalPageSource` and `HostMemoryMap`, and extending `AddressSpace` with the required permission, IO, transfer-lock, device-lock, and mutation-free validation APIs. It remains unconnected to the kernel and host.
+- **3b — per-process wiring:** wire `KProcessPageTable` to the native mapper behind `SUYU_NATIVE_MEM`, which defaults on and is disabled with `SUYU_NATIVE_MEM=0`. Unsupported operations (`SetupForIpc`/IPC map-alias, `MapCodeMemory`, and unsafe/insecure paths) use counted fail-fast stubs; primary mode wins over shadow mode with a warning.
+- **3c — PLA validation:** run JIT and AOT PLA sessions, including bag and quit segments, and compare CPU milliseconds per frame with the option on and off. Save-data backup is required before these sessions.
+
+The caller inventory is: observed — memory SVCs, TLS, shared memory, transfer memory, and `GetInfo` accounting; likely — process stack/code mapping, nvmap device locks, and the vi shared buffer; unobserved — IPC map-alias, `CodeMemory`, and unsafe/insecure paths. Physical page allocation stays on `KMemoryManager` in Stage 3 behind `PhysicalPageSource`; KPageGroup node lists map to `PhysicalExtent` lists.
+
+## Stage 3a results
+
+`MappedAddressSpace` is a standalone, non-copyable wrapper around `AddressSpace`. Anonymous mappings allocate and free DeviceMemory-offset extents through `PhysicalPageSource` only after mutation-free validation; caller-owned process-code, shared-memory, IO-memory, and TLS extents are never freed. Alias mapping moves host mappings while retaining source pages. Transfer-memory locks, counted device-map locks, physical-address/extent queries, and `Finalize()` are implemented. `Space()` is read-only, and `InconsistencyCount()` detects lost backing; the writer of extra Locked/Uncached bits remains unidentified.
+
+The native-process smoke unit has 11 checks, including a randomized run-map model and fake-source/fake-host double-free/double-map detection. The unit passed with MSVC 14.51; all 28 mutants exited 1 at their intended checks. Existing native-memory and native-shadow units passed after rebuilding against the changed header. The JIT host tree completed 304 build steps with 0 errors and linked both host executables.
+
+Not run: the full `tests/recompiler_smoke/run.py`, a real smoke-test CMake configure, the no-JIT tree build, and any PLA session. Stage 3a does not yet connect nvmap device-map locks or shared/transfer/vi/TLS callers.
 
 ## Stage 1 results
 
@@ -112,14 +130,12 @@ Code review found 1 P1 and 4 P2 findings: the late dump held the shadow mutex wh
 
 - Version is `v0.0.3`; per-commit entries count from `v0.0.3-dev1`.
 - N2 proceeds stage by stage (Stage 0 through Stage 5), with a report, file list, suggested commit message, and wait for the user's commit after each stage.
-- N2 uses the existing no-JIT tree `D:\HisuiWakeBuild\msvc-release-nojit`; a CMake option, working name `SUYU_NATIVE_MEMORY`, will be confirmed in Stage 3/4; there is no third build tree.
+- N2 uses the existing no-JIT tree `D:\HisuiWakeBuild\msvc-release-nojit`; `SUYU_NATIVE_MEM` is the Stage 3 option and defaults on, with `SUYU_NATIVE_MEM=0` disabling it; there is no third build tree.
 - The native address layout is exactly `KPageTable`'s layout, enabling shadow comparison.
 - The repository moved to `https://github.com/project-aevora/project.aevora-main`; the old `Azuloma/project.aevora-main` URL redirects.
 
 ## Open questions
 
-- Should `SUYU_NATIVE_MEM` default on when Stage 3 begins?
-- Is the final option name `SUYU_NATIVE_MEM` or another confirmed name (the earlier working name is `SUYU_NATIVE_MEMORY`)?
 - How will N3 TLS and stack setup consume the native mapper?
 - What `KernelCore` memory initialization must remain until N3/N4, and when can it be bypassed?
 - Does the bag screen or quit path exercise additional memory or IPC behavior? (They were not segmented in test4.)

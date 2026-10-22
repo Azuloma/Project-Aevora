@@ -90,7 +90,7 @@ Plan (2026-10-21):
 - Stage 0: record the detailed opt-in memory inventory and finalize the design note; implemented and awaiting the user's commit and collection play.
 - Stage 1: build an unconnected native mapper library with map, unmap, protection, shared-memory, query, heap, and physical-memory tests, each with a weakened negative control.
 - Stage 2: compare the native mapper with `KPageTable` under `SUYU_NATIVE_MEM_SHADOW=1`, including per-SVC results, `QueryMemory`, and page entries, with a goal of zero supported-path mismatches.
-- Stage 3: make the native mapper primary under `SUYU_NATIVE_MEM`, rewire supported consumers, and count/log fallbacks and CPU ms per frame.
+- Stage 3: split into 3a (standalone backing/host mapping), 3b (wire `KProcessPageTable` and counted fail-fast stubs), and 3c (JIT/AOT PLA sessions and CPU ms/frame comparison); use `SUYU_NATIVE_MEM`, default on, with `SUYU_NATIVE_MEM=0` disabling it.
 - Stage 4: remove kernel memory-manager symbols from the no-JIT native build, add fail-fast stubs for unsupported callers, bypass kernel memory initialization, and pass `--require-absent N1,N2`.
 - Stage 5: full export, supported-path play, structural gate, measurement, and documentation acceptance. See [N2_DESIGN.md](N2_DESIGN.md) for the detailed plan and observed seams.
 

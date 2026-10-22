@@ -34,6 +34,7 @@ enum class MemoryState : u32 {
     CodeData = 0x0FFEBD04,
     Normal = 0x077EBD05,
     Shared = 0x04402006,
+    Io = 0x00182001,
     Stack = 0x045C3C0B,
     ThreadLocal = 0x0400000C,
     Inaccessible = 0x00000010,
@@ -41,12 +42,18 @@ enum class MemoryState : u32 {
 
 constexpr u32 StateAny = 0xFFFFFFFF;
 constexpr u32 FlagCanReprotect = 1u << 8;
+constexpr u32 FlagCode = 1u << 14;
 constexpr u32 FlagCanAlias = 1u << 15;
+constexpr u32 FlagCanTransfer = 1u << 17;
+constexpr u32 FlagCanDeviceMap = 1u << 19;
+constexpr u32 FlagCanAlignedDeviceMap = 1u << 20;
+constexpr u32 FlagReferenceCounted = 1u << 22;
+constexpr u32 FlagCanCodeMemory = 1u << 25;
 constexpr u32 FlagCanChangeAttribute = 1u << 24;
 constexpr u32 FlagCanPermissionLock = 1u << 27;
 
 // Svc permission as passed by the guest; stored permissions use the kernel encoding below.
-enum class Permission : u8 { None = 0, Read = 1, ReadWrite = 3 };
+enum class Permission : u8 { None = 0, Read = 1, ReadWrite = 3, ReadExecute = 5 };
 
 constexpr u8 PermUserMask = 7;
 constexpr u8 PermKernelRead = 1 << 3;
@@ -64,6 +71,7 @@ constexpr u8 ToStoredPermission(Permission permission) {
 
 constexpr u8 AttributeNone = 0x00;
 constexpr u8 AttributeLocked = 0x01;
+constexpr u8 AttributeIpcLocked = 0x02;
 constexpr u8 AttributeDeviceShared = 0x04;
 constexpr u8 AttributeUncached = 0x08;
 constexpr u8 AttributePermissionLocked = 0x10;
@@ -573,49 +581,55 @@ public:
         return Result::Success;
     }
 
-    Result SetHeapSize(u64& out_address, u64 size) {
+    // Everything SetHeapSize validates, without changing state, so callers can allocate in between.
+    Result CheckSetHeapSize(u64 size) const {
         if (size % HeapSizeAlignment != 0) {
             return Result::InvalidSize;
         }
         if (size > layout_.heap.size || size > max_heap_size_) {
             return Result::OutOfMemory;
         }
-        out_address = layout_.heap.start;
         const u64 current_size = HeapSizeBytes();
         if (size == current_size) {
             return Result::Success;
         }
         if (size < current_size) {
-            const u64 release_start = layout_.heap.start + size;
-            const u64 release_size = current_size - size;
-            if (const Result result = CheckMemoryState(release_start, release_size, StateAny,
-                                                       static_cast<u32>(MemoryState::Normal),
-                                                       PermAny, PermUserReadWrite, AttributeAny,
-                                                       AttributeNone);
-                result != Result::Success) {
-                return result;
-            }
-            Update(release_start, release_size, MemoryState::Free, 0, AttributeNone);
-            physical_bytes_in_use_ -= release_size;
-            current_heap_end_ = release_start;
-            return Result::Success;
+            return CheckMemoryState(layout_.heap.start + size, current_size - size, StateAny,
+                                    static_cast<u32>(MemoryState::Normal), PermAny,
+                                    PermUserReadWrite, AttributeAny, AttributeNone);
         }
         const u64 grow_size = size - current_size;
         if (physical_bytes_in_use_ + grow_size > physical_capacity_bytes_) {
             return Result::LimitReached;
         }
-        if (const Result result = CheckMemoryState(current_heap_end_, grow_size, StateAny, 0,
-                                                   PermAny, 0, AttributeAny, AttributeNone);
-            result != Result::Success) {
+        return CheckMemoryState(current_heap_end_, grow_size, StateAny, 0, PermAny, 0,
+                                AttributeAny, AttributeNone);
+    }
+
+    Result SetHeapSize(u64& out_address, u64 size) {
+        if (const Result result = CheckSetHeapSize(size); result != Result::Success) {
             return result;
         }
-        Update(current_heap_end_, grow_size, MemoryState::Normal, PermUserReadWrite, AttributeNone);
-        physical_bytes_in_use_ += grow_size;
-        current_heap_end_ += grow_size;
+        out_address = layout_.heap.start;
+        const u64 current_size = HeapSizeBytes();
+        if (size < current_size) {
+            const u64 release_start = layout_.heap.start + size;
+            const u64 release_size = current_size - size;
+            Update(release_start, release_size, MemoryState::Free, 0, AttributeNone);
+            physical_bytes_in_use_ -= release_size;
+            current_heap_end_ = release_start;
+        } else if (size > current_size) {
+            const u64 grow_size = size - current_size;
+            Update(current_heap_end_, grow_size, MemoryState::Normal, PermUserReadWrite,
+                   AttributeNone);
+            physical_bytes_in_use_ += grow_size;
+            current_heap_end_ += grow_size;
+        }
         return Result::Success;
     }
 
-    Result MapPhysicalMemory(u64 address, u64 size) {
+    // Everything MapPhysicalMemory validates, without changing state, so callers can allocate in between.
+    Result CheckMapPhysicalMemory(u64 address, u64 size) const {
         if (const Result result = ValidateRange(address, size); result != Result::Success) {
             return result;
         }
@@ -628,6 +642,18 @@ public:
         }
         if (physical_bytes_in_use_ + free_bytes > physical_capacity_bytes_) {
             return Result::LimitReached;
+        }
+        return Result::Success;
+    }
+
+    Result MapPhysicalMemory(u64 address, u64 size) {
+        if (const Result result = CheckMapPhysicalMemory(address, size);
+            result != Result::Success) {
+            return result;
+        }
+        const u64 free_bytes = CountFreeBytes(address, size);
+        if (free_bytes == 0) {
+            return Result::Success;
         }
         ApplyToBlocks(address, size, [](Block& block) {
             if (block.state == MemoryState::Free) {
@@ -705,6 +731,129 @@ public:
         return ReleaseTo(address, PageSize, MemoryState::ThreadLocal);
     }
 
+    // Like SetProcessMemoryPermission: a writable mapping turns Code into CodeData.
+    Result SetProcessMemoryPermission(u64 address, u64 size, Permission permission) {
+        if (const Result result = ValidateRange(address, size); result != Result::Success) {
+            return result;
+        }
+        if (permission != Permission::None && permission != Permission::Read &&
+            permission != Permission::ReadWrite && permission != Permission::ReadExecute) {
+            return Result::InvalidNewMemoryPermission;
+        }
+        if (const Result result = CheckMemoryState(address, size, FlagCode, FlagCode, 0, 0,
+                                                   AttributeAny, AttributeNone);
+            result != Result::Success) {
+            return result;
+        }
+        MemoryState state = FindBlock(address)->second.state;
+        if (permission == Permission::ReadWrite && state == MemoryState::Code) {
+            state = MemoryState::CodeData;
+        }
+        Update(address, size, state, ToStoredPermission(permission), AttributeNone);
+        return Result::Success;
+    }
+
+    Result MapIoMemory(u64 address, u64 size, Permission permission) {
+        if (const Result result = ValidateRange(address, size); result != Result::Success) {
+            return result;
+        }
+        if (permission != Permission::Read && permission != Permission::ReadWrite) {
+            return Result::InvalidNewMemoryPermission;
+        }
+        if (!CanContain(address, size, MemoryState::Io)) {
+            return Result::InvalidMemoryRegion;
+        }
+        if (const Result result = CheckMemoryState(address, size, StateAny, 0, PermAny, 0,
+                                                   AttributeAny, AttributeNone);
+            result != Result::Success) {
+            return result;
+        }
+        Update(address, size, MemoryState::Io, ToStoredPermission(permission), AttributeNone);
+        return Result::Success;
+    }
+
+    Result UnmapIoMemory(u64 address, u64 size) {
+        return ReleaseTo(address, size, MemoryState::Io);
+    }
+
+    // Like LockMemoryAndOpen: a uniform user-read-write range gains Locked and, if non-zero, a stored permission.
+    Result LockMemory(u64 address, u64 size, u32 state_flag, u8 new_stored_permission) {
+        if (const Result result = ValidateRange(address, size); result != Result::Success) {
+            return result;
+        }
+        const u32 test = state_flag | FlagReferenceCounted;
+        if (const Result result = CheckMemoryState(address, size, test, test, PermAny,
+                                                   PermUserReadWrite, AttributeAny, AttributeNone);
+            result != Result::Success) {
+            return result;
+        }
+        const MemoryState state = FindBlock(address)->second.state;
+        const u8 stored = new_stored_permission != 0 ? new_stored_permission : PermUserReadWrite;
+        Update(address, size, state, stored, AttributeLocked);
+        return Result::Success;
+    }
+
+    Result UnlockMemory(u64 address, u64 size, u32 state_flag) {
+        if (const Result result = ValidateRange(address, size); result != Result::Success) {
+            return result;
+        }
+        const u32 test = state_flag | FlagReferenceCounted;
+        if (const Result result = CheckMemoryState(address, size, test, test, 0, 0, AttributeAny,
+                                                   AttributeLocked);
+            result != Result::Success) {
+            return result;
+        }
+        const MemoryState state = FindBlock(address)->second.state;
+        Update(address, size, state, PermUserReadWrite, AttributeNone);
+        return Result::Success;
+    }
+
+    // Like LockForMapDeviceAddressSpace: bumps the per-block device use count and sets DeviceShared.
+    Result LockForMapDevice(u64 address, u64 size, u8 required_permission, bool aligned,
+                            bool check_heap, bool& out_is_io) {
+        if (const Result result = ValidateRange(address, size); result != Result::Success) {
+            return result;
+        }
+        const u32 test = (aligned ? FlagCanAlignedDeviceMap : FlagCanDeviceMap) |
+                         (check_heap ? FlagReferenceCounted : 0u);
+        constexpr u8 BlockedAttributes = AttributeIpcLocked | AttributeLocked;
+        if (const Result result = CheckMemoryState(address, size, test, test, required_permission,
+                                                   required_permission, BlockedAttributes,
+                                                   AttributeNone,
+                                                   AttributeDeviceShared);
+            result != Result::Success) {
+            return result;
+        }
+        out_is_io = FindBlock(address)->second.state == MemoryState::Io;
+        ApplyToBlocks(address, size, [](Block& block) {
+            block.device_count++;
+            block.attribute |= AttributeDeviceShared;
+        });
+        return Result::Success;
+    }
+
+    Result UnlockForDevice(u64 address, u64 size) {
+        if (const Result result = ValidateRange(address, size); result != Result::Success) {
+            return result;
+        }
+        const u64 range_end = address + size;
+        for (auto it = FindBlock(address); it != blocks_.end() && it->first < range_end; ++it) {
+            const Block& block = it->second;
+            const bool shared = (block.attribute & (AttributeDeviceShared | AttributeLocked)) ==
+                                AttributeDeviceShared;
+            if ((static_cast<u32>(block.state) & FlagCanDeviceMap) == 0 || !shared ||
+                block.device_count == 0) {
+                return Result::InvalidCurrentMemory;
+            }
+        }
+        ApplyToBlocks(address, size, [](Block& block) {
+            if (--block.device_count == 0) {
+                block.attribute &= static_cast<u8>(~AttributeDeviceShared);
+            }
+        });
+        return Result::Success;
+    }
+
     // IPC map-alias is outside the supported path; callers must fail fast on this result.
     Result SetupForIpc(u64, u64) {
         return Result::NotSupported;
@@ -716,6 +865,7 @@ private:
         MemoryState state = MemoryState::Free;
         u8 permission = 0;
         u8 attribute = AttributeNone;
+        std::uint16_t device_count = 0;
     };
     struct AliasRecord {
         u64 dst;
@@ -755,6 +905,7 @@ private:
         case MemoryState::ThreadLocal:
             return layout_.kernel_map.Contains(address, size) && !in_heap && !in_alias;
         case MemoryState::Shared:
+        case MemoryState::Io:
             return layout_.alias_code.Contains(address, size) && !in_heap && !in_alias;
         case MemoryState::Code:
         case MemoryState::CodeData:
@@ -886,7 +1037,8 @@ private:
             if (next != blocks_.end() && it->second.end == next->first &&
                 it->second.state == next->second.state &&
                 it->second.permission == next->second.permission &&
-                it->second.attribute == next->second.attribute) {
+                it->second.attribute == next->second.attribute &&
+                it->second.device_count == next->second.device_count) {
                 it->second.end = next->second.end;
                 blocks_.erase(next);
             } else {

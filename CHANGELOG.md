@@ -2,6 +2,27 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev7 - Unreleased
+
+*Development entry 7 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Changed
+
+- Added the standalone native physical-backing and host-mapping layer `Core::NativeMemory::MappedAddressSpace`, backed by injectable physical-page allocation and host mapping interfaces; caller-owned mappings, aliases, transfer locks, device-map locks, physical queries, and finalization are modeled without wiring it into the kernel or host.
+- Extended the native address-space shadow with IO memory, executable permissions, process-memory permission, transfer/device lock APIs, and mutation-free validation checks; added the native process-memory smoke unit and 28 mutant targets.
+- Documented the N2 Stage 3a/3b/3c plan, Stage 3a results, `SUYU_NATIVE_MEM` option decision, caller inventory, and current limits.
+
+### Verified
+
+- The standalone `smoke_native_process_memory_unit` passed with MSVC 14.51, and all 28 new mutants exited 1 at their intended checks; existing native memory and native shadow units also passed after rebuilding.
+- The JIT host tree rebuilt in 304 steps with 0 errors and linked `suyu.exe` and `suyu-cmd.exe`; no-JIT rebuild, full `run.py`, real smoke CMake configure, and PLA session were not run.
+
+### Known limitations / held items
+
+- Stage 3a is standalone and unconnected: nvmap device-map locks, shared/transfer/vi/TLS callers are modeled but not wired, and IPC map-alias/SetupForIpc, MapCodeMemory, and unsafe/insecure operations remain unsupported.
+- Physical page allocation remains on `KMemoryManager` in Stage 3 behind `PhysicalPageSource`; primary and shadow modes are mutually exclusive, with primary mode winning with a warning. The writer of extra Locked/Uncached bits remains unidentified.
+- Stage 3b must wire `KProcessPageTable` with counted fail-fast stubs, and Stage 3c must run JIT/AOT PLA sessions including bag and quit segments with CPU ms/frame comparison; save-data backup is required before Stage 3c.
+
 ## v0.0.3-dev6 - Unreleased
 
 *Development entry 6 toward v0.0.3. Not a release; no build artifacts are published.*

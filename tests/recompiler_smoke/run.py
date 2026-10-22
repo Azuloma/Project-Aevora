@@ -116,6 +116,8 @@ NATIVE_MEMORY_MUTANTS = ("layout-order", "merge-attribute", "reprotect-flag", "c
 
 NATIVE_SHADOW_MUTANTS = ("shadow-result", "shadow-state-field", "shadow-permission-field", "shadow-attribute-field", "shadow-boundary", "shadow-user-permission", "shadow-range-clip", "shadow-sync-skipped", "shadow-report-cap", "shadow-total", "shadow-skipped", "shadow-physical-op", "shadow-was-mapped", "shadow-state-only", "shadow-freed-pages", "shadow-before-step", "shadow-capacity", "shadow-tiling", "shadow-heap-end", "shadow-physical")
 
+NATIVE_PROCESS_MEMORY_MUTANTS = ("proc-unmap-free", "proc-heap-shrink", "proc-alias-src", "proc-short-alloc", "proc-free-noop", "proc-unlock-protect", "proc-lock-protect", "proc-runmap-advance", "proc-visit-gap", "proc-collect-state", "proc-device-count", "proc-device-clear", "proc-device-merge", "proc-lock-attribute", "proc-process-state", "proc-io-region", "proc-perm-protect", "proc-process-protect", "proc-alias-dst", "proc-alias-restore", "proc-external-free", "proc-finalize-host", "proc-finalize-anon", "proc-check-first", "proc-heap-check", "proc-transfer-none", "proc-device-permission", "proc-process-none")
+
 
 def call(args, expected=0, timeout=120, env=None):
     result = subprocess.run([str(arg) for arg in args], check=False, timeout=timeout, env=env)
@@ -910,6 +912,10 @@ def main():
             call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_native_shadow_unit")])
         for name in NATIVE_SHADOW_MUTANTS:
+            mutant = executable(export_build, "smoke_native_" + name.replace("-", "_"))
+            call([mutant], expected=1, timeout=30)
+        call([executable(export_build, "smoke_native_process_memory_unit")])
+        for name in NATIVE_PROCESS_MEMORY_MUTANTS:
             mutant = executable(export_build, "smoke_native_" + name.replace("-", "_"))
             call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_host_timing_wait_unit")])
