@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -49,6 +50,7 @@ constexpr u32 FlagCanDeviceMap = 1u << 19;
 constexpr u32 FlagCanAlignedDeviceMap = 1u << 20;
 constexpr u32 FlagReferenceCounted = 1u << 22;
 constexpr u32 FlagCanCodeMemory = 1u << 25;
+constexpr u32 FlagLinearMapped = 1u << 26;
 constexpr u32 FlagCanChangeAttribute = 1u << 24;
 constexpr u32 FlagCanPermissionLock = 1u << 27;
 
@@ -119,6 +121,51 @@ constexpr std::string_view ResultName(Result result) {
     }
     return "Unknown";
 }
+
+// Raw kernel result (module 1, description in bits 9..21); the kernel adapter static_asserts these.
+constexpr u32 KernelModule = 1;
+constexpr u32 KernelResultRaw(u32 description) {
+    return KernelModule | (description << 9);
+}
+// NotSupported and Other have no kernel counterpart; callers must fail fast instead of returning them.
+constexpr u32 ToKernelResultRaw(Result result) {
+    switch (result) {
+    case Result::Success:
+        return 0;
+    case Result::InvalidSize:
+        return KernelResultRaw(101);
+    case Result::InvalidAddress:
+        return KernelResultRaw(102);
+    case Result::OutOfMemory:
+        return KernelResultRaw(104);
+    case Result::InvalidCurrentMemory:
+        return KernelResultRaw(106);
+    case Result::InvalidNewMemoryPermission:
+        return KernelResultRaw(108);
+    case Result::InvalidMemoryRegion:
+        return KernelResultRaw(110);
+    case Result::InvalidCombination:
+        return KernelResultRaw(116);
+    case Result::LimitReached:
+        return KernelResultRaw(132);
+    case Result::NotSupported:
+    case Result::Other:
+        break;
+    }
+    return KernelResultRaw(33);
+}
+constexpr bool HasKernelResult(Result result) {
+    return result != Result::NotSupported && result != Result::Other;
+}
+
+// State, permission and attribute a copy source or destination must carry (IPC message copies).
+struct CopyRule {
+    u32 state_mask = 0;
+    u32 state = 0;
+    u8 test_permission = 0;
+    u8 attribute_mask = 0;
+    u8 attribute = 0;
+};
 
 struct Range {
     u64 start = 0;
@@ -465,15 +512,27 @@ public:
         if (state != MemoryState::Code && state != MemoryState::CodeData) {
             return Result::InvalidCombination;
         }
+        return MapPages(address, size, state, permission);
+    }
+
+    // Free pages become `state`: process code or the main thread stack.
+    Result CheckMapPages(u64 address, u64 size, MemoryState state) const {
+        if (state != MemoryState::Code && state != MemoryState::CodeData &&
+            state != MemoryState::Stack) {
+            return Result::InvalidCombination;
+        }
         if (const Result result = ValidateRange(address, size); result != Result::Success) {
             return result;
         }
         if (!CanContain(address, size, state)) {
             return Result::InvalidMemoryRegion;
         }
-        if (const Result result = CheckMemoryState(address, size, StateAny, 0, PermAny, 0,
-                                                   AttributeAny, AttributeNone);
-            result != Result::Success) {
+        return CheckMemoryState(address, size, StateAny, 0, PermAny, 0, AttributeAny,
+                                AttributeNone);
+    }
+
+    Result MapPages(u64 address, u64 size, MemoryState state, Permission permission) {
+        if (const Result result = CheckMapPages(address, size, state); result != Result::Success) {
             return result;
         }
         Update(address, size, state, ToStoredPermission(permission), AttributeNone);
@@ -854,6 +913,70 @@ public:
         return Result::Success;
     }
 
+    Result UnmapPages(u64 address, u64 size, MemoryState state) {
+        return ReleaseTo(address, size, state);
+    }
+
+    // First-fit search inside the region of `state`; guard pages around the area must be free.
+    Result FindFreeArea(MemoryState state, u64 num_pages, u64 alignment, u64 guard_pages,
+                        u64& out_address) const {
+        const Range region = RegionFor(state);
+        const u64 region_pages = region.size / PageSize;
+        if (num_pages == 0 || alignment < PageSize || alignment % PageSize != 0 ||
+            region.size == 0) {
+            return Result::InvalidSize;
+        }
+        if (num_pages > region_pages || guard_pages > region_pages || alignment > region.size) {
+            return Result::OutOfMemory;
+        }
+        const u64 size = num_pages * PageSize;
+        const u64 guard_bytes = guard_pages * PageSize;
+        for (auto it = FindBlock(region.start); it != blocks_.end() && it->first < region.end();
+             ++it) {
+            if (it->second.state != MemoryState::Free) {
+                continue;
+            }
+            const u64 block_end = it->second.end;
+            u64 lowest = it->first + guard_bytes;
+            while (true) {
+                const u64 candidate = AlignUp(std::max(region.start, lowest), alignment);
+                const u64 needed_end = candidate + size + guard_bytes;
+                if (needed_end > block_end || needed_end > region.end()) {
+                    break;
+                }
+                if (CanContain(candidate, size, state)) {
+                    out_address = candidate;
+                    return Result::Success;
+                }
+                lowest = candidate + alignment;
+                if (layout_.heap.Overlaps(candidate, size)) {
+                    lowest = std::max(lowest, layout_.heap.end());
+                } else if (layout_.alias.Overlaps(candidate, size)) {
+                    lowest = std::max(lowest, layout_.alias.end());
+                }
+            }
+        }
+        return Result::OutOfMemory;
+    }
+
+    // Like CheckMemoryStateContiguous: each block is tested on its own, the range need not be uniform.
+    Result CheckCopyRange(u64 address, u64 size, const CopyRule& rule) const {
+        const u64 range_end = address + size;
+        if (range_end < address || !layout_.address_space.Contains(address, size)) {
+            return Result::InvalidCurrentMemory;
+        }
+        for (auto it = FindBlock(address); it != blocks_.end() && it->first < range_end; ++it) {
+            const Block& block = it->second;
+            const u8 attribute_mask = static_cast<u8>(rule.attribute_mask | AttributeUncached);
+            if ((static_cast<u32>(block.state) & rule.state_mask) != rule.state ||
+                (block.permission & rule.test_permission) != rule.test_permission ||
+                (block.attribute & attribute_mask) != rule.attribute) {
+                return Result::InvalidCurrentMemory;
+            }
+        }
+        return Result::Success;
+    }
+
     // IPC map-alias is outside the supported path; callers must fail fast on this result.
     Result SetupForIpc(u64, u64) {
         return Result::NotSupported;
@@ -892,6 +1015,26 @@ private:
             return Result::InvalidMemoryRegion;
         }
         return Result::Success;
+    }
+
+    static constexpr u64 AlignUp(u64 value, u64 alignment) {
+        return (value + alignment - 1) / alignment * alignment;
+    }
+
+    Range RegionFor(MemoryState state) const {
+        if (state == MemoryState::Stack) {
+            return layout_.stack;
+        }
+        if (state == MemoryState::ThreadLocal) {
+            return layout_.kernel_map;
+        }
+        if (state == MemoryState::Shared || state == MemoryState::Io) {
+            return layout_.alias_code;
+        }
+        if (state == MemoryState::Code || state == MemoryState::CodeData) {
+            return layout_.code;
+        }
+        return {};
     }
 
     bool CanContain(u64 address, u64 size, MemoryState state) const {

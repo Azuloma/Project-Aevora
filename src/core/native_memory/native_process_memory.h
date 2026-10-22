@@ -4,6 +4,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iterator>
 #include <map>
@@ -19,6 +20,14 @@ namespace Core::NativeMemory {
 struct PhysicalExtent {
     u64 phys = 0;
     u64 size = 0;
+};
+
+// Reads and writes the physical memory the backing refers to (DeviceMemory in the kernel adapter).
+class PhysicalAccess {
+public:
+    virtual ~PhysicalAccess() = default;
+    virtual void Read(u64 phys, void* out, u64 size) = 0;
+    virtual void Write(u64 phys, const void* data, u64 size) = 0;
 };
 
 class PhysicalPageSource {
@@ -42,9 +51,10 @@ namespace Detail {
 struct Backing {
     u64 phys = 0;
     bool host_mapped = true;
+    bool owned = false;
 
     Backing Advanced(u64 delta) const {
-        return {phys + delta, host_mapped};
+        return {phys + delta, host_mapped, owned};
     }
 };
 
@@ -150,6 +160,8 @@ private:
 
 class MappedAddressSpace {
 public:
+    static constexpr size_t CopyChunkBytes = 16 * 1024;
+
     MappedAddressSpace(const Layout& layout, u64 physical_capacity_bytes, PhysicalPageSource& source,
                        HostMemoryMap& host)
         : space_(layout, physical_capacity_bytes), source_(source), host_(host) {}
@@ -172,20 +184,63 @@ public:
         return inconsistency_count_;
     }
 
-    // Unmaps everything on the host and returns anonymous pages; the caller-owned pages stay untouched.
+    // Unmaps everything on the host and returns the pages this layer allocated; external pages stay untouched.
     void Finalize() {
-        const Layout& layout = space_.GetLayout();
-        for (const Range& region : {layout.heap, layout.alias}) {
-            for (const Range& run : CollectRuns(region.start, region.size, MemoryState::Normal)) {
-                ReleaseBacking(run.start, run.size);
-            }
-        }
+        std::vector<PhysicalExtent> owned_pages;
         backing_.ForEach([&](u64 address, u64 length, const Detail::Backing& backing) {
             if (backing.host_mapped) {
                 host_.Unmap(address, length);
             }
+            if (backing.owned) {
+                owned_pages.push_back({backing.phys, length});
+            }
         });
         backing_.Clear();
+        FreeAll(owned_pages);
+    }
+
+    // Allocates pages for process code or the main thread stack; UnmapPages or Finalize frees them.
+    Result MapPages(u64 address, u64 size, MemoryState state, Permission permission) {
+        if (const Result result = space_.CheckMapPages(address, size, state);
+            result != Result::Success) {
+            return result;
+        }
+        std::vector<PhysicalExtent> pool;
+        if (!AllocateFor(size, pool)) {
+            return Result::OutOfMemory;
+        }
+        const Result result = space_.MapPages(address, size, state, permission);
+        if (result != Result::Success) {
+            FreeAll(pool);
+            return result;
+        }
+        Detail::ExtentCursor cursor(pool);
+        MapOwnedFromCursor(address, size, cursor, ToStoredPermission(permission));
+        return Result::Success;
+    }
+
+    // Like MapPages at a free address found by AddressSpace::FindFreeArea.
+    Result MapPagesAnywhere(u64& out_address, u64 size, MemoryState state, Permission permission,
+                            u64 guard_pages) {
+        u64 address = 0;
+        if (const Result result = space_.FindFreeArea(state, size / PageSize, PageSize, guard_pages,
+                                                      address);
+            result != Result::Success) {
+            return result;
+        }
+        const Result result = MapPages(address, size, state, permission);
+        if (result == Result::Success) {
+            out_address = address;
+        }
+        return result;
+    }
+
+    Result UnmapPages(u64 address, u64 size, MemoryState state) {
+        const Result result = space_.UnmapPages(address, size, state);
+        if (result == Result::Success) {
+            ReleaseBacking(address, size);
+        }
+        return result;
     }
 
     Result MapPhysicalMemory(u64 address, u64 size) {
@@ -258,7 +313,7 @@ public:
             return Result::Success;
         }
         host_.Unmap(src_address, size);
-        SetHostMapped(src_address, extents, false);
+        SetHostMapped(src_address, size, false);
         MapExtents(dst_address, extents, PermUserReadWrite);
         return Result::Success;
     }
@@ -280,7 +335,7 @@ public:
             host_.Map(cursor, extent.size, extent.phys, PermUserReadWrite);
             cursor += extent.size;
         }
-        SetHostMapped(src_address, extents, true);
+        SetHostMapped(src_address, size, true);
         return Result::Success;
     }
 
@@ -351,8 +406,98 @@ public:
         return result;
     }
 
+    Result MapThreadLocalPageAnywhere(u64& out_address, u64 phys, u64 guard_pages) {
+        u64 address = 0;
+        if (const Result result = space_.FindFreeArea(MemoryState::ThreadLocal, 1, PageSize,
+                                                      guard_pages, address);
+            result != Result::Success) {
+            return result;
+        }
+        const Result result = MapThreadLocalPage(address, phys);
+        if (result == Result::Success) {
+            out_address = address;
+        }
+        return result;
+    }
+
     Result UnmapThreadLocalPage(u64 address) {
         return UnmapExternal(space_.UnmapThreadLocalPage(address), address, PageSize);
+    }
+
+    // The IPC message copies: the rule is checked first and nothing is copied on failure.
+    Result ReadLinear(u64 address, u64 size, const CopyRule& rule, PhysicalAccess& access,
+                      void* out) const {
+        std::vector<PhysicalExtent> extents;
+        if (const Result result = CollectCopyExtents(address, size, &rule, extents);
+            result != Result::Success) {
+            return result;
+        }
+        u8* cursor = static_cast<u8*>(out);
+        for (const PhysicalExtent& extent : extents) {
+            access.Read(extent.phys, cursor, extent.size);
+            cursor += extent.size;
+        }
+        return Result::Success;
+    }
+
+    Result WriteLinear(u64 address, u64 size, const CopyRule& rule, PhysicalAccess& access,
+                       const void* data) const {
+        std::vector<PhysicalExtent> extents;
+        if (const Result result = CollectCopyExtents(address, size, &rule, extents);
+            result != Result::Success) {
+            return result;
+        }
+        const u8* cursor = static_cast<const u8*>(data);
+        for (const PhysicalExtent& extent : extents) {
+            access.Write(extent.phys, cursor, extent.size);
+            cursor += extent.size;
+        }
+        return Result::Success;
+    }
+
+    // dst_rule == nullptr skips the destination check (CopyMemoryFromHeapToHeapWithoutCheckDestination).
+    static Result CopyLinear(const MappedAddressSpace& src, u64 src_address, const CopyRule& src_rule,
+                             const MappedAddressSpace& dst, u64 dst_address, const CopyRule* dst_rule,
+                             u64 size, PhysicalAccess& access) {
+        std::vector<PhysicalExtent> src_extents;
+        std::vector<PhysicalExtent> dst_extents;
+        if (const Result result = src.CollectCopyExtents(src_address, size, &src_rule, src_extents);
+            result != Result::Success) {
+            return result;
+        }
+        if (dst_rule != nullptr) {
+            if (const Result result = dst.CollectCopyExtents(dst_address, size, dst_rule, dst_extents);
+                result != Result::Success) {
+                return result;
+            }
+        } else if (const Result result = dst.CollectCopyExtents(dst_address, size, nullptr, dst_extents);
+                   result != Result::Success) {
+            return result;
+        }
+        std::array<u8, CopyChunkBytes> chunk;
+        size_t src_index = 0;
+        size_t dst_index = 0;
+        u64 src_used = 0;
+        u64 dst_used = 0;
+        for (u64 copied = 0; copied < size;) {
+            const u64 length = std::min({size - copied, src_extents[src_index].size - src_used,
+                                         dst_extents[dst_index].size - dst_used,
+                                         static_cast<u64>(CopyChunkBytes)});
+            access.Read(src_extents[src_index].phys + src_used, chunk.data(), length);
+            access.Write(dst_extents[dst_index].phys + dst_used, chunk.data(), length);
+            copied += length;
+            src_used += length;
+            dst_used += length;
+            if (src_used == src_extents[src_index].size) {
+                ++src_index;
+                src_used = 0;
+            }
+            if (dst_used == dst_extents[dst_index].size) {
+                ++dst_index;
+                dst_used = 0;
+            }
+        }
+        return Result::Success;
     }
 
     Result LockForTransferMemory(u64 address, u64 size, Permission new_permission,
@@ -402,6 +547,26 @@ public:
     }
 
 private:
+    // Rule check (when given) plus the physical pieces of the range; any unbacked page fails it.
+    Result CollectCopyExtents(u64 address, u64 size, const CopyRule* rule,
+                              std::vector<PhysicalExtent>& out) const {
+        if (size == 0) {
+            return CheckContained(address, 1);
+        }
+        const Result checked = rule != nullptr ? space_.CheckCopyRange(address, size, *rule)
+                                               : CheckContained(address, size);
+        if (checked != Result::Success) {
+            return checked;
+        }
+        return CollectBacking(address, size, out) ? Result::Success : Result::InvalidCurrentMemory;
+    }
+
+    Result CheckContained(u64 address, u64 size) const {
+        const bool contained = address + size >= address &&
+                               space_.GetLayout().address_space.Contains(address, size);
+        return contained ? Result::Success : Result::InvalidCurrentMemory;
+    }
+
     static u64 TotalSize(const std::vector<PhysicalExtent>& extents) {
         u64 total = 0;
         for (const PhysicalExtent& extent : extents) {
@@ -470,22 +635,27 @@ private:
     }
 
     // Alias sources keep their pages but leave the host table while the alias exists.
-    void SetHostMapped(u64 address, const std::vector<PhysicalExtent>& extents, bool host_mapped) {
-        for (const PhysicalExtent& extent : extents) {
-            backing_.Assign(address, extent.size, Detail::Backing{extent.phys, host_mapped});
-            address += extent.size;
+    void SetHostMapped(u64 address, u64 size, bool host_mapped) {
+        std::vector<std::pair<Range, Detail::Backing>> pieces;
+        backing_.Visit(address, size, [&](u64 piece, u64 length, const Detail::Backing& backing) {
+            pieces.push_back({{piece, length}, backing});
+        });
+        for (auto& [range, backing] : pieces) {
+            backing.host_mapped = host_mapped;
+            backing_.Assign(range.start, range.size, backing);
         }
     }
 
-    void MapOwnedFromCursor(u64 address, u64 size, Detail::ExtentCursor& cursor) {
+    void MapOwnedFromCursor(u64 address, u64 size, Detail::ExtentCursor& cursor,
+                            u8 permission = PermUserReadWrite) {
         for (u64 mapped = 0; mapped < size;) {
             const PhysicalExtent piece = cursor.Take(size - mapped);
             if (piece.size == 0) {
                 ++inconsistency_count_;
                 return;
             }
-            host_.Map(address + mapped, piece.size, piece.phys, PermUserReadWrite);
-            backing_.Assign(address + mapped, piece.size, Detail::Backing{piece.phys});
+            host_.Map(address + mapped, piece.size, piece.phys, permission);
+            backing_.Assign(address + mapped, piece.size, Detail::Backing{piece.phys, true, true});
             mapped += piece.size;
         }
     }
@@ -496,7 +666,9 @@ private:
         std::vector<Range> mapped;
         const bool covered = backing_.Visit(address, size, [&](u64 piece, u64 length,
                                                               const Detail::Backing& backing) {
-            pages.push_back({backing.phys, length});
+            if (backing.owned) {
+                pages.push_back({backing.phys, length});
+            }
             if (backing.host_mapped) {
                 mapped.push_back({piece, length});
             }

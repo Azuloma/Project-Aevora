@@ -1,5 +1,6 @@
 // smoke_native_process_memory_unit: physical backing, host mapping, locks and run-map rules of the
 // standalone mapped address space (core/native_memory/native_process_memory.h).
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <map>
@@ -475,6 +476,263 @@ int FinalizeReleasesEverything() {
     return 0;
 }
 
+// Byte store keyed by physical address; counts reads of bytes nobody wrote.
+class FakeAccess final : public PhysicalAccess {
+public:
+    void Read(u64 phys, void* out, u64 size) override {
+        for (u64 i = 0; i < size; ++i) {
+            const auto it = bytes.find(phys + i);
+            if (it == bytes.end()) {
+                ++unwritten_reads;
+            }
+            static_cast<u8*>(out)[i] = it == bytes.end() ? 0 : it->second;
+        }
+    }
+    void Write(u64 phys, const void* data, u64 size) override {
+        for (u64 i = 0; i < size; ++i) {
+            bytes[phys + i] = static_cast<const u8*>(data)[i];
+        }
+    }
+    std::map<u64, u8> bytes;
+    int unwritten_reads = 0;
+};
+
+constexpr CopyRule kLinearRead{FlagLinearMapped, FlagLinearMapped, 1, 0, AttributeNone};
+constexpr CopyRule kLinearWrite{FlagLinearMapped, FlagLinearMapped, 3, 0, AttributeNone};
+
+int AnonymousPagesAreAllocatedAndFreed() {
+    Fixture f;
+    const u64 stack = f.layout.stack.start + 0x100000;
+    CHECK_RESULT(f.memory.MapPages(stack, 0x20000, MemoryState::Stack, Permission::ReadWrite),
+                 Result::Success);
+    CHECK(f.source.allocated_bytes == 0x20000 && f.host.IsMapped(stack, 0x20000));
+    CHECK(f.host.PermissionAt(stack) == PermUserReadWrite);
+    CHECK(f.memory.Space().QueryInfo(stack).state == MemoryState::Stack);
+
+    const int calls = f.source.allocate_calls;
+    CHECK_RESULT(f.memory.MapPages(stack, 0x1000, MemoryState::Stack, Permission::ReadWrite),
+                 Result::InvalidCurrentMemory);
+    CHECK_RESULT(f.memory.MapPages(stack + 0x20000, 0x1000, MemoryState::Normal, Permission::Read),
+                 Result::InvalidCombination);
+    CHECK_RESULT(f.memory.MapPages(f.layout.heap.start, 0x1000, MemoryState::Stack,
+                                   Permission::Read),
+                 Result::InvalidMemoryRegion);
+    CHECK(f.source.allocate_calls == calls);
+
+    f.source.limit_bytes = f.source.allocated_bytes;
+    CHECK_RESULT(f.memory.MapPages(stack + 0x40000, 0x1000, MemoryState::Stack,
+                                   Permission::ReadWrite),
+                 Result::OutOfMemory);
+    CHECK(f.memory.Space().QueryInfo(stack + 0x40000).state == MemoryState::Free);
+
+    CHECK_RESULT(f.memory.UnmapPages(stack, 0x20000, MemoryState::Code),
+                 Result::InvalidCurrentMemory);
+    CHECK_RESULT(f.memory.UnmapPages(stack, 0x20000, MemoryState::Stack), Result::Success);
+    CHECK(f.source.allocated_bytes == 0 && f.host.IsUnmapped(stack, 0x20000));
+
+    const u64 code = f.layout.code.start;
+    CHECK_RESULT(f.memory.MapPages(code, 0x4000, MemoryState::Code, Permission::None),
+                 Result::Success);
+    CHECK(f.host.PermissionAt(code) == ToStoredPermission(Permission::None));
+    CHECK(f.Consistent());
+    f.memory.Finalize();
+    CHECK(f.source.live_pages.empty() && f.host.pages.empty() && f.Consistent());
+    return 0;
+}
+
+int AliasOfOwnedPagesIsNotFreedTwice() {
+    Fixture f;
+    const u64 alias = f.layout.alias.start;
+    CHECK_RESULT(f.memory.MapPhysicalMemory(alias, 0x4000), Result::Success);
+    CHECK_RESULT(f.memory.MapMemory(f.layout.stack.start, alias, 0x4000), Result::Success);
+    f.memory.Finalize();
+    CHECK(f.source.errors == 0 && f.source.live_pages.empty() && f.host.pages.empty());
+    return 0;
+}
+
+int FreeAreaSearchHonoursGuardsAlignmentAndRegions() {
+    Fixture f;
+    const Range stack = f.layout.stack;
+    u64 address = 0;
+    CHECK_RESULT(f.memory.Space().FindFreeArea(MemoryState::Stack, 4, PageSize, 0, address),
+                 Result::Success);
+    CHECK(address >= stack.start && address + 4 * PageSize <= stack.end());
+
+    CHECK_RESULT(f.memory.MapPagesAnywhere(address, 0x4000, MemoryState::Stack,
+                                           Permission::ReadWrite, 2),
+                 Result::Success);
+    u64 second = 0;
+    CHECK_RESULT(f.memory.MapPagesAnywhere(second, 0x4000, MemoryState::Stack,
+                                           Permission::ReadWrite, 2),
+                 Result::Success);
+    CHECK(second >= address + 0x4000 + 2 * PageSize || second + 0x4000 + 2 * PageSize <= address);
+    CHECK(f.host.IsMapped(address, 0x4000) && f.host.IsMapped(second, 0x4000));
+
+    u64 aligned = 0;
+    CHECK_RESULT(f.memory.Space().FindFreeArea(MemoryState::Stack, 1, 0x10000, 0, aligned),
+                 Result::Success);
+    CHECK(aligned % 0x10000 == 0 && aligned >= stack.start);
+    CHECK_RESULT(f.memory.Space().FindFreeArea(MemoryState::Stack, 0, PageSize, 0, aligned),
+                 Result::InvalidSize);
+    CHECK_RESULT(f.memory.Space().FindFreeArea(MemoryState::Stack, stack.size / PageSize + 1,
+                                               PageSize, 0, aligned),
+                 Result::OutOfMemory);
+    CHECK_RESULT(f.memory.Space().FindFreeArea(MemoryState::Normal, 1, PageSize, 0, aligned),
+                 Result::InvalidSize);
+    CHECK_RESULT(f.memory.Space().FindFreeArea(MemoryState::Stack, (1ULL << 52) + 1, PageSize, 0,
+                                               aligned),
+                 Result::OutOfMemory);
+    CHECK_RESULT(f.memory.Space().FindFreeArea(MemoryState::Stack, 1, 0xFFFFFFFFFFFFF000ULL, 0,
+                                               aligned),
+                 Result::OutOfMemory);
+
+    Fixture empty;
+    const u64 region_pages = empty.layout.stack.size / PageSize;
+    CHECK_RESULT(empty.memory.Space().FindFreeArea(MemoryState::Stack, region_pages, PageSize, 1,
+                                                   aligned),
+                 Result::OutOfMemory);
+    CHECK_RESULT(empty.memory.Space().FindFreeArea(MemoryState::Stack, region_pages, PageSize, 0,
+                                                   aligned),
+                 Result::Success);
+    CHECK(aligned == empty.layout.stack.start);
+
+    u64 tls = 0;
+    CHECK_RESULT(f.memory.MapThreadLocalPageAnywhere(tls, 0x9000, 1), Result::Success);
+    CHECK(tls >= f.layout.kernel_map.start && tls < f.layout.kernel_map.end());
+    CHECK(f.memory.Space().QueryInfo(tls).state == MemoryState::ThreadLocal);
+    u64 tls_next = 0;
+    CHECK_RESULT(f.memory.MapThreadLocalPageAnywhere(tls_next, 0xA000, 1), Result::Success);
+    CHECK(tls_next != tls && f.host.IsMapped(tls_next, PageSize));
+    CHECK(f.Consistent());
+    return 0;
+}
+
+int CopyFollowsTheKernelStateRules() {
+    Fixture f;
+    FakeAccess access;
+    f.memory.SetMaxHeapSize(64 * MiB);
+    u64 heap = 0;
+    CHECK_RESULT(f.memory.SetHeapSize(heap, 0x200000), Result::Success);
+    const u64 base = f.layout.heap.start;
+
+    std::vector<u8> pattern(0x60000);
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        pattern[i] = static_cast<u8>(i * 7 + (i >> 8));
+    }
+    CHECK_RESULT(f.memory.WriteLinear(base, pattern.size(), kLinearWrite, access, pattern.data()),
+                 Result::Success);
+    std::vector<u8> back(pattern.size());
+    CHECK_RESULT(f.memory.ReadLinear(base, back.size(), kLinearRead, access, back.data()),
+                 Result::Success);
+    CHECK(back == pattern && access.unwritten_reads == 0);
+
+    // Blocks with different permissions pass together when each block carries the required bits.
+    CHECK_RESULT(f.memory.SetMemoryPermission(base + 0x10000, 0x10000, Permission::Read),
+                 Result::Success);
+    CHECK_RESULT(f.memory.ReadLinear(base, back.size(), kLinearRead, access, back.data()),
+                 Result::Success);
+    std::vector<u8> overwrite(0x30000, 0xEE);
+    CHECK_RESULT(f.memory.WriteLinear(base, 0x30000, kLinearWrite, access, overwrite.data()),
+                 Result::InvalidCurrentMemory);
+    std::vector<u8> check(0x30000);
+    CHECK_RESULT(f.memory.ReadLinear(base, check.size(), kLinearRead, access, check.data()),
+                 Result::Success);
+    CHECK(std::equal(check.begin(), check.end(), pattern.begin()));
+
+    CHECK_RESULT(f.memory.SetMemoryAttribute(base + 0x50000, PageSize, AttributeUncached,
+                                             AttributeUncached),
+                 Result::Success);
+    CHECK_RESULT(f.memory.ReadLinear(base + 0x50000, PageSize, kLinearRead, access, back.data()),
+                 Result::InvalidCurrentMemory);
+    const CopyRule wrong_state{FlagCode, FlagCode, 1, 0, AttributeNone};
+    CHECK_RESULT(f.memory.ReadLinear(base, PageSize, wrong_state, access, back.data()),
+                 Result::InvalidCurrentMemory);
+    CHECK_RESULT(f.memory.ReadLinear(base + 0x200000, PageSize, kLinearRead, access, back.data()),
+                 Result::InvalidCurrentMemory);
+    CHECK_RESULT(f.memory.ReadLinear(~0ULL - 0xFFF, 0x2000, kLinearRead, access, back.data()),
+                 Result::InvalidCurrentMemory);
+    CHECK_RESULT(f.memory.ReadLinear(base, 0, kLinearRead, access, back.data()), Result::Success);
+    CHECK_RESULT(f.memory.ReadLinear(~0ULL, 0, kLinearRead, access, back.data()),
+                 Result::InvalidCurrentMemory);
+    return 0;
+}
+
+int CopyBetweenSpacesSpansExtents() {
+    Fixture src;
+    Fixture dst;
+    FakeAccess access;
+    dst.source.next_phys = 0x40000000;
+    src.memory.SetMaxHeapSize(64 * MiB);
+    dst.memory.SetMaxHeapSize(64 * MiB);
+    u64 heap = 0;
+    CHECK_RESULT(src.memory.SetHeapSize(heap, 0x200000), Result::Success);
+    CHECK_RESULT(dst.memory.SetHeapSize(heap, 0x200000), Result::Success);
+    const u64 base = src.layout.heap.start;
+    std::vector<u8> pattern(0x40000);
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        pattern[i] = static_cast<u8>(i * 13 + (i >> 9) + 1);
+    }
+    CHECK_RESULT(src.memory.WriteLinear(base + 0x1000, pattern.size(), kLinearWrite, access,
+                                        pattern.data()),
+                 Result::Success);
+    CHECK_RESULT(MappedAddressSpace::CopyLinear(src.memory, base + 0x1000, kLinearRead, dst.memory,
+                                                base + 0x8000, &kLinearWrite, pattern.size(),
+                                                access),
+                 Result::Success);
+    std::vector<u8> out(pattern.size());
+    CHECK_RESULT(dst.memory.ReadLinear(base + 0x8000, out.size(), kLinearRead, access, out.data()),
+                 Result::Success);
+    CHECK(out == pattern);
+
+    // A failing source rule copies nothing either.
+    CHECK_RESULT(src.memory.SetMemoryAttribute(base + 0x30000, PageSize, AttributeUncached,
+                                               AttributeUncached),
+                 Result::Success);
+    const std::map<u64, u8> untouched = access.bytes;
+    CHECK_RESULT(MappedAddressSpace::CopyLinear(src.memory, base + 0x1000, kLinearRead, dst.memory,
+                                                base + 0x8000, &kLinearWrite, pattern.size(),
+                                                access),
+                 Result::InvalidCurrentMemory);
+    CHECK(access.bytes == untouched);
+    CHECK_RESULT(src.memory.SetMemoryAttribute(base + 0x30000, PageSize, AttributeUncached,
+                                               AttributeNone),
+                 Result::Success);
+
+    // A failing destination rule copies nothing; skipping the rule copies anyway.
+    CHECK_RESULT(dst.memory.SetMemoryPermission(base + 0x20000, PageSize, Permission::Read),
+                 Result::Success);
+    const std::map<u64, u8> before = access.bytes;
+    CHECK_RESULT(MappedAddressSpace::CopyLinear(src.memory, base + 0x1000, kLinearRead, dst.memory,
+                                                base + 0x8000, &kLinearWrite, 0x20000, access),
+                 Result::InvalidCurrentMemory);
+    CHECK(access.bytes == before);
+    CHECK_RESULT(MappedAddressSpace::CopyLinear(src.memory, base + 0x1000, kLinearRead, dst.memory,
+                                                base + 0x8000, nullptr, 0x20000, access),
+                 Result::Success);
+    CHECK_RESULT(MappedAddressSpace::CopyLinear(src.memory, base + 0x1000, kLinearRead, dst.memory,
+                                                base + 0x200000, nullptr, 0x1000, access),
+                 Result::InvalidCurrentMemory);
+    CHECK_RESULT(MappedAddressSpace::CopyLinear(src.memory, base + 0x1000, kLinearRead, dst.memory,
+                                                base + 0x8000, nullptr, 0, access),
+                 Result::Success);
+    return 0;
+}
+
+int KernelResultTableMatchesTheSvcCodes() {
+    CHECK(ToKernelResultRaw(Result::Success) == 0);
+    CHECK(ToKernelResultRaw(Result::InvalidSize) == 1 + (101u << 9));
+    CHECK(ToKernelResultRaw(Result::InvalidAddress) == 1 + (102u << 9));
+    CHECK(ToKernelResultRaw(Result::OutOfMemory) == 1 + (104u << 9));
+    CHECK(ToKernelResultRaw(Result::InvalidCurrentMemory) == 1 + (106u << 9));
+    CHECK(ToKernelResultRaw(Result::InvalidNewMemoryPermission) == 1 + (108u << 9));
+    CHECK(ToKernelResultRaw(Result::InvalidMemoryRegion) == 1 + (110u << 9));
+    CHECK(ToKernelResultRaw(Result::InvalidCombination) == 1 + (116u << 9));
+    CHECK(ToKernelResultRaw(Result::LimitReached) == 1 + (132u << 9));
+    CHECK(HasKernelResult(Result::LimitReached));
+    CHECK(!HasKernelResult(Result::NotSupported) && !HasKernelResult(Result::Other));
+    return 0;
+}
+
 // Reference model: one optional physical page per virtual page.
 int RunMapMatchesAPerPageModel() {
     constexpr u64 kPages = 64;
@@ -528,6 +786,12 @@ int main() {
     CHECK(TransferMemoryLocksPinTheRange() == 0);
     CHECK(DeviceMapLocksAreCounted() == 0);
     CHECK(FinalizeReleasesEverything() == 0);
+    CHECK(AnonymousPagesAreAllocatedAndFreed() == 0);
+    CHECK(AliasOfOwnedPagesIsNotFreedTwice() == 0);
+    CHECK(FreeAreaSearchHonoursGuardsAlignmentAndRegions() == 0);
+    CHECK(CopyFollowsTheKernelStateRules() == 0);
+    CHECK(CopyBetweenSpacesSpansExtents() == 0);
+    CHECK(KernelResultTableMatchesTheSvcCodes() == 0);
     CHECK(RunMapMatchesAPerPageModel() == 0);
     std::puts("All synthetic native process memory smoke checks passed.");
     return 0;

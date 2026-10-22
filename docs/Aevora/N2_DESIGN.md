@@ -86,6 +86,18 @@ Stage 3 is split into three sub-stages:
 
 The caller inventory is: observed — memory SVCs, TLS, shared memory, transfer memory, and `GetInfo` accounting; likely — process stack/code mapping, nvmap device locks, and the vi shared buffer; unobserved — IPC map-alias, `CodeMemory`, and unsafe/insecure paths. Physical page allocation stays on `KMemoryManager` in Stage 3 behind `PhysicalPageSource`; KPageGroup node lists map to `PhysicalExtent` lists.
 
+### Stage 3b plan
+
+The user-approved Stage 3b plan is split into three deliveries:
+
+- **3b-1 (dev8):** add kernel-free native headers only; nothing is connected to the kernel.
+- **3b-2 (dev9):** add, but do not switch, adapters for `PhysicalPageSource` over `KMemoryManager`/`KResourceLimit`, `HostMemoryMap` over `Core::Memory`, `KPageGroup` ↔ extent conversion with `Open`/`Close` refcounts, `KMemoryInfo` conversion, and the native mutex. First record a table of every replaced kernel function's side effects (resource reservation, fill value, and cache operations) here in N2_DESIGN. Cover JIT and no-JIT host builds.
+- **3b-3 (dev10):** switch `KProcessPageTable` methods to native-or-`KPageTable`, read `SUYU_NATIVE_MEM` at `Initialize`, default it on, and make it exclusive with the Stage 2 shadow (native primary wins with a warning). Unsupported `SetupForIpc`, `MapCodeMemory`, and unsafe/insecure operations fail fast with operation name and address and are counted. Non-39-bit layouts fall back per process to `KPageTable` with a log.
+
+`SUYU_NATIVE_MEM` does not exist in code before dev10; at dev10 it defaults on and `SUYU_NATIVE_MEM=0` disables it. Native and `KPageTable` cannot both hold per-process state, so per-operation staged migration is impossible. `KPageTable` remains only for layout getters, `Contains`/`CanContain`, `GetBlockInfoManager`, and `Common::PageTable` (`m_impl`). IPC message-copy functions (`CopyMemoryFrom*`) are supported for every HLE request through `k_server_session.cpp` `ReceiveRequest` → `HLERequestContext`; only IPC map-alias (`SetupForIpc`) is unobserved.
+
+Stage 3c is the user's PLA validation: JIT and AOT sessions, including bag and quit segments, with unsupported-operation count 0 and CPU ms/frame plus p99 frame interval compared with the option on and off. The user should back up save data before 3c because dev10 is default-on.
+
 ## Stage 3a results
 
 `MappedAddressSpace` is a standalone, non-copyable wrapper around `AddressSpace`. Anonymous mappings allocate and free DeviceMemory-offset extents through `PhysicalPageSource` only after mutation-free validation; caller-owned process-code, shared-memory, IO-memory, and TLS extents are never freed. Alias mapping moves host mappings while retaining source pages. Transfer-memory locks, counted device-map locks, physical-address/extent queries, and `Finalize()` are implemented. `Space()` is read-only, and `InconsistencyCount()` detects lost backing; the writer of extra Locked/Uncached bits remains unidentified.
@@ -93,6 +105,16 @@ The caller inventory is: observed — memory SVCs, TLS, shared memory, transfer 
 The native-process smoke unit has 11 checks, including a randomized run-map model and fake-source/fake-host double-free/double-map detection. The unit passed with MSVC 14.51; all 28 mutants exited 1 at their intended checks. Existing native-memory and native-shadow units passed after rebuilding against the changed header. The JIT host tree completed 304 build steps with 0 errors and linked both host executables.
 
 Not run: the full `tests/recompiler_smoke/run.py`, a real smoke-test CMake configure, the no-JIT tree build, and any PLA session. Stage 3a does not yet connect nvmap device-map locks or shared/transfer/vi/TLS callers.
+
+## Stage 3b-1 results
+
+`native_address_space.h` gained `KernelResultRaw`/`ToKernelResultRaw`/`HasKernelResult`, the kernel-result table (module 1, description bits 9..21: `InvalidSize` 101, `InvalidAddress` 102, `OutOfMemory` 104, `InvalidCurrentMemory` 106, `InvalidNewMemoryPermission` 108, `InvalidMemoryRegion` 110, `InvalidCombination` 116, and `LimitReached` 132), `CopyRule`, `FlagLinearMapped`, map-page checks and operations for Stack/Code/CodeData, unmap, guarded first-fit `FindFreeArea`, and per-block `CheckCopyRange`. Unsupported native results map to raw 33 with `HasKernelResult=false`; the dev9 adapter will static-assert the modeled raw codes. `CheckCopyRange` always masks Uncached in, matching the kernel.
+
+`native_process_memory.h` gained `Backing.owned`, anonymous map/map-anywhere/unmap operations, thread-local-page allocation, physical access, linear read/write/copy bodies, and `SetHostMapped`. `Finalize` frees every owned page generically; external and alias-destination pages are never freed. Copy rules are checked before any byte is copied, and a null destination rule denotes `CopyMemoryFromHeapToHeapWithoutCheckDestination`. Kernel QueryInfo page-info flags are always zero, so no native flags were added.
+
+Verification: `native_process_memory_unit` passed with 17 check groups, including six new groups: `AnonymousPagesAreAllocatedAndFreed`, `AliasOfOwnedPagesIsNotFreedTwice`, `FreeAreaSearchHonoursGuardsAlignmentAndRegions`, `CopyFollowsTheKernelStateRules`, `CopyBetweenSpacesSpansExtents`, and `KernelResultTableMatchesTheSvcCodes`. All 46 header mutants exited 1 at their intended checks (28 carried from 3a with `proc-finalize-anon` re-anchored, 18 new); `native_memory_unit` and `native_shadow_unit` still passed, and all 66 mutant anchors were unique. Reviewer findings on free-area overflow/termination, in-region trailing guards, and zero-size copy ordering were fixed with tests and `proc-guard-tail`, `proc-area-overflow`, and `proc-copy-zero` mutants.
+
+Not run: full `tests/recompiler_smoke/run.py`, a real smoke CMake configure, JIT/no-JIT host rebuild (the host does not include these headers yet), or any PLA session. The uncommitted change is `v0.0.3-dev8` (N2 Stage 3b-1); HEAD `d051efb` is committed `v0.0.3-dev7` (Stage 3a).
 
 ## Stage 1 results
 

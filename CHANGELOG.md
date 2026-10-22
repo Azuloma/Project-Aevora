@@ -2,6 +2,27 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev8 - Unreleased
+
+*Development entry 8 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the kernel-free Stage 3b-1 native-memory headers: raw kernel-result mapping, state-rule validation, first-fit free-area search, anonymous/physical/linear mapping and copy operations, and generic owned-page finalization. IPC copy bodies are supported; IPC map-alias remains unobserved.
+
+### Changed
+
+- Recorded the Stage 3b-2 adapter plan and Stage 3b-3 switch plan. `SUYU_NATIVE_MEM` does not exist in code before dev10; dev10 will default it on, with `SUYU_NATIVE_MEM=0` disabling native memory.
+
+### Verification
+
+- `native_process_memory_unit` passed with 17 check groups; 46 header mutants exited 1 at their intended checks. `native_memory_unit` and `native_shadow_unit` still passed, and all 66 mutant anchors in `tests/recompiler_smoke/CMakeLists.txt` were unique.
+- The reviewer's two P2 and one P3 findings were fixed with tests and mutants.
+
+### Not run
+
+- The full `tests/recompiler_smoke/run.py`, a real smoke CMake configure, JIT/no-JIT host rebuild, and any PLA session were not run; the headers are not included by the host yet.
+
 ## v0.0.3-dev7 - Unreleased
 
 *Development entry 7 toward v0.0.3. Not a release; no build artifacts are published.*
