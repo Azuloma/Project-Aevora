@@ -6,8 +6,8 @@ Handoff prepared: 2026-10-22. See [session 43 archive](OLD_HISTORY.md#archived-o
 Determine whether PLA can run through Suyu-derived static CPU recompilation, then improve the verified runtime. The N0-N10/G1-G4 end goal is in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md).
 
 ## Status
-HEAD is `4362604 v0.0.3-dev10` (N2 Stage 3b-3, committed); the working tree holds only uncommitted Markdown updates (`WORK_PLAN.md`, `OLD_HISTORY.md`).
-Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`.
+HEAD is `5057b57` (docs-only record commit) on top of `4362604 v0.0.3-dev10` (N2 Stage 3b-3); the working tree holds uncommitted Markdown updates only (`WORK_PLAN.md`).
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`, docs-only record `5057b57`.
 
 ### N2 progress
 | Stage | State |
@@ -15,8 +15,8 @@ Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots r
 | 0 | Done: inventory, design note, and test4 collection. |
 | 1 | Done: standalone mapper, dev3, and mutants. |
 | 2 | Done: shadow, dev4-dev6; accepted after a JIT PLA session on the dev5 build: 0 mismatch lines, `sync_failures=0`, MapPhysicalMemory 2317 compared, SetMemoryAttribute 239, MapMemory 26, UnmapMemory 3, SetHeapSize 1, UnmapPhysicalMemory 1, SetMemoryPermission 0 not exercised; accepted with the recorded limits. |
-| 3 | Stage 3a, 3b-1, 3b-2, and 3b-3 implemented through dev10; Stage 3c JIT validation passed and AOT validation remains. |
-| 4-5 | Not started. |
+| 3 | Stage 3a, 3b-1, 3b-2, and 3b-3 through dev10 and Stage 3c (JIT and AOT) validated. |
+| 4-5 | Not started; need the user's go-ahead. |
 
 See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verification).
 
@@ -25,16 +25,16 @@ See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verif
 - `QueryMemory` is not hooked and `Common::PageTable` entries are not compared.
 - IPC map-alias (`SetupForIpc`), `MapCodeMemory`, and unsafe/insecure operations remain unsupported; other documented kernel divergences remain in [N2_DESIGN.md](N2_DESIGN.md).
 - Full `tests/recompiler_smoke/run.py` and a real smoke CMake configure have never run.
-- Stage 3c JIT validation passed: native memory default-on and `SUYU_NATIVE_MEM=0` both ran without crashes, with `unsupported_ops=0 inconsistency=0` for the native run; steady 301-frame windows averaged 75.3 and 77.2 ms/frame, with frame p99 about 34 ms in both and the 30 FPS cap held. Separate launches did not guarantee identical position/operation, the native-on bag time was not recorded, so no bag-segment A/B or performance-parity claim is made; AOT 3c has not run.
+- Stage 3c JIT and AOT validation passed: both JIT and exported static-launcher runs (native memory on and `SUYU_NATIVE_MEM=0`) completed without crashes; AOT ended with `unsupported_ops=0 inconsistency=0`, and both reports were fully static with `static -> JIT: 0` and zero unresolved import traps. CPU-budget A/B means were 107.72/108.08 ms/frame (p50 34.40/33.82 ms; p99 affected by one load stall), with separate launches and non-identical positions/operations; AOT stayed below JIT performance and no parity is claimed.
 - The native model is default-on; `SUYU_NATIVE_MEM=0` is the comparison/fallback run, and non-39-bit spaces fall back per process.
 - Unsupported operations and the kept divergences are listed in [N2_DESIGN.md Stage 3b-3 results](N2_DESIGN.md#stage-3b-3-results).
-- If Stage 3c reports an unsupported operation, implement it natively and review it as a new dev stage before proceeding.
+- If a later session reports an unsupported operation, implement it natively and review it as a new dev stage.
 
 ## Handoff
 ### Completed milestones
 - N0 boundary inventory is done and accepted; see [N0_INVENTORY.md](N0_INVENTORY.md).
 - N1 CPU-without-JIT is done and accepted with its recorded performance caveat.
-- N2 Stages 0-3b-3 are complete as summarized above; Stage 3c is the next user validation.
+- N2 Stages 0-3 (including 3c JIT and AOT) are complete as summarized above.
 
 ### Session 43 summary
 - Dev8 (Stage 3b-1) added kernel-free anonymous mapping, free-area search, and IPC copy rules to the native headers; nothing was connected.
@@ -50,13 +50,17 @@ See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verif
 - The first two launches froze in `Shadow::CompareBlocks` under `KProcessPageTable::RunShadowed` from `Svc::MapMemory` because the JIT `svc_memory.cpp.obj` was stale and ninja held an empty header dependency entry; deleting the object and rebuilding fixed the run, with no source change.
 - After `vcvars64`, `ninja -t deps` shows no unexpected `#deps 0,` core objects in `src/core`, `src/common`, `src/video_core`, or `src/hid_core`; only the documented video-core `nsight_aftermath_tracker.cpp.obj` and non-core generated/data objects are legitimate. The no-JIT tree has no such core object; its `svc_memory.cpp.obj` has 247 dependencies, is older than the header, and must be timestamp-checked after the next build.
 - Diagnostics used DbgHelp `StackWalk64` with a PDB GUID/Age check; scratch files were removed with `cleanup_scratch.ps1`.
+- Both host trees were reconfigured and rebuilt at `5057b57` (`GIT_REV` checked, 0 errors); the no-JIT `svc_memory.cpp.obj` was rebuilt at 20:45, closing the earlier open check.
+- The user exported PLA successfully with the JIT-capable Qt `suyu.exe` (msvc-release) to the local game-derived folder under `D:\HisuiWakeExports\`; `aot_cache_outcome` status fields were not inspected. Afterward, `rebuild-suyu.bat` cleanup rebuilt `suyu.exe` and `suyu-cmd.exe` at 22:31 with `GIT_REV 5057b57` and 0 errors, and no `D:\fx_*` folder remained.
+- Stage 3c AOT validation passed with the exported static launcher (`suyu-cmd`, `SUYU_CPU_BUDGET=1`): native default-on ran about 188 s and native-off about 193 s, both opened the bag and quit without crashes; native-on ended with `unsupported_ops=0 inconsistency=0`, and both reports were fully static with `static -> JIT: 0` and zero unresolved import traps. Logs are `D:\HisuiWakeBuild\diag\cpu_budget\aot_5057b57_native_on_log.txt` and `aot_5057b57_native_off_log.txt`.
+- The AOT CPU-budget comparison used 18 windows per run: process means were 107.72 and 108.08 ms/frame (ranges 71.25-130.32 and 70.91-128.57), frame p50 means 34.40 and 33.82 ms, and p99 was 114.74 versus 139.96 ms due mainly to one load-stall window; outside it p99 was about 50-66 ms. The 3 s bag operation was not separable from 10 s windows, and no parity claim is made.
+- Known unchanged AOT-log errors are unresolved GOT/PLT symbols (including `__tdata_align_rel`) for module base `0x80af4000` and `BSD: Network isn't initialized`; Stage 3c (JIT and AOT) is complete, while Stages 4-5 need the user's decision.
 
 ## Immediate next action
 1. The user commits the Markdown updates as a normal commit, with no devN entry.
-2. Reconfigure both host trees with the standing procedure and check `GIT_REV`, then confirm the no-JIT `svc_memory.cpp.obj` timestamp updated after its next build.
-3. Run the AOT Stage 3c session: commit, full export, bag and quit, check `native_mem enabled` and `unsupported_ops=0`, and compare with `SUYU_NATIVE_MEM=0`; if anything freezes in `RunShadowed`, perform the same stale-object check.
-4. If `unsupported_ops>0`, follow the existing rule and implement it natively as a new dev stage.
-5. Keep the optional cleanups and the dev17 title item; do not start Stages 4-5.
+2. The user decides whether to start N2 Stage 4 (see the N2_DESIGN.md stage plan); do not start Stages 4-5 without that decision.
+3. Optional cleanups are full `tests/recompiler_smoke/run.py`, a real smoke CMake configure, inspecting `aot_cache_outcome` on the next export, and investigating unresolved GOT/PLT symbols.
+4. The dev17 title confirmation item stays.
 
 ## Open items
 - Qt combo-index bug: `src/suyu/configuration/configure_audio.cpp:72` maps Libretro index 4 to value 5; value 4 is Null-sink.
