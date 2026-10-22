@@ -2,6 +2,33 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev4 - Unreleased
+
+*Development entry 4 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the opt-in native memory shadow comparison (`SUYU_NATIVE_MEM_SHADOW=1`) between the native mapper and `KPageTable`. The option is off unless exactly `1`, is read when the process page table initializes, and creates no shadow object or behavior change when unset.
+- Added `src/core/native_memory/native_shadow.h`, a kernel-type-free header-only `Core::NativeMemory::Shadow` with per-operation counters, synchronization failure tracking, bounded mismatch reports, and summaries for seven mapping, permission, attribute, heap, and physical-memory operations.
+- Added `tests/recompiler_smoke/native_shadow_unit.cpp` and the `smoke_native_shadow_unit` target with 12 checks, plus 14 header-mutant targets covering shadow comparison and address-space adoption invariants.
+
+### Changed
+
+- Added `Result::Other`, `StoredBlock`, and `AddressSpace::ReplaceBlocks` to the native address-space mapper; observed block boundaries are adopted and the heap end is derived from the leading Normal run.
+- Added header-only `KProcessPageTable` shadow glue. It observes the real block table and normal-memory size, mirrors each supported operation without holding the shadow mutex across kernel calls, skips overlapping calls, and logs periodic and final summaries. Page-table entries are not compared directly; touched-range block state, user permission, and attributes are compared instead.
+- Result/state/permission/attribute differences and non-tiling synchronization failures are mismatches. Base/size differences alone are reported as `boundary_only`, and kernel result codes outside the modeled set map to `Result::Other`.
+
+### Verified
+
+- `smoke_native_shadow_unit` passed with MSVC `cl /W4 /WX` (exit 0); all 14 shadow mutants, rebuilt in scratch copies with the specified header replacements, exited 1 at their intended `CHECK` line. `smoke_native_memory_unit` still passes after the header change.
+- The glue compile check for `svc_memory.cpp.obj` succeeded in the JIT release tree (exit 0, no warnings). The acceptance target is zero result/state mismatches and zero synchronization failures on a supported-path play; `boundary_only` need not be zero.
+
+### Not verified
+
+- No full host or no-JIT rebuild, real `tests/recompiler_smoke` CMake configure, full `run.py`, or real session with `SUYU_NATIVE_MEM_SHADOW=1` was completed. User collection with the option enabled is required before calling Stage 2 working.
+- Alias validity still uses alias records; unhooked mutators are absorbed by the next re-adoption and are not checked. An unhooked mutator on another core can still cause a spurious state mismatch between observations, while overlap between hooked calls is skipped.
+- The shadow uses a 4 GiB physical-capacity constant; a different real resource limit may appear as a `LimitReached` or `OutOfMemory` result mismatch. `Common::PageTable` entries and the QueryMemory SVC are not separately hooked.
+
 ## v0.0.3-dev3 - Unreleased
 
 *Development entry 3 toward v0.0.3. Not a release; no build artifacts are published.*

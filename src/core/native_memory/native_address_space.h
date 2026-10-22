@@ -81,6 +81,7 @@ enum class Result : u32 {
     OutOfMemory,
     LimitReached,
     NotSupported,
+    Other,
 };
 
 constexpr std::string_view ResultName(Result result) {
@@ -105,6 +106,8 @@ constexpr std::string_view ResultName(Result result) {
         return "LimitReached";
     case Result::NotSupported:
         return "NotSupported";
+    case Result::Other:
+        return "Other";
     }
     return "Unknown";
 }
@@ -371,6 +374,14 @@ struct MemoryInfo {
     u8 permission = 0;
 };
 
+struct StoredBlock {
+    u64 base = 0;
+    u64 size = 0;
+    MemoryState state = MemoryState::Free;
+    u8 permission = 0;
+    u8 attribute = AttributeNone;
+};
+
 class AddressSpace {
 public:
     AddressSpace(const Layout& layout, u64 physical_capacity_bytes)
@@ -393,6 +404,36 @@ public:
     }
     void SetMaxHeapSize(u64 size) {
         max_heap_size_ = size;
+    }
+
+    // Adopts an observed table (stored permissions, boundaries kept); false if it does not tile the space.
+    bool ReplaceBlocks(const std::vector<StoredBlock>& observed, u64 physical_bytes_in_use) {
+        BlockMap rebuilt;
+        const u64 space_start = layout_.address_space.start;
+        if (space_start != 0) {
+            rebuilt[0] = Block{space_start, MemoryState::Free, 0, AttributeNone};
+        }
+        u64 cursor = space_start;
+        for (const StoredBlock& block : observed) {
+            if (block.base != cursor || block.size == 0) {
+                return false;
+            }
+            cursor += block.size;
+            rebuilt[block.base] = Block{cursor, block.state, block.permission, block.attribute};
+        }
+        if (cursor != layout_.address_space.end()) {
+            return false;
+        }
+        blocks_ = std::move(rebuilt);
+        physical_bytes_in_use_ = physical_bytes_in_use;
+        current_heap_end_ = layout_.heap.start;
+        const auto heap_first = blocks_.find(layout_.heap.start);
+        for (auto it = heap_first; it != blocks_.end() && it->second.state == MemoryState::Normal &&
+                                   it->first < layout_.heap.end();
+             ++it) {
+            current_heap_end_ = it->second.end < layout_.heap.end() ? it->second.end : layout_.heap.end();
+        }
+        return true;
     }
 
     MemoryInfo QueryInfo(u64 address) const {

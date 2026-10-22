@@ -114,6 +114,8 @@ GG_HOST_ABORT = ("hook-map", "hook-unmap", "hook-protect-rx", "hook-protect-rw",
 
 NATIVE_MEMORY_MUTANTS = ("layout-order", "merge-attribute", "reprotect-flag", "capacity-unchecked", "unmap-accounting", "stack-region", "alias-record", "heap-shrink-accounting", "shared-region", "source-lock", "tls-region", "outside-query", "heap-capacity", "alias-span")
 
+NATIVE_SHADOW_MUTANTS = ("shadow-result", "shadow-state-field", "shadow-permission-field", "shadow-attribute-field", "shadow-boundary", "shadow-user-permission", "shadow-range-clip", "shadow-sync-skipped", "shadow-report-cap", "shadow-total", "shadow-skipped", "shadow-tiling", "shadow-heap-end", "shadow-physical")
+
 
 def call(args, expected=0, timeout=120, env=None):
     result = subprocess.run([str(arg) for arg in args], check=False, timeout=timeout, env=env)
@@ -905,6 +907,10 @@ def main():
         call([executable(export_build, "smoke_native_memory_unit")])
         for name in NATIVE_MEMORY_MUTANTS:
             mutant = executable(export_build, "smoke_native_memory_mutant_" + name.replace("-", "_"))
+            call([mutant], expected=1, timeout=30)
+        call([executable(export_build, "smoke_native_shadow_unit")])
+        for name in NATIVE_SHADOW_MUTANTS:
+            mutant = executable(export_build, "smoke_native_" + name.replace("-", "_"))
             call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_host_timing_wait_unit")])
         call([executable(export_build, "smoke_sharded_counters_unit")])

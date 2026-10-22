@@ -8,7 +8,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `65854f3 v0.0.3-dev2: record test4 memory inventory and N2 stage 0 results`. Stage 1 is implemented in uncommitted changes, awaiting the user's commit as dev3. Code review found four P2 items: the mapper now counts any non-Free page as already mapped, unmapping accepts Normal pages with any permission attributes, unmapping spans adjacent alias records whose page pairs were mapped together, and `HeapGrowthIsCappedByPhysicalCapacity` plus `heap-capacity` coverage was added; the block-boundary item is recorded for Stage 2. The standalone unit passed (exit 0), all 14 mutants built from the CMake function's output in `cmake -P` script mode exited 1 with their intended failing check, and the full `run.py` suite plus a real CMake configure remain unrun. The repository origin moved to `https://github.com/project-aevora/project.aevora-main` (the old `Azuloma/project.aevora-main` URL redirects).
+HEAD is `ce4bfd6 v0.0.3-dev3: N2 stage 1 committed`. Stage 2 is implemented in uncommitted changes as `v0.0.3-dev4`, adding the opt-in native memory shadow comparison against `KPageTable`. The shadow is disabled unless `SUYU_NATIVE_MEM_SHADOW=1`; it compares seven hooked operations, reports result/state mismatches separately from `boundary_only`, and records synchronization failures and skipped overlaps. The standalone native memory unit and the 12-check shadow unit passed (exit 0), all 14 shadow mutants exited 1 at their intended checks, and the glue compile check for `svc_memory.cpp.obj` succeeded with no warnings. The full host and no-JIT rebuilds, real test CMake configure, full `run.py`, and an enabled shadow session remain unverified. The repository origin moved to `https://github.com/project-aevora/project.aevora-main` (the old `Azuloma/project.aevora-main` URL redirects).
 
 ## Handoff
 
@@ -25,9 +25,11 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 
 ## Immediate next action
 
-1. The user commits Stage 1 with suggested message `v0.0.3-dev3: add the standalone native address-space mapper and its mutant tests (N2 stage 1)`.
-2. After approval, begin Stage 2 shadow comparison behind `SUYU_NATIVE_MEM_SHADOW=1`.
-3. The dev17 title confirmation remains pending.
+1. The user commits Stage 2 with the message `v0.0.3-dev4: add the opt-in native memory shadow comparison against KPageTable (N2 stage 2)`.
+2. Then reconfigure and rebuild both trees one at a time per `CLAUDE.md` (JIT `msvc-release`, then `msvc-release-nojit`) because core headers changed.
+3. The user runs a supported-path play with `SUYU_NATIVE_MEM_SHADOW=1` and shares the log (grep `native_mem_shadow`).
+4. Begin Stage 3 (`SUYU_NATIVE_MEM` primary mode) only after the user approves.
+5. The dev17 title confirmation remains pending.
 
 ## Open items
 
@@ -44,6 +46,9 @@ The JIT tree is `D:\HisuiWakeBuild\msvc-release`; the `SUYU_NO_JIT=ON` tree is `
 - Old N0 follow-ups: inventory under the AOT launcher, scan stall time, SVC 0x23 stash limit, IPC attribution beyond the SDK, gate on Linux, and typed-label input.
 - The full `tests/recompiler_smoke/run.py` suite was not run, and the no-JIT tree was not rebuilt after Stage 0; bag and quit were not segmented in test4.
 - The full `tests/recompiler_smoke/run.py` suite was not run for N2 Stage 1; CMake wiring was verified only through a `cmake -P` script-mode run, not a real configure. Stage 2 must decide whether to model the kernel's disable-merge block attributes, which can make `QueryMemory` base/size smaller after adjacent `MapMemory` calls than in the mapper that only coalesces identical neighbours.
+- N2 Stage 2 has not had a full host or no-JIT rebuild, a real `tests/recompiler_smoke` CMake configure, a full `run.py` run, or a real supported-path session with `SUYU_NATIVE_MEM_SHADOW=1`; user log collection remains required.
+- The shadow does not compare `Common::PageTable` entries or hook the `QueryMemory` SVC; it checks touched-range blocks after each hooked operation. Alias validity still uses alias records, and unhooked mutators are absorbed by the next re-adoption rather than checked.
+- An unhooked mutator on another core between real-operation observations can cause a spurious state mismatch; overlapping hooked calls are skipped. The 4 GiB shadow physical capacity can differ from the real resource limit and produce a `LimitReached` or `OutOfMemory` result mismatch.
 
 ## Measurement setup
 

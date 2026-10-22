@@ -6,15 +6,166 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdlib>
+#include <memory>
+#include <mutex>
+#include <vector>
+
+#include "common/env_option.h"
+#include "common/logging.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_scoped_lock.h"
+#include "core/hle/kernel/svc_results.h"
 #include "core/hle/kernel/svc_types.h"
+#include "core/native_memory/native_shadow.h"
 
 namespace Kernel {
 
+namespace NativeMemory = Core::NativeMemory;
+
 class KProcessPageTable {
 private:
+    // Matches the default DeviceMemory backing; the real limit is the process resource limit.
+    static constexpr u64 ShadowPhysicalCapacityBytes = 4ULL << 30;
+    static constexpr u64 ShadowSummaryInterval = 64;
+
     KPageTable m_page_table;
+    std::unique_ptr<NativeMemory::Shadow> m_shadow;
+    std::atomic<u64> m_shadow_entries{0};
+    std::atomic<u32> m_shadow_active{0};
+
+    static bool IsShadowRequested() {
+        const char* value = std::getenv("SUYU_NATIVE_MEM_SHADOW");
+        return Common::EnvFlagDefaultOff(value ? value : "");
+    }
+
+    static NativeMemory::Result ClassifyResult(Result result) {
+        if (result.IsSuccess()) {
+            return NativeMemory::Result::Success;
+        }
+        if (result == ResultInvalidAddress) {
+            return NativeMemory::Result::InvalidAddress;
+        }
+        if (result == ResultInvalidSize) {
+            return NativeMemory::Result::InvalidSize;
+        }
+        if (result == ResultInvalidMemoryRegion) {
+            return NativeMemory::Result::InvalidMemoryRegion;
+        }
+        if (result == ResultInvalidCurrentMemory) {
+            return NativeMemory::Result::InvalidCurrentMemory;
+        }
+        if (result == ResultInvalidNewMemoryPermission) {
+            return NativeMemory::Result::InvalidNewMemoryPermission;
+        }
+        if (result == ResultInvalidCombination) {
+            return NativeMemory::Result::InvalidCombination;
+        }
+        if (result == ResultOutOfMemory) {
+            return NativeMemory::Result::OutOfMemory;
+        }
+        if (result == ResultLimitReached) {
+            return NativeMemory::Result::LimitReached;
+        }
+        return NativeMemory::Result::Other;
+    }
+
+    NativeMemory::Layout ObserveLayout() const {
+        NativeMemory::Layout layout;
+        layout.width = m_page_table.GetAddressSpaceWidth();
+        layout.address_space = {GetInteger(m_page_table.GetAddressSpaceStart()),
+                                m_page_table.GetAddressSpaceSize()};
+        layout.code = {GetInteger(m_page_table.GetCodeRegionStart()),
+                       m_page_table.GetCodeRegionSize()};
+        layout.alias_code = {GetInteger(m_page_table.GetAliasCodeRegionStart()),
+                             m_page_table.GetAliasCodeRegionSize()};
+        layout.alias = {GetInteger(m_page_table.GetAliasRegionStart()),
+                        m_page_table.GetAliasRegionSize()};
+        layout.heap = {GetInteger(m_page_table.GetHeapRegionStart()),
+                       m_page_table.GetHeapRegionSize()};
+        layout.stack = {GetInteger(m_page_table.GetStackRegionStart()),
+                        m_page_table.GetStackRegionSize()};
+        layout.kernel_map = {GetInteger(m_page_table.GetKernelMapRegionStart()),
+                             m_page_table.GetKernelMapRegionSize()};
+        return layout;
+    }
+
+    std::vector<NativeMemory::StoredBlock> ObserveBlocks(u64 start, u64 end) const {
+        std::vector<NativeMemory::StoredBlock> blocks;
+        const u64 space_end =
+            GetInteger(m_page_table.GetAddressSpaceStart()) + m_page_table.GetAddressSpaceSize();
+        for (u64 cursor = start; cursor < end;) {
+            KMemoryInfo info;
+            Svc::PageInfo page_info;
+            if (m_page_table.QueryInfo(std::addressof(info), std::addressof(page_info), cursor)
+                    .IsError() ||
+                info.GetAddress() >= space_end || info.GetEndAddress() <= cursor) {
+                break;
+            }
+            blocks.push_back({info.GetAddress(), info.GetSize(),
+                              static_cast<NativeMemory::MemoryState>(info.GetState()),
+                              static_cast<u8>(info.GetPermission()),
+                              static_cast<u8>(info.GetAttribute())});
+            cursor = info.GetEndAddress();
+        }
+        return blocks;
+    }
+
+    // Saturates instead of wrapping so an out-of-space request cannot restart the walk.
+    static u64 SaturatedEnd(u64 address, u64 size) {
+        return address + size < address ? ~0ULL : address + size;
+    }
+
+    void LogShadowReports() {
+        for (const std::string& report : m_shadow->TakeReports()) {
+            LOG_WARNING(Kernel, "native_mem_shadow mismatch: {}", report);
+        }
+        u64 compared = 0;
+        for (u32 op = 0; op < static_cast<u32>(NativeMemory::ShadowOp::Count); ++op) {
+            compared += m_shadow->Counts(static_cast<NativeMemory::ShadowOp>(op)).compared;
+        }
+        if (compared % ShadowSummaryInterval == 0) {
+            LOG_INFO(Kernel, "native_mem_shadow compared/result/state/boundary/skipped: {}",
+                     m_shadow->Summary());
+        }
+    }
+
+    // Kernel locks are taken only outside the shadow mutex; overlapping calls are skipped, not compared.
+    template <typename RealFn, typename ShadowFn>
+    Result RunShadowed(NativeMemory::ShadowOp op, u64 address, u64 size, u64 second_address,
+                       RealFn&& real_fn, ShadowFn&& shadow_fn) {
+        if (!m_shadow) {
+            R_RETURN(real_fn());
+        }
+        const u64 entry_stamp = m_shadow_entries.fetch_add(1) + 1;
+        const bool entered_alone = m_shadow_active.fetch_add(1) == 0;
+        const u64 space_start = GetInteger(m_page_table.GetAddressSpaceStart());
+        const auto before = ObserveBlocks(space_start, space_start + m_page_table.GetAddressSpaceSize());
+        const u64 normal_bytes_before = m_page_table.GetNormalMemorySize();
+        const Result real = real_fn();
+        const auto after = ObserveBlocks(address, SaturatedEnd(address, size));
+        const auto second_after = second_address == 0
+                                      ? std::vector<NativeMemory::StoredBlock>{}
+                                      : ObserveBlocks(second_address, SaturatedEnd(second_address, size));
+        const bool overlapped = !entered_alone || m_shadow_entries.load() != entry_stamp;
+        m_shadow_active.fetch_sub(1);
+
+        std::scoped_lock lk{m_shadow->Mutex()};
+        if (overlapped) {
+            m_shadow->CountSkipped(op);
+        } else {
+            m_shadow->Sync(before, normal_bytes_before);
+            const NativeMemory::Result shadow = shadow_fn(m_shadow->Space());
+            m_shadow->CompareResult(op, address, size, ClassifyResult(real), shadow);
+            m_shadow->CompareBlocks(op, address, size, after);
+            if (second_address != 0) {
+                m_shadow->CompareBlocks(op, second_address, size, second_after);
+            }
+        }
+        LogShadowReports();
+        R_RETURN(real);
+    }
 
 public:
     KProcessPageTable(KernelCore& kernel) : m_page_table(kernel) {}
@@ -24,12 +175,23 @@ public:
                       size_t code_size, KSystemResource* system_resource,
                       KResourceLimit* resource_limit, Core::Memory::Memory& memory,
                       KProcessAddress aslr_space_start) {
-        R_RETURN(m_page_table.InitializeForProcess(
-            as_type, enable_aslr, enable_das_merge, from_back, pool, code_address, code_size,
-            system_resource, resource_limit, memory, aslr_space_start));
+        R_TRY(m_page_table.InitializeForProcess(as_type, enable_aslr, enable_das_merge, from_back,
+                                                pool, code_address, code_size, system_resource,
+                                                resource_limit, memory, aslr_space_start));
+        if (IsShadowRequested()) {
+            m_shadow = std::make_unique<NativeMemory::Shadow>(ObserveLayout(),
+                                                              ShadowPhysicalCapacityBytes);
+            LOG_INFO(Kernel, "native_mem_shadow enabled");
+        }
+        R_SUCCEED();
     }
 
     void Finalize() {
+        if (m_shadow) {
+            LOG_INFO(Kernel, "native_mem_shadow final compared/result/state/boundary/skipped: {}",
+                     m_shadow->Summary());
+            m_shadow.reset();
+        }
         m_page_table.Finalize();
     }
 
@@ -51,7 +213,15 @@ public:
     }
 
     Result SetMemoryPermission(KProcessAddress addr, size_t size, Svc::MemoryPermission perm) {
-        R_RETURN(m_page_table.SetMemoryPermission(addr, size, perm));
+        const u32 raw_permission = static_cast<u32>(perm);
+        const auto shadow_permission = static_cast<NativeMemory::Permission>(
+            raw_permission <= 3 ? raw_permission : 0xFF);
+        R_RETURN(RunShadowed(
+            NativeMemory::ShadowOp::SetMemoryPermission, GetInteger(addr), size, 0,
+            [&] { return m_page_table.SetMemoryPermission(addr, size, perm); },
+            [&](NativeMemory::AddressSpace& space) {
+                return space.SetMemoryPermission(GetInteger(addr), size, shadow_permission);
+            }));
     }
 
     Result SetProcessMemoryPermission(KProcessAddress addr, size_t size,
@@ -61,15 +231,31 @@ public:
 
     Result SetMemoryAttribute(KProcessAddress addr, size_t size, KMemoryAttribute mask,
                               KMemoryAttribute attr) {
-        R_RETURN(m_page_table.SetMemoryAttribute(addr, size, mask, attr));
+        R_RETURN(RunShadowed(
+            NativeMemory::ShadowOp::SetMemoryAttribute, GetInteger(addr), size, 0,
+            [&] { return m_page_table.SetMemoryAttribute(addr, size, mask, attr); },
+            [&](NativeMemory::AddressSpace& space) {
+                return space.SetMemoryAttribute(GetInteger(addr), size, static_cast<u8>(mask),
+                                                static_cast<u8>(attr));
+            }));
     }
 
     Result SetHeapSize(KProcessAddress* out, size_t size) {
-        R_RETURN(m_page_table.SetHeapSize(out, size));
+        u64 shadow_out = 0;
+        R_RETURN(RunShadowed(
+            NativeMemory::ShadowOp::SetHeapSize, GetInteger(m_page_table.GetHeapRegionStart()),
+            m_page_table.GetHeapRegionSize(), 0,
+            [&] { return m_page_table.SetHeapSize(out, size); },
+            [&](NativeMemory::AddressSpace& space) { return space.SetHeapSize(shadow_out, size); }));
     }
 
     Result SetMaxHeapSize(size_t size) {
-        R_RETURN(m_page_table.SetMaxHeapSize(size));
+        R_TRY(m_page_table.SetMaxHeapSize(size));
+        if (m_shadow) {
+            std::scoped_lock lk{m_shadow->Mutex()};
+            m_shadow->Space().SetMaxHeapSize(size);
+        }
+        R_SUCCEED();
     }
 
     Result QueryInfo(KMemoryInfo* out_info, Svc::PageInfo* out_page_info,
@@ -90,11 +276,23 @@ public:
     }
 
     Result MapMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
-        R_RETURN(m_page_table.MapMemory(dst_address, src_address, size));
+        R_RETURN(RunShadowed(
+            NativeMemory::ShadowOp::MapMemory, GetInteger(dst_address), size,
+            GetInteger(src_address),
+            [&] { return m_page_table.MapMemory(dst_address, src_address, size); },
+            [&](NativeMemory::AddressSpace& space) {
+                return space.MapMemory(GetInteger(dst_address), GetInteger(src_address), size);
+            }));
     }
 
     Result UnmapMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
-        R_RETURN(m_page_table.UnmapMemory(dst_address, src_address, size));
+        R_RETURN(RunShadowed(
+            NativeMemory::ShadowOp::UnmapMemory, GetInteger(dst_address), size,
+            GetInteger(src_address),
+            [&] { return m_page_table.UnmapMemory(dst_address, src_address, size); },
+            [&](NativeMemory::AddressSpace& space) {
+                return space.UnmapMemory(GetInteger(dst_address), GetInteger(src_address), size);
+            }));
     }
 
     Result MapCodeMemory(KProcessAddress dst_address, KProcessAddress src_address, size_t size) {
@@ -332,11 +530,21 @@ public:
     }
 
     Result MapPhysicalMemory(KProcessAddress address, size_t size) {
-        R_RETURN(m_page_table.MapPhysicalMemory(address, size));
+        R_RETURN(RunShadowed(
+            NativeMemory::ShadowOp::MapPhysicalMemory, GetInteger(address), size, 0,
+            [&] { return m_page_table.MapPhysicalMemory(address, size); },
+            [&](NativeMemory::AddressSpace& space) {
+                return space.MapPhysicalMemory(GetInteger(address), size);
+            }));
     }
 
     Result UnmapPhysicalMemory(KProcessAddress address, size_t size) {
-        R_RETURN(m_page_table.UnmapPhysicalMemory(address, size));
+        R_RETURN(RunShadowed(
+            NativeMemory::ShadowOp::UnmapPhysicalMemory, GetInteger(address), size, 0,
+            [&] { return m_page_table.UnmapPhysicalMemory(address, size); },
+            [&](NativeMemory::AddressSpace& space) {
+                return space.UnmapPhysicalMemory(GetInteger(address), size);
+            }));
     }
 
     Result MapPhysicalMemoryUnsafe(KProcessAddress address, size_t size) {
