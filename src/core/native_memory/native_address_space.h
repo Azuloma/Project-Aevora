@@ -284,11 +284,11 @@ Result ComputeLayout(const LayoutParams& params, RandomRange&& random_range, Lay
     u64 stack_rnd = 0;
     u64 kmap_rnd = 0;
     if (params.enable_aslr) {
-        const u64 slots = remaining_size / RegionAlignment;
-        alias_rnd = random_range(u64{0}, slots) * RegionAlignment;
-        heap_rnd = random_range(u64{0}, slots) * RegionAlignment;
-        stack_rnd = random_range(u64{0}, slots) * RegionAlignment;
-        kmap_rnd = random_range(u64{0}, slots) * RegionAlignment;
+        const u64 slot_count = remaining_size / RegionAlignment;
+        alias_rnd = random_range(u64{0}, slot_count) * RegionAlignment;
+        heap_rnd = random_range(u64{0}, slot_count) * RegionAlignment;
+        stack_rnd = random_range(u64{0}, slot_count) * RegionAlignment;
+        kmap_rnd = random_range(u64{0}, slot_count) * RegionAlignment;
     }
 
     u64 alias_start = alloc_start + alias_rnd;
