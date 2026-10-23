@@ -2,6 +2,29 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev11 - Unreleased
+
+*Development entry 11 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the standalone `PhysicalPagePool` in `native_physical_pool.h`, a reference-counted single-region page pool with front/back extent allocation, aligned continuous allocation, reserve, open/close, free-run merging, and invalid-region rejection.
+- Added `smoke_native_physical_pool_unit` with 15 check groups and 18 negative-control mutants, plus the CMake and `run.py` wiring.
+
+### Changed
+
+- Approved N2 Stage 4 is split into 4a-1 (this unconnected pool), 4a-2 (wiring KMemoryManager users), 4b (small page-table layout and `Common::PageTable` holder), and 4c (no-JIT source removal and fail-fast unsupported callers). Pool-to-KMemoryManager semantics remain for the wiring stage.
+
+### Verification
+
+- The MSVC `/W4 /Zc:preprocessor` unit build passed with no warnings and printed `All synthetic native physical pool smoke checks passed.` (exit 0). All 18 mutants exited 1 at their intended checks without hanging.
+- The report-mode no-JIT gate baseline was 1,002,137 symbols and 122 `kernel_memory` matches (72 `KPageTableBase`, 22 `KMemoryManager`, 9 `KMemoryBlockManager`, and about 19 other matches); JIT was 0. Structural acceptance is `structural_gate.py --require-absent N2` on a no-JIT launcher.
+- Review findings for region alignment/overflow, permanent reservation, back-position alignment coverage, and missing edge cases were fixed.
+
+### Not run
+
+- The full `tests/recompiler_smoke/run.py`, a real smoke CMake configure, host builds, reference-count overflow, and any PLA session were not run.
+
 ## v0.0.3-dev10 - Unreleased
 
 *Development entry 10 toward v0.0.3. Not a release; no build artifacts are published.*

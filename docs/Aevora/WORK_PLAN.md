@@ -1,13 +1,13 @@
 # Aevora Work Plan
 
-Handoff prepared: 2026-10-22. See [session 43 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-43-cleanup), [session 42 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-42-cleanup), and [older history](OLD_HISTORY.md).
+Handoff prepared: 2026-10-22. See [session 44 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-44-cleanup), [session 43 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-43-cleanup), [session 42 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-42-cleanup), and [older history](OLD_HISTORY.md).
 
 ## Objective
 Determine whether PLA can run through Suyu-derived static CPU recompilation, then improve the verified runtime. The N0-N10/G1-G4 end goal is in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md).
 
 ## Status
-HEAD is `5057b57` (docs-only record commit) on top of `4362604 v0.0.3-dev10` (N2 Stage 3b-3); the working tree holds uncommitted Markdown updates only (`WORK_PLAN.md`).
-Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`, docs-only record `5057b57`.
+HEAD is the docs-only record commit `a0174a2` on top of `5057b57` and `4362604 v0.0.3-dev10` (runtime code equals dev10); working tree state is whatever `git status` shows, so run it.
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`, dev11 (uncommitted), docs-only record `5057b57`, docs-only record `a0174a2`.
 
 ### N2 progress
 | Stage | State |
@@ -16,7 +16,8 @@ Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots r
 | 1 | Done: standalone mapper, dev3, and mutants. |
 | 2 | Done: shadow, dev4-dev6; accepted after a JIT PLA session on the dev5 build: 0 mismatch lines, `sync_failures=0`, MapPhysicalMemory 2317 compared, SetMemoryAttribute 239, MapMemory 26, UnmapMemory 3, SetHeapSize 1, UnmapPhysicalMemory 1, SetMemoryPermission 0 not exercised; accepted with the recorded limits. |
 | 3 | Stage 3a, 3b-1, 3b-2, and 3b-3 through dev10 and Stage 3c (JIT and AOT) validated. |
-| 4-5 | Not started; need the user's go-ahead. |
+| 4 | In progress: 4a-1 (dev11) standalone physical page pool done; 4a-2, 4b, 4c pending. |
+| 5 | Not started; needs the user's go-ahead. |
 
 See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verification).
 
@@ -36,31 +37,20 @@ See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verif
 - N1 CPU-without-JIT is done and accepted with its recorded performance caveat.
 - N2 Stages 0-3 (including 3c JIT and AOT) are complete as summarized above.
 
-### Session 43 summary
-- Dev8 (Stage 3b-1) added kernel-free anonymous mapping, free-area search, and IPC copy rules to the native headers; nothing was connected.
-- Dev9 (Stage 3b-2) added the unconnected kernel adapters (page source, resource-limit accounting, host map, KNativeProcessMemory) and the replaced-kernel side-effect table.
-- Dev10 (Stage 3b-3) made `KProcessPageTable` use the native guest-memory model by default, with per-process fallback for non-39-bit spaces.
-- Unsupported native operations now return `ResultNotImplemented`, count and log their operation/address, and report final counts at process finalize.
-- Native mode wins over the shadow option with a warning; initialization logs `native_mem enabled`.
-- Reviewer P1: grep every caller of a replaced API, including service code such as nvmap; reviewer P2: guard every method that reads block state.
-
 ### Session 44 summary
-- Stage 3c JIT validation passed with native memory default-on and with `SUYU_NATIVE_MEM=0`; the native run logged `native_mem enabled` and final `unsupported_ops=0 inconsistency=0`, with no unsupported lines or crash. Logs are `D:\HisuiWakeBuild\diag\cpu_budget\jit_4362604_native_on_log.txt` and `jit_4362604_native_off_log.txt`.
-- In steady 301-frame windows from t=61..111 s, process CPU averaged 75.3 versus 77.2 ms/frame and frame p99 was about 34 ms in both; separate launches, unrecorded native-on bag time, and non-identical position/operation prevent a bag-segment A/B or performance-parity claim. Initial load windows through t=51 s stalled in both runs; AOT 3c has not run.
-- The first two launches froze in `Shadow::CompareBlocks` under `KProcessPageTable::RunShadowed` from `Svc::MapMemory` because the JIT `svc_memory.cpp.obj` was stale and ninja held an empty header dependency entry; deleting the object and rebuilding fixed the run, with no source change.
-- After `vcvars64`, `ninja -t deps` shows no unexpected `#deps 0,` core objects in `src/core`, `src/common`, `src/video_core`, or `src/hid_core`; only the documented video-core `nsight_aftermath_tracker.cpp.obj` and non-core generated/data objects are legitimate. The no-JIT tree has no such core object; its `svc_memory.cpp.obj` has 247 dependencies, is older than the header, and must be timestamp-checked after the next build.
-- Diagnostics used DbgHelp `StackWalk64` with a PDB GUID/Age check; scratch files were removed with `cleanup_scratch.ps1`.
-- Both host trees were reconfigured and rebuilt at `5057b57` (`GIT_REV` checked, 0 errors); the no-JIT `svc_memory.cpp.obj` was rebuilt at 20:45, closing the earlier open check.
-- The user exported PLA successfully with the JIT-capable Qt `suyu.exe` (msvc-release) to the local game-derived folder under `D:\HisuiWakeExports\`; `aot_cache_outcome` status fields were not inspected. Afterward, `rebuild-suyu.bat` cleanup rebuilt `suyu.exe` and `suyu-cmd.exe` at 22:31 with `GIT_REV 5057b57` and 0 errors, and no `D:\fx_*` folder remained.
-- Stage 3c AOT validation passed with the exported static launcher (`suyu-cmd`, `SUYU_CPU_BUDGET=1`): native default-on ran about 188 s and native-off about 193 s, both opened the bag and quit without crashes; native-on ended with `unsupported_ops=0 inconsistency=0`, and both reports were fully static with `static -> JIT: 0` and zero unresolved import traps. Logs are `D:\HisuiWakeBuild\diag\cpu_budget\aot_5057b57_native_on_log.txt` and `aot_5057b57_native_off_log.txt`.
-- The AOT CPU-budget comparison used 18 windows per run: process means were 107.72 and 108.08 ms/frame (ranges 71.25-130.32 and 70.91-128.57), frame p50 means 34.40 and 33.82 ms, and p99 was 114.74 versus 139.96 ms due mainly to one load-stall window; outside it p99 was about 50-66 ms. The 3 s bag operation was not separable from 10 s windows, and no parity claim is made.
-- Known unchanged AOT-log errors are unresolved GOT/PLT symbols (including `__tdata_align_rel`) for module base `0x80af4000` and `BSD: Network isn't initialized`; Stage 3c (JIT and AOT) is complete, while Stages 4-5 need the user's decision.
+- Both host trees were reconfigured and rebuilt at `5057b57`; Stage 3c passed on JIT and the exported AOT launcher with native memory on and `SUYU_NATIVE_MEM=0`.
+- The stale JIT `svc_memory.cpp.obj` had an empty dependency entry and froze PLA; deleting the object and rebuilding fixed it without a source change.
+- JIT and AOT both ended with `unsupported_ops=0 inconsistency=0`; AOT was fully static with `static -> JIT: 0`.
+- AOT process CPU means were 107.72 versus 108.08 ms/frame; JIT steady windows were about 75.3 versus 77.2 ms/frame.
+- Limits are separate launches and no bag-window split; no performance-parity claim is made.
+- Full text is archived in the [session 44 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-44-cleanup).
 
 ## Immediate next action
-1. The user commits the Markdown updates as a normal commit, with no devN entry.
-2. The user decides whether to start N2 Stage 4 (see the N2_DESIGN.md stage plan); do not start Stages 4-5 without that decision.
-3. Optional cleanups are full `tests/recompiler_smoke/run.py`, a real smoke CMake configure, inspecting `aot_cache_outcome` on the next export, and investigating unresolved GOT/PLT symbols.
-4. The dev17 title confirmation item stays.
+1. Run `git status` and `git log -5`, and preserve user changes.
+2. Read `CLAUDE.md`, this file, `NATIVE_ROADMAP.md`, `CODEBASE_INDEX.md`, and `N2_DESIGN.md`.
+3. N2 Stage 4 is approved and split; 4a-1 (dev11) standalone physical page pool is done and awaits the user's commit. After that commit, the next step is 4a-2 wiring.
+4. Optional cleanups are the full `tests/recompiler_smoke/run.py` with `CPM_SOURCE_CACHE`, a real smoke CMake configure, inspecting `aot_cache_outcome` on the next export, unresolved GOT/PLT symbols such as `__tdata_align_rel`, and the dev17 title confirmation.
+5. After any new commit, reconfigure and rebuild both host trees one at a time (see [How to work / procedures](#how-to-work--procedures)) and check `GIT_REV`.
 
 ## Open items
 - Qt combo-index bug: `src/suyu/configuration/configure_audio.cpp:72` maps Libretro index 4 to value 5; value 4 is Null-sink.
@@ -101,6 +91,10 @@ Read the start checklist, verify evidence, use one worker at a time, and record 
 - Replay overlay input with real router/ImGui sources; follow the standing export procedure in `CLAUDE.md` and clean scratch output.
 - Orca uses one worker at a time; acknowledge deliveries, release workers, and use one blocking `check --wait`.
 - Host rebuild through `cmd.exe /c` with an absolute helper path; never build both trees concurrently.
+- To run PLA with the host JIT build, start a new PowerShell, run `Get-ChildItem Env:SUYU_*`, change to `D:\HisuiWakeBuild\msvc-release\bin`, and run `.\suyu-cmd.exe "<game path>"` with the positional path and no output redirect; the log is `%APPDATA%\suyu\log\suyu_log.txt` and the previous run is `suyu_log.txt.old.txt`. An exported AOT launcher writes `<export folder>\user\log\suyu_log.txt`; the path may contain non-ASCII, so use `-LiteralPath`. Copy each log to `D:\HisuiWakeBuild\diag\cpu_budget\<name>` before the next start and summarize with `python -I -X utf8 summarize_cpu_budget.py <log> 100`; `native_mem final ...` is written only on a clean game quit.
+- A freeze that stops at 0 frames while a core thread spins can be diagnosed by walking its stack with DbgHelp `StackWalk64` after checking the PDB GUID/Age, and by reading the process environment; do not trust a conclusion from a stale object.
+- After a header-only kernel change, run `ninja -t deps` under `vcvars64` and search `#deps 0,` in `src/core`, `src/common`, `src/video_core`, and `src/hid_core`; delete that `.obj` and rebuild. The JIT tree once had `svc_memory.cpp.obj` with an empty deps entry, freezing PLA at the first `MapMemory` while native/shadow switches were off.
+- Run host reconfigure and build as separate processes; chaining two `vcvars64` calls in one `.bat` stopped silently. After an export, run `rebuild-suyu.bat`.
 
 ## Working rules
 - Per-commit `devN` CHANGELOG entries use `v0.0.3-devN` from dev1 unless the user declares a normal commit; the user makes all commits.

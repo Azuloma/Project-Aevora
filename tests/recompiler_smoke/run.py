@@ -118,6 +118,7 @@ NATIVE_SHADOW_MUTANTS = ("shadow-result", "shadow-state-field", "shadow-permissi
 
 NATIVE_PROCESS_MEMORY_MUTANTS = ("proc-unmap-free", "proc-heap-shrink", "proc-alias-src", "proc-short-alloc", "proc-free-noop", "proc-unlock-protect", "proc-lock-protect", "proc-runmap-advance", "proc-visit-gap", "proc-collect-state", "proc-device-count", "proc-device-clear", "proc-device-merge", "proc-lock-attribute", "proc-process-state", "proc-io-region", "proc-perm-protect", "proc-process-protect", "proc-alias-dst", "proc-alias-restore", "proc-external-free", "proc-finalize-host", "proc-finalize-anon", "proc-check-first", "proc-heap-check", "proc-transfer-none", "proc-device-permission", "proc-process-none", "proc-owned-flag", "proc-alias-owned", "proc-sethostmapped", "proc-pages-check", "proc-pages-perm", "proc-unmap-pages", "proc-guard", "proc-align", "proc-tls-anywhere", "proc-copy-uncached", "proc-copy-perm", "proc-copy-write", "proc-copy-src-rule", "proc-copy-dst-rule", "proc-result-code", "proc-guard-tail", "proc-area-overflow", "proc-copy-zero")
 NATIVE_KERNEL_CONVERT_MUTANTS = ("conv-perm-kernel-read", "conv-perm-exec", "conv-offset-base", "conv-offset-low", "conv-cap-negative", "conv-cap-overflow", "conv-cap-nolimit", "acct-reserve", "acct-rollback", "acct-free", "acct-flag", "acct-disabled", "conv-perm-inverse", "conv-pages-merge", "conv-pages-size")
+NATIVE_PHYSICAL_POOL_MUTANTS = ("pool-open-count", "pool-close-zero", "pool-merge-next", "pool-merge-prev", "pool-back-take", "pool-align-front", "pool-align-back", "pool-close-check", "pool-open-check", "pool-free-count", "pool-page-align", "pool-extent-base", "pool-free-source", "pool-reserved-open", "pool-reserved-close", "pool-reserve-flag", "pool-region-wrap", "pool-region-align")
 
 
 def call(args, expected=0, timeout=120, env=None):
@@ -921,6 +922,10 @@ def main():
             call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_native_kernel_convert_unit")])
         for name in NATIVE_KERNEL_CONVERT_MUTANTS:
+            mutant = executable(export_build, "smoke_native_" + name.replace("-", "_"))
+            call([mutant], expected=1, timeout=30)
+        call([executable(export_build, "smoke_native_physical_pool_unit")])
+        for name in NATIVE_PHYSICAL_POOL_MUTANTS:
             mutant = executable(export_build, "smoke_native_" + name.replace("-", "_"))
             call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_host_timing_wait_unit")])

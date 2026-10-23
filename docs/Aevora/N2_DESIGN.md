@@ -154,6 +154,22 @@ The two new `native_kernel_convert_unit` groups passed, and mutants `conv-perm-i
 
 Not run: the full `tests/recompiler_smoke/run.py`, a real smoke CMake configure, and any PLA session. The user should back up save data before the 3c JIT and AOT sessions.
 
+## Stage 4 plan
+
+Stage 4 is approved and split into four deliveries:
+
+- **4a:** replace the KMemoryManager-backed physical source. **4a-1 (dev11)** adds a standalone, unconnected physical page pool. **4a-2** wires it and moves the KMemoryManager users: `KPageGroup`, slab setup, `KSharedMemory`, `KSystemResource`, `svc_info`, nvmap, the vi shared buffer, and `KernelPhysicalPageSource`.
+- **4b:** replace `KPageTableBase` in `KProcessPageTable` with a small layout and `Common::PageTable` holder, and bypass `KernelCore` memory initialization.
+- **4c:** remove `KPageTable`, `KMemoryManager`, and `KMemoryBlockManager` sources from the `SUYU_NO_JIT` build, remove the `SUYU_NATIVE_MEM=0` path there, and make unsupported callers counted fail-fast stubs.
+
+The no-JIT report-mode baseline on `D:\HisuiWakeBuild\msvc-release-nojit\bin\suyu-cmd-static.exe` with its PDB was 1,002,137 symbols and 122 `kernel_memory` matches: 72 `KPageTableBase` methods, 22 `KMemoryManager`, 9 `KMemoryBlockManager`, and about 19 other matches (including `KProcessPageTable`, `KMemoryBlockManagerUpdateAllocator`, `KPageTableSlabHeap`, and `KSystemResource` lambdas). Other baseline counts were JIT 0, scheduler 170, service_framework 4400, filesystem 1839, hid 2722, audio 1241, gpu_maxwell 6015, and emulator_system 88. Stage 4 acceptance is `structural_gate.py --require-absent N2` passing on a no-JIT launcher.
+
+## Stage 4a-1 results
+
+`native_physical_pool.h` adds `Core::NativeMemory::PhysicalPagePool` and `PoolDirection`: a reference-counted single-region page pool implementing `PhysicalPageSource`, with per-page `u32` references, merging `std::map` free runs, front/back allocation that may return several extents, absolute-page alignment for continuous allocation, `Open`/`Close`, permanent `Reserve`, byte/reference/run queries, and validity checks. Unaligned or wrapping regions produce an empty invalid pool; invalid whole ranges leave `Open`/`Close` unchanged, while `Close(extents)` continues past bad extents and returns false. Operations self-lock with a mutex and never hold it across a call out. KMemoryManager Application/Applet/System/SystemNonSecure pools, optimized-process memory, and OpenFirst semantics are not modeled; 4a-2 decides the pool mapping.
+
+`smoke_native_physical_pool_unit` has 15 check groups and 18 mutants covering open/close counts and checks, free-run merging, front/back and aligned allocation, extent and page alignment, reserve behavior, and invalid regions. The MSVC `/W4 /Zc:preprocessor` build passed without warnings and printed `All synthetic native physical pool smoke checks passed.` (exit 0); all 18 mutants compiled one by one with `cl` in a scratch runner and exited 1 at their intended checks without hanging. Review findings (region offset/size alignment and overflow, permanent reservation through close, back-position alignment pinning, and missing partial-reference, huge-range, and empty-pool coverage) were fixed. Not run: full `run.py`, a real smoke CMake configure, host builds, the `MaxRefCount` overflow path, and any PLA session.
+
 ## Stage 1 results
 
 `src/core/native_memory/native_address_space.h` is a new header-only, unconnected mapper. `ComputeLayout` ports `KPageTableBase::InitializeForProcess` placement for 39-, 36-, and 32-bit spaces (including 32-bit without alias), accepts an injectable inclusive random range, and rejects invalid code ranges; `AddressSpace` implements the Stage 1 map/query/protection, heap, physical/shared-memory, TLS, and stack-alias operations, while `SetupForIpc` returns `NotSupported`.
