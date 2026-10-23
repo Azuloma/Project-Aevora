@@ -238,6 +238,28 @@ int ClosingExtentsContinuesPastABadOne() {
     return 0;
 }
 
+int FragmentedPoolPrefersLargeRuns() {
+    PhysicalPagePool pool(kRegionOffset, kRegionBytes);
+    std::vector<PhysicalExtent> all;
+    CHECK(pool.AllocateAndOpen(kRegionBytes, PoolDirection::FromFront, all));
+    // Free runs of 10, 200 and 2048 pages, in address order.
+    CHECK(pool.Close(kRegionOffset, 10 * PageSize));
+    CHECK(pool.Close(kRegionOffset + 20 * PageSize, 200 * PageSize));
+    CHECK(pool.Close(kRegionOffset + 1000 * PageSize, 2048 * PageSize));
+    std::vector<PhysicalExtent> fitting;
+    CHECK(pool.AllocateAndOpen(150 * PageSize, PoolDirection::FromFront, fitting));
+    CHECK(fitting.size() == 1 && fitting[0].phys == kRegionOffset + 20 * PageSize);
+    // No run holds 2100 pages: the largest run goes first, then the next largest, then a fitting one.
+    std::vector<PhysicalExtent> split;
+    CHECK(pool.AllocateAndOpen(2100 * PageSize, PoolDirection::FromFront, split));
+    CHECK(split.size() == 3);
+    CHECK(split[0].phys == kRegionOffset + 1000 * PageSize && split[0].size == 2048 * PageSize);
+    CHECK(split[1].phys == kRegionOffset + 170 * PageSize && split[1].size == 50 * PageSize);
+    CHECK(split[2].phys == kRegionOffset && split[2].size == 2 * PageSize);
+    CHECK(pool.FreeBytes() == 8 * PageSize);
+    return 0;
+}
+
 int PageSourceInterfaceRoundTrips() {
     PhysicalPagePool pool(kRegionOffset, kRegionBytes);
     PhysicalPageSource& source = pool;
@@ -296,6 +318,7 @@ int main() {
     CHECK(HugeRangesAreRejected() == 0);
     CHECK(ClosingExtentsContinuesPastABadOne() == 0);
     CHECK(PageSourceInterfaceRoundTrips() == 0);
+    CHECK(FragmentedPoolPrefersLargeRuns() == 0);
     CHECK(ConcurrentUsersKeepTheTotals() == 0);
     std::puts("All synthetic native physical pool smoke checks passed.");
     return 0;

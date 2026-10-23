@@ -7,7 +7,7 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 HEAD is the docs-only record commit `a0174a2` on top of `5057b57` and `4362604 v0.0.3-dev10` (runtime code equals dev10); working tree state is whatever `git status` shows, so run it.
-Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`, dev11 (uncommitted), docs-only record `5057b57`, docs-only record `a0174a2`.
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`, dev11 `eba359e`, dev12 (uncommitted), docs-only record `5057b57`, docs-only record `a0174a2`.
 
 ### N2 progress
 | Stage | State |
@@ -16,7 +16,7 @@ Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots r
 | 1 | Done: standalone mapper, dev3, and mutants. |
 | 2 | Done: shadow, dev4-dev6; accepted after a JIT PLA session on the dev5 build: 0 mismatch lines, `sync_failures=0`, MapPhysicalMemory 2317 compared, SetMemoryAttribute 239, MapMemory 26, UnmapMemory 3, SetHeapSize 1, UnmapPhysicalMemory 1, SetMemoryPermission 0 not exercised; accepted with the recorded limits. |
 | 3 | Stage 3a, 3b-1, 3b-2, and 3b-3 through dev10 and Stage 3c (JIT and AOT) validated. |
-| 4 | In progress: 4a-1 (dev11) standalone physical page pool done; 4a-2, 4b, 4c pending. |
+| 4 | In progress: 4a-1 (dev11) committed; 4a-2 (dev12) done pending the user's PLA validation; 4b and 4c pending. |
 | 5 | Not started; needs the user's go-ahead. |
 
 See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verification).
@@ -48,7 +48,7 @@ See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verif
 ## Immediate next action
 1. Run `git status` and `git log -5`, and preserve user changes.
 2. Read `CLAUDE.md`, this file, `NATIVE_ROADMAP.md`, `CODEBASE_INDEX.md`, and `N2_DESIGN.md`.
-3. N2 Stage 4 is approved and split; 4a-1 (dev11) standalone physical page pool is done and awaits the user's commit. After that commit, the next step is 4a-2 wiring.
+3. Run the N2 Stage 4a-2 PLA JIT and AOT sessions after backing up save data: compare with `SUYU_NATIVE_MEM_POOL=0`, check the `native_phys_pool enabled` log, boot without a crash, bag and quit, confirm native memory ends with `unsupported_ops=0`, and exercise a session with a large `MapPhysicalMemory`. 4b starts only after the 4a-2 commit and these sessions.
 4. Optional cleanups are the full `tests/recompiler_smoke/run.py` with `CPM_SOURCE_CACHE`, a real smoke CMake configure, inspecting `aot_cache_outcome` on the next export, unresolved GOT/PLT symbols such as `__tdata_align_rel`, and the dev17 title confirmation.
 5. After any new commit, reconfigure and rebuild both host trees one at a time (see [How to work / procedures](#how-to-work--procedures)) and check `GIT_REV`.
 

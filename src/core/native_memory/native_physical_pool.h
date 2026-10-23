@@ -54,7 +54,8 @@ public:
         return true;
     }
 
-    // Takes the first reference on every page; the result may be split over several extents.
+    // Takes the first reference on every page. A run that holds the rest is used whole, otherwise the
+    // largest run first, so a fragmented pool still gives few extents.
     bool AllocateAndOpen(u64 size, PoolDirection direction, std::vector<PhysicalExtent>& out) {
         out.clear();
         if (size == 0 || size % PageSize != 0) {
@@ -67,8 +68,7 @@ public:
         }
         u64 remaining = pages;
         while (remaining != 0) {
-            const auto run = direction == PoolDirection::FromFront ? free_runs_.begin()
-                                                                   : std::prev(free_runs_.end());
+            const auto run = PickRun(remaining, direction);
             const u64 take = std::min(remaining, run->second);
             const u64 first =
                 direction == PoolDirection::FromFront ? run->first : run->first + run->second - take;
@@ -214,6 +214,34 @@ private:
             ref_counts_[page] = 1;
         }
         free_pages_ -= pages;
+    }
+
+    std::map<u64, u64>::const_iterator PickRun(u64 wanted_pages, PoolDirection direction) const {
+        auto best = free_runs_.end();
+        const auto fits_or_improves = [&](std::map<u64, u64>::const_iterator run) {
+            if (run->second >= wanted_pages) {
+                best = run;
+                return true;
+            }
+            if (best == free_runs_.end() || run->second > best->second) {
+                best = run;
+            }
+            return false;
+        };
+        if (direction == PoolDirection::FromFront) {
+            for (auto run = free_runs_.begin(); run != free_runs_.end(); ++run) {
+                if (fits_or_improves(run)) {
+                    break;
+                }
+            }
+        } else {
+            for (auto run = free_runs_.end(); run != free_runs_.begin();) {
+                if (fits_or_improves(--run)) {
+                    break;
+                }
+            }
+        }
+        return best;
     }
 
     bool FindAlignedRun(u64 pages, u64 align_pages, PoolDirection direction, u64& first) const {

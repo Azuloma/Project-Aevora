@@ -2,6 +2,26 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev12 - Unreleased
+
+*Development entry 12 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the kernel-free PhysicalPoolSet and native KMemoryManager backend switch, with smoke coverage for 13 set groups and 16 physical-pool groups.
+
+### Changed
+
+- Native mode is default-on via SUYU_NATIVE_MEM_POOL; =0 retains the buddy managers while existing callers remain unchanged until 4c.
+
+### Verification
+
+- Both MSVC unit tests passed; all 11 set mutants and 20 pool mutants failed at their intended checks without hanging. JIT and no-JIT trees rebuilt with 0 errors and linked both launchers.
+
+### Not run
+
+- Full run.py, a real smoke CMake configure, any PLA session, standalone KMemoryManager coverage, and the new-launcher structural gate were not run.
+
 ## v0.0.3-dev11 - Unreleased
 
 *Development entry 11 toward v0.0.3. Not a release; no build artifacts are published.*

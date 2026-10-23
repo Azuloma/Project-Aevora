@@ -8,6 +8,7 @@
 
 #include <array>
 #include <tuple>
+#include <vector>
 
 #include "common/common_funcs.h"
 #include "core/hle/kernel/k_light_lock.h"
@@ -15,6 +16,7 @@
 #include "core/hle/kernel/k_page_heap.h"
 #include "core/hle/kernel/k_typed_address.h"
 #include "core/hle/result.h"
+#include "core/native_memory/native_pool_set.h"
 
 namespace Core {
 class System;
@@ -64,10 +66,17 @@ public:
                               u8 fill_pattern);
 
     Pool GetPool(KPhysicalAddress address) const {
+        if (m_native) {
+            return this->NativePoolOf(address);
+        }
         return this->GetManager(address).GetPool();
     }
 
     void Open(KPhysicalAddress address, size_t num_pages) {
+        if (m_native) {
+            this->NativeOpen(address, num_pages);
+            return;
+        }
         // Repeatedly open references until we've done so for all pages.
         while (num_pages) {
             auto& manager = this->GetManager(address);
@@ -84,6 +93,10 @@ public:
     }
 
     void OpenFirst(KPhysicalAddress address, size_t num_pages) {
+        // The native pools take the first reference when they allocate.
+        if (m_native) {
+            return;
+        }
         // Repeatedly open references until we've done so for all pages.
         while (num_pages) {
             auto& manager = this->GetManager(address);
@@ -100,6 +113,10 @@ public:
     }
 
     void Close(KPhysicalAddress address, size_t num_pages) {
+        if (m_native) {
+            this->NativeClose(address, num_pages);
+            return;
+        }
         // Repeatedly close references until we've done so for all pages.
         while (num_pages) {
             auto& manager = this->GetManager(address);
@@ -116,6 +133,9 @@ public:
     }
 
     size_t GetSize() {
+        if (m_native) {
+            return m_native_pools.TotalBytes();
+        }
         size_t total = 0;
         for (size_t i = 0; i < m_num_managers; i++) {
             total += m_managers[i].GetSize();
@@ -124,6 +144,9 @@ public:
     }
 
     size_t GetSize(Pool pool) {
+        if (m_native) {
+            return m_native_pools.TotalBytes(static_cast<u32>(pool));
+        }
         constexpr Direction GetSizeDirection = Direction::FromFront;
         size_t total = 0;
         for (auto* manager = this->GetFirstManager(pool, GetSizeDirection); manager != nullptr;
@@ -134,6 +157,9 @@ public:
     }
 
     size_t GetFreeSize() {
+        if (m_native) {
+            return m_native_pools.FreeBytes();
+        }
         size_t total = 0;
         for (size_t i = 0; i < m_num_managers; i++) {
             KScopedLightLock lk(m_pool_locks[static_cast<size_t>(m_managers[i].GetPool())]);
@@ -143,6 +169,9 @@ public:
     }
 
     size_t GetFreeSize(Pool pool) {
+        if (m_native) {
+            return m_native_pools.FreeBytes(static_cast<u32>(pool));
+        }
         KScopedLightLock lk(m_pool_locks[static_cast<size_t>(pool)]);
 
         constexpr Direction GetSizeDirection = Direction::FromFront;
@@ -155,6 +184,9 @@ public:
     }
 
     void DumpFreeList(Pool pool) {
+        if (m_native) {
+            return;
+        }
         KScopedLightLock lk(m_pool_locks[static_cast<size_t>(pool)]);
 
         constexpr Direction DumpDirection = Direction::FromFront;
@@ -357,6 +389,15 @@ private:
     Result AllocatePageGroupImpl(KPageGroup* out, size_t num_pages, Pool pool, Direction dir,
                                  bool unoptimized, bool random);
 
+    // Native pools: the same physical regions as the managers, tracked by Core::NativeMemory.
+    void InitializeNative();
+    bool FindUserPoolRegion(size_t index, KPhysicalAddress& address, size_t& size,
+                            Pool& pool) const;
+    Pool NativePoolOf(KPhysicalAddress address) const;
+    void NativeOpen(KPhysicalAddress address, size_t num_pages);
+    void NativeClose(KPhysicalAddress address, size_t num_pages);
+    Result NativeAllocatePageGroup(KPageGroup* out, size_t num_pages, u32 option);
+
 private:
     template <typename T>
     using PoolArray = std::array<T, static_cast<size_t>(Pool::Count)>;
@@ -370,6 +411,8 @@ private:
     size_t m_num_managers{};
     PoolArray<u64> m_optimized_process_ids{};
     PoolArray<bool> m_has_optimized_process{};
+    bool m_native{};
+    mutable Core::NativeMemory::PhysicalPoolSet m_native_pools;
 };
 
 } // namespace Kernel

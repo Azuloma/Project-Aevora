@@ -5,9 +5,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "common/alignment.h"
 #include "common/assert.h"
+#include "common/env_option.h"
+#include "common/logging.h"
 #include "common/scope_exit.h"
 #include "core/core.h"
 #include "core/device_memory.h"
@@ -45,9 +48,84 @@ KMemoryManager::KMemoryManager(Core::System& system)
           KLightLock{system.Kernel()},
           KLightLock{system.Kernel()},
           KLightLock{system.Kernel()},
-      } {}
+      } {
+    const char* native_option = std::getenv("SUYU_NATIVE_MEM_POOL");
+    m_native = Common::EnvFlagDefaultOn(native_option != nullptr ? native_option : "");
+}
+
+bool KMemoryManager::FindUserPoolRegion(size_t index, KPhysicalAddress& address, size_t& size,
+                                        Pool& pool) const {
+    address = 0;
+    size = 0;
+    pool = Pool::Count;
+    for (const auto& it : m_system.Kernel().MemoryLayout().GetPhysicalMemoryRegionTree()) {
+        // We only care about regions that we need to create managers for.
+        if (!it.IsDerivedFrom(KMemoryRegionType_DramUserPool)) {
+            continue;
+        }
+
+        // We want to initialize the managers in order.
+        if (it.GetAttributes() != index) {
+            continue;
+        }
+
+        const KPhysicalAddress cur_start = it.GetAddress();
+        const KPhysicalAddress cur_end = it.GetEndAddress();
+
+        // Validate the region.
+        ASSERT(cur_end != 0);
+        ASSERT(cur_start != 0);
+        ASSERT(it.GetSize() > 0);
+
+        // Update the region's extents.
+        if (address == 0) {
+            address = cur_start;
+            size = it.GetSize();
+            pool = GetPoolFromMemoryRegionType(it.GetType());
+        } else {
+            ASSERT(cur_start == address + size);
+
+            // Update the size.
+            size = cur_end - address;
+            ASSERT(GetPoolFromMemoryRegionType(it.GetType()) == pool);
+        }
+    }
+    return size != 0;
+}
+
+void KMemoryManager::InitializeNative() {
+    for (size_t index = 0; index != MaxManagerCount; ++index) {
+        KPhysicalAddress region_address = 0;
+        size_t region_size = 0;
+        Pool region_pool = Pool::Count;
+        if (!this->FindUserPoolRegion(index, region_address, region_size, region_pool)) {
+            break;
+        }
+        const bool added = m_native_pools.AddRegion(static_cast<u32>(region_pool),
+                                                    GetInteger(region_address), region_size);
+        ASSERT_MSG(added, "native pool region {:#x}+{:#x} was refused", GetInteger(region_address),
+                   region_size);
+    }
+
+    // The initial process image is reserved, as the managers reserve it.
+    const KPhysicalAddress ini_start = GetInitialProcessBinaryPhysicalAddress();
+    const size_t ini_size = GetInitialProcessBinarySize();
+    u32 ini_pool_id = 0;
+    if (ini_size != 0 && m_native_pools.FindPool(GetInteger(ini_start), ini_pool_id)) {
+        const bool reserved = m_native_pools.Reserve(GetInteger(ini_start), ini_size);
+        ASSERT_MSG(reserved, "native pool cannot reserve the initial process image {:#x}+{:#x}",
+                   GetInteger(ini_start), ini_size);
+    }
+    LOG_INFO(Kernel, "native_phys_pool enabled: {} regions, {} MiB total, {} MiB free",
+             m_native_pools.RegionCount(), m_native_pools.TotalBytes() >> 20,
+             m_native_pools.FreeBytes() >> 20);
+}
 
 void KMemoryManager::Initialize(KVirtualAddress management_region, size_t management_region_size) {
+    if (m_native) {
+        this->InitializeNative();
+        return;
+    }
 
     // Clear the management region to zero.
     const KVirtualAddress management_region_end = management_region + management_region_size;
@@ -62,41 +140,9 @@ void KMemoryManager::Initialize(KVirtualAddress management_region, size_t manage
         KPhysicalAddress region_address = 0;
         size_t region_size = 0;
         Pool region_pool = Pool::Count;
-        for (const auto& it : m_system.Kernel().MemoryLayout().GetPhysicalMemoryRegionTree()) {
-            // We only care about regions that we need to create managers for.
-            if (!it.IsDerivedFrom(KMemoryRegionType_DramUserPool)) {
-                continue;
-            }
-
-            // We want to initialize the managers in order.
-            if (it.GetAttributes() != m_num_managers) {
-                continue;
-            }
-
-            const KPhysicalAddress cur_start = it.GetAddress();
-            const KPhysicalAddress cur_end = it.GetEndAddress();
-
-            // Validate the region.
-            ASSERT(cur_end != 0);
-            ASSERT(cur_start != 0);
-            ASSERT(it.GetSize() > 0);
-
-            // Update the region's extents.
-            if (region_address == 0) {
-                region_address = cur_start;
-                region_size = it.GetSize();
-                region_pool = GetPoolFromMemoryRegionType(it.GetType());
-            } else {
-                ASSERT(cur_start == region_address + region_size);
-
-                // Update the size.
-                region_size = cur_end - region_address;
-                ASSERT(GetPoolFromMemoryRegionType(it.GetType()) == region_pool);
-            }
-        }
 
         // If we didn't find a region, we're done.
-        if (region_size == 0) {
+        if (!this->FindUserPoolRegion(m_num_managers, region_address, region_size, region_pool)) {
             break;
         }
 
@@ -171,7 +217,52 @@ void KMemoryManager::Initialize(KVirtualAddress management_region, size_t manage
     }
 }
 
+KMemoryManager::Pool KMemoryManager::NativePoolOf(KPhysicalAddress address) const {
+    u32 pool_id = 0;
+    const bool found = m_native_pools.FindPool(GetInteger(address), pool_id);
+    ASSERT_MSG(found, "physical address {:#x} is in no native pool", GetInteger(address));
+    return static_cast<Pool>(pool_id);
+}
+
+void KMemoryManager::NativeOpen(KPhysicalAddress address, size_t num_pages) {
+    const bool opened = m_native_pools.Open(GetInteger(address), num_pages * PageSize);
+    ASSERT_MSG(opened, "native_phys_pool: Open of {:#x}+{} pages was refused", GetInteger(address),
+               num_pages);
+}
+
+void KMemoryManager::NativeClose(KPhysicalAddress address, size_t num_pages) {
+    const bool closed = m_native_pools.Close(GetInteger(address), num_pages * PageSize);
+    ASSERT_MSG(closed, "native_phys_pool: Close of {:#x}+{} pages was refused", GetInteger(address),
+               num_pages);
+}
+
+// Every page is returned opened once; the caller owns that reference.
+Result KMemoryManager::NativeAllocatePageGroup(KPageGroup* out, size_t num_pages, u32 option) {
+    const auto [pool, dir] = DecodeOption(option);
+    std::vector<Core::NativeMemory::PhysicalExtent> extents;
+    R_UNLESS(m_native_pools.AllocateAndOpen(static_cast<u32>(pool), num_pages * PageSize,
+                                            dir == Direction::FromBack
+                                                ? Core::NativeMemory::PoolDirection::FromBack
+                                                : Core::NativeMemory::PoolDirection::FromFront,
+                                            extents),
+             ResultOutOfMemory);
+    for (const auto& extent : extents) {
+        const Result added = out->AddBlock(KPhysicalAddress{extent.phys}, extent.size / PageSize);
+        if (added.IsError()) {
+            static_cast<void>(m_native_pools.Close(extents));
+            out->Finalize();
+            R_RETURN(added);
+        }
+    }
+    R_SUCCEED();
+}
+
 Result KMemoryManager::InitializeOptimizedMemory(u64 process_id, Pool pool) {
+    if (m_native) {
+        LOG_ERROR(Kernel, "native_phys_pool does not support optimized process memory (pool {})",
+                  static_cast<u32>(pool));
+        R_THROW(ResultNotImplemented);
+    }
     const u32 pool_index = static_cast<u32>(pool);
 
     // Lock the pool.
@@ -194,6 +285,9 @@ Result KMemoryManager::InitializeOptimizedMemory(u64 process_id, Pool pool) {
 }
 
 void KMemoryManager::FinalizeOptimizedMemory(u64 process_id, Pool pool) {
+    if (m_native) {
+        return;
+    }
     const u32 pool_index = static_cast<u32>(pool);
 
     // Lock the pool.
@@ -210,6 +304,17 @@ KPhysicalAddress KMemoryManager::AllocateAndOpenContinuous(size_t num_pages, siz
     // Early return if we're allocating no pages.
     if (num_pages == 0) {
         return 0;
+    }
+
+    if (m_native) {
+        const auto [native_pool, native_dir] = DecodeOption(option);
+        Core::NativeMemory::PhysicalExtent extent{};
+        m_native_pools.AllocateAndOpenContinuous(
+            static_cast<u32>(native_pool), num_pages * PageSize, align_pages,
+            native_dir == Direction::FromBack ? Core::NativeMemory::PoolDirection::FromBack
+                                              : Core::NativeMemory::PoolDirection::FromFront,
+            extent);
+        return KPhysicalAddress{extent.phys};
     }
 
     // Lock the pool that we're allocating from.
@@ -308,6 +413,10 @@ Result KMemoryManager::AllocateAndOpen(KPageGroup* out, size_t num_pages, u32 op
     // Early return if we're allocating no pages.
     R_SUCCEED_IF(num_pages == 0);
 
+    if (m_native) {
+        R_RETURN(this->NativeAllocatePageGroup(out, num_pages, option));
+    }
+
     // Lock the pool that we're allocating from.
     const auto [pool, dir] = DecodeOption(option);
     KScopedLightLock lk(m_pool_locks[static_cast<size_t>(pool)]);
@@ -342,6 +451,17 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
                                           u64 process_id, u8 fill_pattern) {
     ASSERT(out != nullptr);
     ASSERT(out->GetNumPages() == 0);
+
+    // The native pools open the pages on allocation, so the caller's OpenFirst is a no-op.
+    if (m_native) {
+        R_TRY(this->NativeAllocatePageGroup(out, num_pages, option));
+        for (const auto& block : *out) {
+            m_system.DeviceMemory().buffer.ClearBackingRegion(GetInteger(block.GetAddress()) -
+                                                                  Core::DramMemoryMap::Base,
+                                                              block.GetSize(), fill_pattern);
+        }
+        R_SUCCEED();
+    }
 
     // Decode the option.
     const auto [pool, dir] = DecodeOption(option);
