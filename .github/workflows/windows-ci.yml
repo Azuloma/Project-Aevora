@@ -1,0 +1,83 @@
+name: Windows build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: windows-2025
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build native memory test
+        run: >-
+          cl.exe /nologo /std:c++20 /EHsc /W4 /utf-8
+          /I src tests/recompiler_smoke/native_memory_unit.cpp
+          "/Fe:$env:RUNNER_TEMP\native-memory.exe"
+          "/Fo:$env:RUNNER_TEMP\native-memory.obj"
+
+      - name: Run native memory test
+        run: '& "$env:RUNNER_TEMP\native-memory.exe"'
+
+      - name: Test structural gate
+        run: python -B -I -X utf8 tests/structural_gate/test_structural_gate.py
+
+  host-build:
+    name: No-JIT host build
+    runs-on: windows-2025
+    timeout-minutes: 120
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: "1.4.363.0"
+
+      - name: Configure
+        run: |
+          $gitPath = (Get-Command git.exe).Source
+          $glslangPath = (Get-Command glslangValidator.exe).Source
+
+          cmake -S . -B "$env:RUNNER_TEMP\host-build" -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DSUYU_NO_JIT=ON `
+            -DYUZU_TESTS=OFF `
+            "-DCPM_SOURCE_CACHE=$env:RUNNER_TEMP\cpm" `
+            "-DGIT_EXECUTABLE=$gitPath" `
+            "-DGLSLANGVALIDATOR=$glslangPath"
+
+      - name: Build host applications
+        run: >-
+          cmake --build "$env:RUNNER_TEMP\host-build"
+          --target suyu suyu-cmd --parallel 2
