@@ -120,6 +120,7 @@ NATIVE_PROCESS_MEMORY_MUTANTS = ("proc-unmap-free", "proc-heap-shrink", "proc-al
 NATIVE_KERNEL_CONVERT_MUTANTS = ("conv-perm-kernel-read", "conv-perm-exec", "conv-offset-base", "conv-offset-low", "conv-cap-negative", "conv-cap-overflow", "conv-cap-nolimit", "acct-reserve", "acct-rollback", "acct-free", "acct-flag", "acct-disabled", "conv-perm-inverse", "conv-pages-merge", "conv-pages-size")
 NATIVE_PHYSICAL_POOL_MUTANTS = ("pool-open-count", "pool-close-zero", "pool-merge-next", "pool-merge-prev", "pool-back-take", "pool-align-front", "pool-align-back", "pool-close-check", "pool-open-check", "pool-free-count", "pool-page-align", "pool-extent-base", "pool-free-source", "pool-reserved-open", "pool-reserved-close", "pool-reserve-flag", "pool-region-wrap", "pool-region-align", "pool-pick-fit", "pool-pick-largest")
 NATIVE_POOL_SET_MUTANTS = ("set-overlap", "set-rollback", "set-take-free", "set-direction", "set-pool-filter", "set-covered", "set-piece-end", "set-total-pool", "set-free-pool", "set-close-continue", "set-find-pool")
+NATIVE_ADDRESS_REGIONS_MUTANTS = ("reg-contains-wrap", "reg-contains-last", "reg-contains-single", "reg-alias-start", "reg-alias-end", "reg-heap-start", "reg-heap-end", "reg-unsafe-state", "reg-region-heap", "reg-region-stack", "reg-region-kernel-map", "reg-region-code", "reg-insecure-case", "reg-unmapped", "reg-can-wrap", "reg-can-region-end", "reg-can-heap-empty", "reg-can-alias-empty", "reg-can-free", "reg-can-normal-alias", "reg-can-ipc-heap", "reg-can-stack-heap", "reg-can-stack-alias", "reg-get-stack", "reg-heap-size-guard", "reg-alias-size-guard", "reg-can-size-guard")
 
 
 def call(args, expected=0, timeout=120, env=None):
@@ -931,6 +932,10 @@ def main():
             call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_native_pool_set_unit")])
         for name in NATIVE_POOL_SET_MUTANTS:
+            mutant = executable(export_build, "smoke_native_" + name.replace("-", "_"))
+            call([mutant], expected=1, timeout=30)
+        call([executable(export_build, "smoke_native_address_regions_unit")])
+        for name in NATIVE_ADDRESS_REGIONS_MUTANTS:
             mutant = executable(export_build, "smoke_native_" + name.replace("-", "_"))
             call([mutant], expected=1, timeout=30)
         call([executable(export_build, "smoke_host_timing_wait_unit")])

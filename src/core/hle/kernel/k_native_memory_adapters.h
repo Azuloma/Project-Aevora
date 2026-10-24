@@ -24,6 +24,7 @@
 #include "core/hle/kernel/svc_results.h"
 #include "core/hle/kernel/svc_types.h"
 #include "core/memory.h"
+#include "core/native_memory/native_address_regions.h"
 #include "core/native_memory/native_kernel_convert.h"
 #include "core/native_memory/native_process_memory.h"
 
@@ -59,6 +60,34 @@ static_assert(static_cast<u32>(Native::MemoryState::Stack) == static_cast<u32>(K
 static_assert(static_cast<u32>(Native::MemoryState::ThreadLocal) == static_cast<u32>(KMemoryState::ThreadLocal));
 static_assert(static_cast<u32>(Native::MemoryState::Inaccessible) ==
               static_cast<u32>(KMemoryState::Inaccessible));
+#define NATIVE_REGION_STATE_MATCHES(name)                                                          \
+    static_assert(static_cast<u32>(Native::RegionState::name) ==                                   \
+                  static_cast<u32>(Svc::MemoryState::name))
+NATIVE_REGION_STATE_MATCHES(Free);
+NATIVE_REGION_STATE_MATCHES(Io);
+NATIVE_REGION_STATE_MATCHES(Static);
+NATIVE_REGION_STATE_MATCHES(Code);
+NATIVE_REGION_STATE_MATCHES(CodeData);
+NATIVE_REGION_STATE_MATCHES(Normal);
+NATIVE_REGION_STATE_MATCHES(Shared);
+NATIVE_REGION_STATE_MATCHES(Alias);
+NATIVE_REGION_STATE_MATCHES(AliasCode);
+NATIVE_REGION_STATE_MATCHES(AliasCodeData);
+NATIVE_REGION_STATE_MATCHES(Ipc);
+NATIVE_REGION_STATE_MATCHES(Stack);
+NATIVE_REGION_STATE_MATCHES(ThreadLocal);
+NATIVE_REGION_STATE_MATCHES(Transferred);
+NATIVE_REGION_STATE_MATCHES(SharedTransferred);
+NATIVE_REGION_STATE_MATCHES(SharedCode);
+NATIVE_REGION_STATE_MATCHES(Inaccessible);
+NATIVE_REGION_STATE_MATCHES(NonSecureIpc);
+NATIVE_REGION_STATE_MATCHES(NonDeviceIpc);
+NATIVE_REGION_STATE_MATCHES(Kernel);
+NATIVE_REGION_STATE_MATCHES(GeneratedCode);
+NATIVE_REGION_STATE_MATCHES(CodeOut);
+NATIVE_REGION_STATE_MATCHES(Coverage);
+NATIVE_REGION_STATE_MATCHES(Insecure);
+#undef NATIVE_REGION_STATE_MATCHES
 static_assert(Native::PermUserReadWrite == static_cast<u8>(KMemoryPermission::UserReadWrite));
 static_assert(Native::PermKernelRead == static_cast<u8>(KMemoryPermission::KernelRead));
 static_assert(Native::PermKernelWrite == static_cast<u8>(KMemoryPermission::KernelWrite));

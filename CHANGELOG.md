@@ -2,6 +2,26 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev14 - Unreleased
+
+*Development entry 14 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added the kernel-free `Core::NativeMemory::AddressRegions` holder and its region predicates, getters, and `RegionState` mirror, plus the `native_address_regions_unit` smoke test with 27 mutant negative controls.
+
+### Changed
+
+- Added `RegionState`/`Svc::MemoryState` static assertions to `k_native_memory_adapters.h`; the new holder remains unconnected to kernel logic.
+
+### Verification
+
+- The standalone MSVC unit passed with `All synthetic native address region smoke checks passed.`; all 27 mutants exited 1 at their intended checks. JIT and no-JIT host trees rebuilt one at a time with 0 errors and linked both launchers.
+
+### Not run
+
+- Full `tests/recompiler_smoke/run.py`, a real smoke CMake configure, any PLA session, and the structural gate were not run. The Code reviewer fixes were not reviewed a second time.
+
 ## v0.0.3-dev13 - Unreleased
 
 *Development entry 13 toward v0.0.3. Not a release; no build artifacts are published.*
