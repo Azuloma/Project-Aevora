@@ -11,8 +11,15 @@
 #include "core/hle/kernel/k_page_table_base.h"
 #include "core/hle/kernel/k_scoped_resource_reservation.h"
 #include "core/hle/kernel/k_system_resource.h"
+#include "core/native_memory/native_address_space.h"
 
 namespace Kernel {
+
+#ifdef HAS_NCE
+#error "NativeMemory::GetSpaceInfo lacks the 256 GiB HAS_NCE Map39Bit limit; add it before enabling NCE"
+#endif
+
+namespace NativeMemory = Core::NativeMemory;
 
 namespace {
 
@@ -125,6 +132,21 @@ constexpr Common::MemoryPermission ConvertToMemoryPermission(KMemoryPermission p
     return perms;
 }
 
+NativeMemory::AddressSpaceType ToNativeAddressSpaceType(Svc::CreateProcessFlag as_type) {
+    switch (as_type & Svc::CreateProcessFlag::AddressSpaceMask) {
+    case Svc::CreateProcessFlag::AddressSpace64Bit:
+        return NativeMemory::AddressSpaceType::Bits39;
+    case Svc::CreateProcessFlag::AddressSpace64BitDeprecated:
+        return NativeMemory::AddressSpaceType::Bits36;
+    case Svc::CreateProcessFlag::AddressSpace32Bit:
+        return NativeMemory::AddressSpaceType::Bits32;
+    case Svc::CreateProcessFlag::AddressSpace32BitWithoutAlias:
+        return NativeMemory::AddressSpaceType::Bits32WithoutAlias;
+    default:
+        UNREACHABLE();
+    }
+}
+
 } // namespace
 
 void KPageTableBase::MemoryRange::Open(KernelCore& kernel) {
@@ -202,190 +224,54 @@ Result KPageTableBase::InitializeForKernel(bool is_64_bit, KVirtualAddress start
 }
 
 Result KPageTableBase::InitializeForProcess(Svc::CreateProcessFlag as_type, bool enable_aslr, bool enable_das_merge, bool from_back, KMemoryManager::Pool pool, KProcessAddress code_address, size_t code_size, KSystemResource* system_resource, KResourceLimit* resource_limit, Core::Memory::Memory& memory, KProcessAddress aslr_space_start) {
-    // Calculate region extents.
-    const size_t as_width = GetAddressSpaceWidth(as_type);
-    const KProcessAddress start = 0;
-    const KProcessAddress end = (1ULL << as_width);
+    // Region placement lives in the native layout model so the kernel and native paths cannot drift.
+    NativeMemory::LayoutParams layout_params;
+    layout_params.type = ToNativeAddressSpaceType(as_type);
+    layout_params.code_address = GetInteger(code_address);
+    layout_params.code_size = code_size;
+    layout_params.aslr_space_start = GetInteger(aslr_space_start);
+    layout_params.enable_aslr = enable_aslr;
+    layout_params.extra_alias_region =
+        (as_type & Svc::CreateProcessFlag::EnableAliasRegionExtraSize) != Svc::CreateProcessFlag{0};
 
-    // Validate the region.
-    ASSERT(start <= code_address);
-    ASSERT(code_address < code_address + code_size);
-    ASSERT(code_address + code_size - 1 <= end - 1);
-
-    // Define helpers.
-    auto GetSpaceStart = [&](KAddressSpaceInfo::Type type) {
-        return KAddressSpaceInfo::GetAddressSpaceStart(m_address_space_width, type);
-    };
-    auto GetSpaceSize = [&](KAddressSpaceInfo::Type type) {
-        return KAddressSpaceInfo::GetAddressSpaceSize(m_address_space_width, type);
-    };
-
-    // Set our bit width and heap/alias sizes.
-    m_address_space_width = static_cast<u32>(GetAddressSpaceWidth(as_type));
-    size_t alias_region_size = GetSpaceSize(KAddressSpaceInfo::Type::Alias);
-    size_t heap_region_size = GetSpaceSize(KAddressSpaceInfo::Type::Heap);
-
-    // Adjust heap/alias size if we don't have an alias region.
-    if ((as_type & Svc::CreateProcessFlag::AddressSpaceMask) ==
-        Svc::CreateProcessFlag::AddressSpace32BitWithoutAlias) {
-        heap_region_size += alias_region_size;
-        alias_region_size = 0;
-    }
-
-    // Set code regions and determine remaining sizes.
-    KProcessAddress process_code_start;
-    KProcessAddress process_code_end;
-    size_t stack_region_size;
-    size_t kernel_map_region_size;
-    if (m_address_space_width == 39) {
-        alias_region_size = GetSpaceSize(KAddressSpaceInfo::Type::Alias);
-        heap_region_size = GetSpaceSize(KAddressSpaceInfo::Type::Heap);
-        stack_region_size = GetSpaceSize(KAddressSpaceInfo::Type::Stack);
-        kernel_map_region_size = GetSpaceSize(KAddressSpaceInfo::Type::MapSmall);
-        m_code_region_start = m_address_space_start + aslr_space_start +
-                              GetSpaceStart(KAddressSpaceInfo::Type::Map39Bit);
-        m_code_region_end = m_code_region_start + GetSpaceSize(KAddressSpaceInfo::Type::Map39Bit);
-        m_alias_code_region_start = m_code_region_start;
-        m_alias_code_region_end = m_code_region_end;
-        process_code_start = Common::AlignDown(GetInteger(code_address), RegionAlignment);
-        process_code_end = Common::AlignUp(GetInteger(code_address) + code_size, RegionAlignment);
-    } else {
-        stack_region_size = 0;
-        kernel_map_region_size = 0;
-        m_code_region_start = GetSpaceStart(KAddressSpaceInfo::Type::MapSmall);
-        m_code_region_end = m_code_region_start + GetSpaceSize(KAddressSpaceInfo::Type::MapSmall);
-        m_stack_region_start = m_code_region_start;
-        m_alias_code_region_start = m_code_region_start;
-        m_alias_code_region_end = GetSpaceStart(KAddressSpaceInfo::Type::MapLarge) +
-                                  GetSpaceSize(KAddressSpaceInfo::Type::MapLarge);
-        m_stack_region_end = m_code_region_end;
-        m_kernel_map_region_start = m_code_region_start;
-        m_kernel_map_region_end = m_code_region_end;
-        process_code_start = m_code_region_start;
-        process_code_end = m_code_region_end;
-    }
+    NativeMemory::Layout layout;
+    const NativeMemory::Result layout_result = NativeMemory::ComputeLayout(
+        layout_params,
+        [](u64 min, u64 max) { return static_cast<u64>(KSystemControl::GenerateRandomRange(min, max)); },
+        layout);
+    R_UNLESS(layout_result != NativeMemory::Result::OutOfMemory, ResultOutOfMemory);
+    ASSERT_MSG(layout_result == NativeMemory::Result::Success, "invalid process layout: {}",
+               NativeMemory::ResultName(layout_result));
 
     // Set other basic fields.
+    m_address_space_width = layout.width;
     m_enable_aslr = enable_aslr;
     m_enable_device_address_space_merge = enable_das_merge;
     m_allowed_exec_device_mapping = false;
-    m_address_space_start = start;
-    m_address_space_end = end;
+    m_address_space_start = KProcessAddress(layout.address_space.start);
+    m_address_space_end = KProcessAddress(layout.address_space.end());
     m_is_kernel = false;
     m_memory_block_slab_manager = system_resource->GetMemoryBlockSlabManagerPointer();
     m_block_info_manager = system_resource->GetBlockInfoManagerPointer();
     m_resource_limit = resource_limit;
 
-    // Determine the region we can place our undetermineds in.
-    KProcessAddress alloc_start;
-    size_t alloc_size;
-    if ((GetInteger(process_code_start) - GetInteger(m_code_region_start)) >=
-        (GetInteger(end) - GetInteger(process_code_end))) {
-        alloc_start = m_code_region_start;
-        alloc_size = GetInteger(process_code_start) - GetInteger(m_code_region_start);
-    } else {
-        alloc_start = process_code_end;
-        alloc_size = GetInteger(end) - GetInteger(process_code_end);
+    if (layout_params.type == NativeMemory::AddressSpaceType::Bits39 &&
+        layout_params.extra_alias_region) {
+        m_alias_region_extra_size = layout.address_space.size >> 3;
     }
 
-    // FW 18+: Apply extra region size calculations for already available region size
-    const auto as_mask = Svc::CreateProcessFlag::AddressSpaceMask;
-    const bool is_64bit_as = (as_type & as_mask) == Svc::CreateProcessFlag::AddressSpace64Bit;
-
-    if (is_64bit_as && (as_type & Svc::CreateProcessFlag::EnableAliasRegionExtraSize)
-        != Svc::CreateProcessFlag{0} && alias_region_size) {
-        const size_t address_space_size = (GetInteger(end) - GetInteger(start));
-
-        // Same as address_space_size/8 but faster due to bit shifting operation
-        const size_t alias_region_extra_size = address_space_size >> 3;
-        alias_region_size += alias_region_extra_size;
-
-        // Store for later processing
-        m_alias_region_extra_size = alias_region_extra_size;
-    }
-
-    const size_t needed_size =
-        (alias_region_size + heap_region_size + stack_region_size + kernel_map_region_size);
-    R_UNLESS(alloc_size >= needed_size, ResultOutOfMemory);
-
-    const size_t remaining_size = alloc_size - needed_size;
-
-    // Determine random placements for each region.
-    size_t alias_rnd = 0, heap_rnd = 0, stack_rnd = 0, kmap_rnd = 0;
-    if (enable_aslr) {
-        alias_rnd = KSystemControl::GenerateRandomRange(0, remaining_size / RegionAlignment) * RegionAlignment;
-        heap_rnd = KSystemControl::GenerateRandomRange(0, remaining_size / RegionAlignment) * RegionAlignment;
-        stack_rnd = KSystemControl::GenerateRandomRange(0, remaining_size / RegionAlignment) * RegionAlignment;
-        kmap_rnd = KSystemControl::GenerateRandomRange(0, remaining_size / RegionAlignment) * RegionAlignment;
-    }
-
-    // Setup heap and alias regions.
-    m_alias_region_start = alloc_start + alias_rnd;
-    m_alias_region_end = m_alias_region_start + alias_region_size;
-    m_heap_region_start = alloc_start + heap_rnd;
-    m_heap_region_end = m_heap_region_start + heap_region_size;
-
-    if (alias_rnd <= heap_rnd) {
-        m_heap_region_start += alias_region_size;
-        m_heap_region_end += alias_region_size;
-    } else {
-        m_alias_region_start += heap_region_size;
-        m_alias_region_end += heap_region_size;
-    }
-
-    // Setup stack region.
-    if (stack_region_size) {
-        m_stack_region_start = alloc_start + stack_rnd;
-        m_stack_region_end = m_stack_region_start + stack_region_size;
-
-        if (alias_rnd < stack_rnd) {
-            m_stack_region_start += alias_region_size;
-            m_stack_region_end += alias_region_size;
-        } else {
-            m_alias_region_start += stack_region_size;
-            m_alias_region_end += stack_region_size;
-        }
-
-        if (heap_rnd < stack_rnd) {
-            m_stack_region_start += heap_region_size;
-            m_stack_region_end += heap_region_size;
-        } else {
-            m_heap_region_start += stack_region_size;
-            m_heap_region_end += stack_region_size;
-        }
-    }
-
-    // Setup kernel map region.
-    if (kernel_map_region_size) {
-        m_kernel_map_region_start = alloc_start + kmap_rnd;
-        m_kernel_map_region_end = m_kernel_map_region_start + kernel_map_region_size;
-
-        if (alias_rnd < kmap_rnd) {
-            m_kernel_map_region_start += alias_region_size;
-            m_kernel_map_region_end += alias_region_size;
-        } else {
-            m_alias_region_start += kernel_map_region_size;
-            m_alias_region_end += kernel_map_region_size;
-        }
-
-        if (heap_rnd < kmap_rnd) {
-            m_kernel_map_region_start += heap_region_size;
-            m_kernel_map_region_end += heap_region_size;
-        } else {
-            m_heap_region_start += kernel_map_region_size;
-            m_heap_region_end += kernel_map_region_size;
-        }
-
-        if (stack_region_size) {
-            if (stack_rnd < kmap_rnd) {
-                m_kernel_map_region_start += stack_region_size;
-                m_kernel_map_region_end += stack_region_size;
-            } else {
-                m_stack_region_start += kernel_map_region_size;
-                m_stack_region_end += kernel_map_region_size;
-            }
-        }
-    }
+    m_code_region_start = KProcessAddress(layout.code.start);
+    m_code_region_end = KProcessAddress(layout.code.end());
+    m_alias_code_region_start = KProcessAddress(layout.alias_code.start);
+    m_alias_code_region_end = KProcessAddress(layout.alias_code.end());
+    m_alias_region_start = KProcessAddress(layout.alias.start);
+    m_alias_region_end = KProcessAddress(layout.alias.end());
+    m_heap_region_start = KProcessAddress(layout.heap.start);
+    m_heap_region_end = KProcessAddress(layout.heap.end());
+    m_stack_region_start = KProcessAddress(layout.stack.start);
+    m_stack_region_end = KProcessAddress(layout.stack.end());
+    m_kernel_map_region_start = KProcessAddress(layout.kernel_map.start);
+    m_kernel_map_region_end = KProcessAddress(layout.kernel_map.end());
 
     // Set heap and fill members.
     m_current_heap_end = m_heap_region_start;
@@ -405,34 +291,6 @@ Result KPageTableBase::InitializeForProcess(Svc::CreateProcessFlag as_type, bool
     m_allocate_option =
         KMemoryManager::EncodeOption(pool, from_back ? KMemoryManager::Direction::FromBack
                                                      : KMemoryManager::Direction::FromFront);
-
-    // Ensure that we regions inside our address space.
-    auto IsInAddressSpace = [&](KProcessAddress addr) {
-        return m_address_space_start <= addr && addr <= m_address_space_end;
-    };
-    ASSERT(IsInAddressSpace(m_alias_region_start));
-    ASSERT(IsInAddressSpace(m_alias_region_end));
-    ASSERT(IsInAddressSpace(m_heap_region_start));
-    ASSERT(IsInAddressSpace(m_heap_region_end));
-    ASSERT(IsInAddressSpace(m_stack_region_start));
-    ASSERT(IsInAddressSpace(m_stack_region_end));
-    ASSERT(IsInAddressSpace(m_kernel_map_region_start));
-    ASSERT(IsInAddressSpace(m_kernel_map_region_end));
-
-    // Ensure that we selected regions that don't overlap.
-    const KProcessAddress alias_start = m_alias_region_start;
-    const KProcessAddress alias_last = m_alias_region_end - 1;
-    const KProcessAddress heap_start = m_heap_region_start;
-    const KProcessAddress heap_last = m_heap_region_end - 1;
-    const KProcessAddress stack_start = m_stack_region_start;
-    const KProcessAddress stack_last = m_stack_region_end - 1;
-    const KProcessAddress kmap_start = m_kernel_map_region_start;
-    const KProcessAddress kmap_last = m_kernel_map_region_end - 1;
-    ASSERT(alias_last < heap_start || heap_last < alias_start);
-    ASSERT(alias_last < stack_start || stack_last < alias_start);
-    ASSERT(alias_last < kmap_start || kmap_last < alias_start);
-    ASSERT(heap_last < stack_start || stack_last < heap_start);
-    ASSERT(heap_last < kmap_start || kmap_last < heap_start);
 
     // Initialize our implementation.
     m_impl.Resize(m_address_space_width, PageBits);

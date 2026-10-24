@@ -2,6 +2,27 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev13 - Unreleased
+
+*Development entry 13 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Changed
+
+- `KPageTableBase::InitializeForProcess` now takes its region placement from `NativeMemory::ComputeLayout` (draw order alias, heap, stack, kmap, via `KSystemControl::GenerateRandomRange`), so the kernel path and the native model share one implementation. The read of `m_address_space_start` before its assignment was always 0 (member default) and is dropped; layout failures keep the old behavior (`ResultOutOfMemory` returned, other failures assert).
+
+### Added
+
+- Layout unit checks for the random draw order and values, the ASLR base offset and the extra alias region, with four new mutants (`layout-aslr-base`, `layout-extra-alias`, `layout-kmap-draw`, `layout-slot-count`). The random-draw test also checks the inclusive bounds passed to the generator.
+- `k_page_table_base.cpp` fails the build under `HAS_NCE`, because `NativeMemory::GetSpaceInfo` lacks the 256 GiB Map39Bit limit that `KAddressSpaceInfo` applies there.
+
+### Verification
+
+- `smoke_native_memory_unit` passed under MSVC standalone; the four new mutants failed at their intended checks. A Code reviewer pass (Orca, gpt-6.1-sol) found two P2 items (the dropped `HAS_NCE` limit, and the random-draw test ignoring the bounds); both were fixed and the host trees rebuilt after the fixes. JIT and no-JIT host trees rebuilt with 0 errors.
+
+### Not run
+
+- Full `run.py`, a second reviewer pass on the review fixes, and any PLA session (JIT with native on and `SUYU_NATIVE_MEM=0`) were not run.
+
 ## v0.0.3-dev12 - Unreleased
 
 *Development entry 12 toward v0.0.3. Not a release; no build artifacts are published.*

@@ -2804,3 +2804,55 @@ The following material was removed from the compact handoff and retained verbati
 - The AOT CPU-budget comparison used 18 windows per run: process means were 107.72 and 108.08 ms/frame (ranges 71.25-130.32 and 70.91-128.57), frame p50 means 34.40 and 33.82 ms, and p99 was 114.74 versus 139.96 ms due mainly to one load-stall window; outside it p99 was about 50-66 ms. The 3 s bag operation was not separable from 10 s windows, and no parity claim is made.
 - Known unchanged AOT-log errors are unresolved GOT/PLT symbols (including `__tdata_align_rel`) for module base `0x80af4000` and `BSD: Network isn't initialized`; Stage 3c (JIT and AOT) is complete, while Stages 4-5 need the user's decision.
 
+## Archived on 2026-10-24 from WORK_PLAN.md (session 45 cleanup)
+
+The following material was removed from the compact handoff and retained verbatim.
+
+### Session 44 summary
+- Both host trees were reconfigured and rebuilt at `5057b57`; Stage 3c passed on JIT and the exported AOT launcher with native memory on and `SUYU_NATIVE_MEM=0`.
+- The stale JIT `svc_memory.cpp.obj` had an empty dependency entry and froze PLA; deleting the object and rebuilding fixed it without a source change.
+- JIT and AOT both ended with `unsupported_ops=0 inconsistency=0`; AOT was fully static with `static -> JIT: 0`.
+- AOT process CPU means were 107.72 versus 108.08 ms/frame; JIT steady windows were about 75.3 versus 77.2 ms/frame.
+- Limits are separate launches and no bag-window split; no performance-parity claim is made.
+- Full text is archived in the [session 44 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-44-cleanup).
+
+### N2 progress table row 2
+| 2 | Done: shadow, dev4-dev6; accepted after a JIT PLA session on the dev5 build: 0 mismatch lines, `sync_failures=0`, MapPhysicalMemory 2317 compared, SetMemoryAttribute 239, MapMemory 26, UnmapMemory 3, SetHeapSize 1, UnmapPhysicalMemory 1, SetMemoryPermission 0 not exercised; accepted with the recorded limits. |
+
+### N2 limits: Stage 3c validation bullet
+- Stage 3c JIT and AOT validation passed: both JIT and exported static-launcher runs (native memory on and `SUYU_NATIVE_MEM=0`) completed without crashes; AOT ended with `unsupported_ops=0 inconsistency=0`, and both reports were fully static with `static -> JIT: 0` and zero unresolved import traps. CPU-budget A/B means were 107.72/108.08 ms/frame (p50 34.40/33.82 ms; p99 affected by one load stall), with separate launches and non-identical positions/operations; AOT stayed below JIT performance and no parity is claimed.
+
+
+## Archived on 2026-10-24 from WORK_PLAN.md (session 46 cleanup)
+
+The following material was removed from the compact handoff and retained verbatim.
+
+### Session 44 summary (stub)
+- Stage 3c passed on JIT and AOT.
+- The stale `svc_memory.cpp.obj` incident was fixed without a source change.
+- Full text is in the [session 44 archive](OLD_HISTORY.md#archived-on-2026-10-22-from-work_planmd-session-44-cleanup).
+
+### Session 45 summary
+- N2 Stage 4 was approved by the user and split: 4a-1 standalone pool, 4a-2 backend switch inside KMemoryManager (callers unchanged; the rename of the callers moves to 4c), 4b replace KPageTableBase in KProcessPageTable with a small layout and Common::PageTable holder and bypass KernelCore memory initialization, 4c remove KPageTable, KMemoryManager and KMemoryBlockManager from the SUYU_NO_JIT build with counted fail-fast stubs. Acceptance is `structural_gate.py --require-absent N2` on a no-JIT launcher.
+- Gate baseline (report mode, no-JIT `suyu-cmd-static.exe` with PDB, 1,002,137 symbols): kernel_memory 122 matches (72 KPageTableBase, 22 KMemoryManager, 9 KMemoryBlockManager, about 19 others); it is unchanged by dev11 and dev12 because KMemoryManager still exists. (Superseded in session 46: 127 matches at 1,002,184 symbols.)
+- dev11 `eba359e`: kernel-free `PhysicalPagePool` (reference-counted pages, free runs, front/back and aligned continuous allocation, permanent `Reserve`, invalid-region rejection) with `smoke_native_physical_pool_unit` (16 groups, 20 mutants). Review fixed region validation, permanent reservation and coverage; the first review worker stalled and was replaced.
+- dev12 `ec1fdc2`: `PhysicalPoolSet` (regions grouped into pools) and a default-on `SUYU_NATIVE_MEM_POOL` backend in `KMemoryManager` (`=0` selects the old buddy managers). Native mode: AllocateForProcess takes the first reference and fills pages so OpenFirst is a no-op; optimized-process memory returns ResultNotImplemented; pools pick the first run that holds the rest, otherwise the largest run, to keep KBlockInfo use small; allocations are serialized by a set mutex. `smoke_native_pool_set_unit` has 13 groups and 11 mutants. Review fixed a lost per-pool transaction, KBlockInfo exhaustion on fragmented pools and missing coverage.
+- Both host trees were reconfigured and rebuilt at `ec1fdc2` (`GIT_REV` checked, 0 errors); JIT took 6 steps and no-JIT 1,674 steps. No PLA session has run on dev12 yet. (Superseded in session 46.)
+- Open small follow-up: the P3 review nit that public parameters of `native_physical_pool.h` such as `offset` and `size` lack unit suffixes (`*_bytes`) is not applied; do it with the first change that touches that header and update the mutant texts that mention them.
+
+### Session 46 summary (full record)
+- dev12 JIT PLA validation on the `ec1fdc2` host build (`GIT_REV` checked), user-run: boot, field, bag, area moves and menu open/close, clean quit in both runs. Logs are `D:\HisuiWakeBuild\diag\cpu_budget\dev12_jit_pool_on.txt` and `dev12_jit_pool_off.txt`.
+- Pool on (default): `native_phys_pool enabled: 5 regions, 4041 MiB total, 4041 MiB free`, `native_mem enabled`, and `native_mem final unsupported_ops=0 inconsistency=0`.
+- Pool off (`SUYU_NATIVE_MEM_POOL=0`): no `native_phys_pool` line, `native_mem final unsupported_ops=0 inconsistency=0`.
+- Both logs show only the known warnings (`UnpinHandle: Pin count imbalance`, missing `playtime.bin`, BufferQueue abandoned at exit); no new errors.
+- dev12 AOT PLA validation, user-run on the no-JIT host export at `ec1fdc2` (`effective_backend=suyu-static-nojit`, `fallback_enabled=False`, `requires_runtime_codegen=False`, launcher 508,555,776 bytes, `module_bindings` main=dll, others static): boot, field, bag, area moves and menu open/close, clean quit after about 273 s. Log: `dev12_aot_nojit.txt`.
+- AOT log: `native_phys_pool enabled: 5 regions, 4041 MiB total`, `native_mem enabled`, `native_mem final unsupported_ops=0 inconsistency=0`; coverage `static -> JIT 0`, `JIT -> static 0`, `unresolved import traps 0`, 15,447,742,185 static blocks, 11,937,053 SVCs; only the known 8 unresolved GOT/PLT symbols (`__EX_*`, `__got_*`, `__tbss/__tdata_align_*`) and the known Pin count warning.
+- `aot_cache_outcome`, `aot_cache_publish`, `aot_cache_reused` and FPS were not reported for this export.
+- Gate re-baseline (report mode, `msvc-release-nojit\bin\suyu-cmd-static.exe` with PDB, same size as the export launcher, 1,002,184 symbols, `ec1fdc2`): `kernel_memory` 127 matches (was 122 at 1,002,137 symbols), `jit` 0; report `D:\HisuiWakeBuild\diag\gate_dev12_nojit.txt`. The earlier "unchanged by dev11 and dev12" statement is therefore not confirmed; the +5 is probably the new native KMemoryManager/pool symbols (hypothesis, no per-class breakdown stored, since the JSON keeps only counts). Use 127 as the 4c starting value.
+- Not covered: no log line counts `MapPhysicalMemory` calls, so a large mapping was not confirmed; no pool statistics are logged at exit.
+
+### Immediate next action item 4 (original wording, session 46)
+4. 4b design is agreed and split into 4b-1 (share `ComputeLayout`, needs a JIT PLA check), 4b-2 (standalone predicates header, no PLA), 4b-3 (connect and lazy `KPageTable`, needs JIT and AOT PLA). The original checklist, now done, was (design first, no code before approval): list what `KProcessPageTable` still takes from `KPageTable` (layout getters, `Contains`/`CanContain`, `GetBlockInfoManager`, `GetImpl` for `Common::PageTable`, `GetAllocateOption`, `GetHeapFillValue`, address-space bounds), design the small replacement holder, and analyse which `KernelCore` memory initialization can be bypassed. 4c follows 4b.
+
+### N2 limits: dev12 bullet (original wording)
+- The dev12 native physical pool (`SUYU_NATIVE_MEM_POOL`, default on) has had no PLA session yet; `KMemoryManager` itself has no standalone test.

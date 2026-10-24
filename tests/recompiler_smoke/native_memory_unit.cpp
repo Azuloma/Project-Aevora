@@ -127,6 +127,58 @@ int LayoutRejectsBadInputs() {
     return 0;
 }
 
+int LayoutDrawsRandomsInKernelOrder() {
+    struct RecordingRandom {
+        int calls = 0;
+        bool bounds_match = true;
+        u64 expected_max = 0;
+        u64 operator()(u64 min, u64 max) {
+            ++calls;
+            bounds_match = bounds_match && min == 0 && max == expected_max;
+            return static_cast<u64>(calls);
+        }
+    };
+    LayoutParams params = ObservedParams(0x800A4000);
+    params.enable_aslr = true;
+    const u64 code_end = AlignUp(params.code_address + params.code_size, RegionAlignment);
+    const u64 alloc_start = code_end;
+    const u64 alias_size = GetSpaceInfo(39, SpaceKind::Alias).size;
+    const u64 heap_size = GetSpaceInfo(39, SpaceKind::Heap).size;
+    const u64 stack_size = GetSpaceInfo(39, SpaceKind::Stack).size;
+    const u64 kernel_map_size = GetSpaceInfo(39, SpaceKind::MapSmall).size;
+    RecordingRandom random;
+    random.expected_max = ((1ULL << 39) - code_end - alias_size - heap_size - stack_size -
+                           kernel_map_size) / RegionAlignment;
+    Layout layout;
+    CHECK_RESULT(ComputeLayout(params, random, layout), Result::Success);
+    CHECK(random.calls == 4);
+    CHECK(random.bounds_match);
+
+    CHECK(layout.alias.start == alloc_start + 1 * RegionAlignment);
+    CHECK(layout.heap.start == alloc_start + 2 * RegionAlignment + alias_size);
+    CHECK(layout.stack.start == alloc_start + 3 * RegionAlignment + alias_size + heap_size);
+    CHECK(layout.kernel_map.start ==
+          alloc_start + 4 * RegionAlignment + alias_size + heap_size + stack_size);
+    return 0;
+}
+
+int LayoutHonorsAslrBaseAndExtraAlias() {
+    Lcg unused{0};
+    LayoutParams params = ObservedParams(0x800A4000);
+    params.aslr_space_start = 0x10000000;
+    params.extra_alias_region = true;
+    Layout layout;
+    CHECK_RESULT(ComputeLayout(params, unused, layout), Result::Success);
+    CHECK(layout.code.start == 0x10000000 + GetSpaceInfo(39, SpaceKind::Map39Bit).start);
+    CHECK(layout.alias.size == GetSpaceInfo(39, SpaceKind::Alias).size + (layout.address_space.size >> 3));
+
+    params.type = AddressSpaceType::Bits36;
+    params.code_address = 0x200000;
+    CHECK_RESULT(ComputeLayout(params, unused, layout), Result::Success);
+    CHECK(layout.alias.size == GetSpaceInfo(36, SpaceKind::Alias).size);
+    return 0;
+}
+
 int QueryDescribesBlocks() {
     AddressSpace space(ObservedLayout(), kPhysicalCapacityBytes);
     const Layout& layout = space.GetLayout();
@@ -424,6 +476,8 @@ int main() {
     CHECK(LayoutMatchesObservedProcessLayouts() == 0);
     CHECK(RandomizedLayoutsStayDisjoint() == 0);
     CHECK(LayoutRejectsBadInputs() == 0);
+    CHECK(LayoutDrawsRandomsInKernelOrder() == 0);
+    CHECK(LayoutHonorsAslrBaseAndExtraAlias() == 0);
     CHECK(QueryDescribesBlocks() == 0);
     CHECK(RangeValidationIsReported() == 0);
     CHECK(PhysicalMemoryIsAccountedAndCapped() == 0);

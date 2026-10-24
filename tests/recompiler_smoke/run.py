@@ -112,7 +112,7 @@ GG_HOST_ABORT = ("hook-map", "hook-unmap", "hook-protect-rx", "hook-protect-rw",
                  "guest-store-cross", "host-write", "pointer-exposed", "jit-fallback")
 
 
-NATIVE_MEMORY_MUTANTS = ("layout-order", "merge-attribute", "reprotect-flag", "capacity-unchecked", "unmap-accounting", "stack-region", "alias-record", "heap-shrink-accounting", "shared-region", "source-lock", "tls-region", "outside-query", "heap-capacity", "alias-span")
+NATIVE_MEMORY_MUTANTS = ("layout-order", "merge-attribute", "reprotect-flag", "capacity-unchecked", "unmap-accounting", "stack-region", "alias-record", "heap-shrink-accounting", "shared-region", "source-lock", "tls-region", "outside-query", "heap-capacity", "alias-span", "layout-aslr-base", "layout-extra-alias", "layout-kmap-draw", "layout-slot-count")
 
 NATIVE_SHADOW_MUTANTS = ("shadow-result", "shadow-state-field", "shadow-permission-field", "shadow-attribute-field", "shadow-boundary", "shadow-user-permission", "shadow-range-clip", "shadow-sync-skipped", "shadow-report-cap", "shadow-total", "shadow-skipped", "shadow-physical-op", "shadow-was-mapped", "shadow-state-only", "shadow-freed-pages", "shadow-before-step", "shadow-capacity", "shadow-tiling", "shadow-heap-end", "shadow-physical")
 
