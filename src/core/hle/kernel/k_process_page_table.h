@@ -54,6 +54,7 @@ private:
     size_t m_alias_region_extra_size{};
     std::unique_ptr<NativeAdapters::KNativeProcessMemory> m_native;
     std::atomic<u64> m_native_unsupported_ops{0};
+    std::atomic<bool> m_native_final_logged{false};
     std::unique_ptr<NativeMemory::Shadow> m_shadow;
     // High 32 bits count entries, low 32 bits count calls in flight; one atomic keeps them consistent.
     static constexpr u64 ShadowEntryUnit = (1ULL << 32) | 1;
@@ -371,13 +372,21 @@ public:
         R_SUCCEED();
     }
 
+    // Logged once, from kernel shutdown or Finalize, whichever comes first.
+    void LogNativeFinalStatistics() {
+        if (!m_native || m_native_final_logged.exchange(true)) {
+            return;
+        }
+        const u64 inconsistency = m_native->WithSpace([](const NativeMemory::MappedAddressSpace& space) {
+            return space.InconsistencyCount();
+        });
+        LOG_INFO(Kernel, "native_mem final unsupported_ops={} inconsistency={}",
+                 m_native_unsupported_ops.load(), inconsistency);
+    }
+
     void Finalize() {
+        LogNativeFinalStatistics();
         if (m_native) {
-            const u64 inconsistency = m_native->WithSpace([](const NativeMemory::MappedAddressSpace& space) {
-                return space.InconsistencyCount();
-            });
-            LOG_INFO(Kernel, "native_mem final unsupported_ops={} inconsistency={}",
-                     m_native_unsupported_ops.load(), inconsistency);
             m_native.reset();
             m_native_space.reset();
         }

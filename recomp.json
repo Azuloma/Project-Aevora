@@ -1,0 +1,17 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Pokémon Legends: Arceus",
+  "wikidata": "Q105688771",
+  "system": "Switch",
+  "type": "recomp",
+  "original": { "What's needed": "Firmware, Keys, Rom and Update file", "The necessary updates are": "1.1.1" },
+  "project": "Project Aevora",
+  "status": "in-progress",
+  "targets": ["Windows", "Linux"],
+  "toolchain": "Suyu Recompiler",
+  "approach": "Static recompilation, NVN API interception mapped to Vulkan resources",
+  "maintainers": [{ "name": "Azunel", "link": "https://github.com/Azuloma" }],
+  "links": [{ "label": "Twitter", "url": "https://x.com/ls_develop_" }],
+  "help": ["Testers who perform testing on Linux and Windows"],
+  "notes": "The goal for fully implementing static recompilation is N9, and we are currently at N2."
+}

@@ -2,6 +2,32 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev16 - Unreleased
+
+*Development entry 16 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added `KProcessPageTable::LogNativeFinalStatistics()`, which writes `native_mem final unsupported_ops=... inconsistency=...` once per native process.
+- Added `docs/Aevora/RECOMPILE_DETAIL/CPU_RECOMPILER.md` (a consolidated reference for the ARM64-to-C CPU path) and the Stage 4c design section of `docs/Aevora/N2_DESIGN.md`.
+
+### Changed
+
+- `KernelCore::Impl::Shutdown` now logs the native final statistics before it closes the application process, because the process can outlive that `Close` and `KProcess::Finalize` was the only place that wrote the line. Closing the window with the X button, the only exit the AOT launcher offers, therefore should now write the line; this is not yet observed. `Finalize` calls the same function, so the line is written at most once.
+- `WORK_PLAN.md` records the dev15 validation and the 4c-1 split (4c-1a statistics, 4c-1b the `KPhysicalMemory` rename).
+
+### Recorded results (dev15, session 49)
+
+- Both host trees were rebuilt at `0a974bc` with matching `GIT_REV`. JIT native on and no-JIT AOT logged `native_mem enabled` and `native_mem: KPageTable not constructed` and ran for about 270 s and 352 s without a crash or fatal; JIT with `SUYU_NATIVE_MEM=0` logged no `native_mem` lines. The structural gate (report mode) read `kernel_memory` 128 and `jit` 0 on the no-JIT `suyu-cmd-static.exe`. The user declared the dev15 test complete.
+
+### Verification
+
+- JIT host tree rebuilt (305 steps) and no-JIT host tree rebuilt (458 steps), one at a time, both with 0 errors; `suyu.exe` and `suyu-cmd.exe` linked. `ninja -t deps` found no `#deps 0,` entry under `src/core`, `src/common`, `src/video_core`, or `src/hid_core`. No unit test was added: the change sits in the kernel shutdown path and has no standalone form.
+
+### Not run
+
+- No PLA session for this change; the user deferred it. The `native_mem final` line is therefore unobserved on both the X-button exit and a guest exit, and `unsupported_ops=0 inconsistency=0` for dev15 stays unverified. The exported launcher loses the log tail at exit, so the line may still be missing for that reason. The change was not reviewed by the Code reviewer, and no full `run.py` was run. A commit makes the persistent AOT cache unusable, so the next measurement needs reconfigure and a full export.
+
 ## v0.0.3-dev15 - Unreleased
 
 *Development entry 15 toward v0.0.3. Not a release; no build artifacts are published.*

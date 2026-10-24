@@ -298,6 +298,7 @@ Fork-specific Vulkan areas checked on 2026-10-04:
 | `src/suyu_cmd/overlay/overlay_stats.h` | Frame-time history, guest-PC/module placement, fallback counters/verdict, execution-mode text, and timing helpers. |
 | `src/suyu_cmd/overlay/build_identity.{h,cpp}` | Parses packaged `aot_manifest.json` display fields and stores the launcher build identity. |
 | `docs/Aevora/IMGUI_OVERLAY.md` | ImGui Vulkan overlay architecture, input routing, UI contracts, tests, and extension guide. |
+| `docs/Aevora/CPU_RECOMPILER.md` **(2026-10-24)** | Consolidated reference for the completed ARM64-to-C CPU path: pipeline, emitter switches, image contracts, AOT cache, runtime, diagnostics, and limits. |
 | `docs/Aevora/N0_INVENTORY.md` **(v, 2026-10-21)** | Supported-path manual check list, aggregate inventory summary, and structural-gate first report. |
 | `src/core/boundary_inventory.h:141-171,405-409,637-651` **(v, 2026-10-22)** | `[memory]` recorder helpers `SizeClass`, `RegionName`, `MemorySvcKey`, and `Recorder::RecordMemory`; paused operations go to cumulative `[memory_paused]`, printed in every report. |
 | `src/core/hle/kernel/physical_core.cpp:265-274,292-343` **(v, 2026-10-22)** | `ProcessRegions` checks heap, alias, stack, kernel map, then code; `RecordMemorySvc` records inventoried memory SVC argument shapes, regions, sizes, and flags. |

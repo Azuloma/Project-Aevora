@@ -137,6 +137,8 @@ struct KernelCore::Impl {
         CloseServices();
 
         if (application_process) {
+            // The process may outlive this Close, so Finalize alone can miss the statistics.
+            application_process->GetPageTable().LogNativeFinalStatistics();
             application_process->Close(system.Kernel());
             application_process = nullptr;
         }
