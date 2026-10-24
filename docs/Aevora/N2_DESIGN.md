@@ -172,7 +172,7 @@ The no-JIT report-mode baseline on `D:\HisuiWakeBuild\msvc-release-nojit\bin\suy
 
 ## Stage 4b design (agreed with the user, implementation not started)
 
-Status (Session 47): 4b-1 (dev13 `49370cb`) is committed, reviewed and JIT-validated, see [Stage 4b-1 results](#stage-4b-1-results); 4b-2 (dev14) is implemented in the working tree but not yet committed, and 4b-3 is not started. The heading text is kept so existing links stay valid.
+Status (Session 48 continued): 4b-1 (dev13 `49370cb`) is committed, reviewed and JIT-validated, see [Stage 4b-1 results](#stage-4b-1-results); 4b-2 (dev14) is implemented in the working tree, and 4b-3 (dev15) is implemented in the working tree on top of HEAD `78c7036`, awaiting PLA validation. The heading text is kept so existing links stay valid.
 
 Decisions: the `KernelCore` memory-initialization bypass moves to 4c, and the region math has one source.
 
@@ -198,6 +198,18 @@ Decisions: the `KernelCore` memory-initialization bypass moves to 4c, and the re
 `native_address_regions.h` adds the kernel-free `Core::NativeMemory::AddressRegions`, built from a `Layout`, with the `KPageTableBase` region predicates (`Contains`, `IsInAliasRegion`, `IsInHeapRegion`, `IsInUnsafeAliasRegion`, `TryGetRegion`, `CanContain`) and region getters. `RegionState` mirrors `Svc::MemoryState`; kernel-UNREACHABLE states return false and the kernel ASSERTs for Normal/Ipc are not reproduced, while unsigned arithmetic wraps like the kernel. The holder is not connected to kernel logic; `k_native_memory_adapters.h` includes it and static-asserts all 24 state values against `Svc::MemoryState`.
 
 `native_address_regions_unit` has nine check groups, including empty regions at `0x8000` and at zero, plus an independent 25-state grid cross-check; 27 mutants provide negative controls. The MSVC unit passed with `All synthetic native address region smoke checks passed.` and all mutants exited 1 at their intended checks. JIT and no-JIT host trees rebuilt one at a time with 0 errors and linked `suyu.exe` and `suyu-cmd.exe`; full `run.py`, a real smoke CMake configure, any PLA session, and the structural gate were not run. The Code reviewer fixes (state static assertions and zero-address empty-region coverage) were not reviewed a second time.
+
+## Stage 4b-3 results
+
+`k_native_address_space.h` adds `KNativeAddressSpace`, which owns the process layout computed by the shared `KPageTableBase::ComputeProcessLayout` (with the same random draw order), the `Common::PageTable`, `Memory*`, `KBlockInfoManager*`, allocation option, heap fill value constant, alias-region extra size, and device-map light lock. `KPageTableBase` adds the shared `ComputeProcessLayout` and `ComputeAliasRegionExtraSize`, public `ProcessNumGuardPages` and `GetAddressSpaceWidth(as_type)`, and the free `InvalidateInstructionCacheOfProcessTable`; the instruction-cache scan and debug-IO paths use `KProcessPageTable::OwnsBasePageTable` / `GetBasePageTableOrNull`, with debug-IO returning `ResultNotImplemented` for a native current process.
+
+`KProcessPageTable` now stores `KPageTable` in a `std::unique_ptr` and constructs it only for the fallback (`SUYU_NATIVE_MEM=0`, non-39-bit address space, or shadow mode). A 39-bit native process creates only `KNativeAddressSpace` and `KNativeProcessMemory`, and logs `native_mem: KPageTable not constructed` after `native_mem enabled`. Both modes use one `NativeMemory::AddressRegions`; physical-address reads, heap forwarders, guard-page count, device-map locking, implementation/memory/block-manager/allocation accessors, and max-heap-size handling were redirected accordingly. The native path no longer initializes a memory block manager or uses its slab, and no longer calls `KPageTableBase::Finalize`; dynarmic 32/64-bit glue uses `GetPageTable().GetImpl()` and `GetAddressSpaceWidth()`.
+
+Forwarder classification: `GetPhysicalAddress` is served by the holder's `Common::PageTable` for `KThreadLocalPage::Finalize`; the three `Heap*` instance forwarders have no callers other than themselves and call static `KPageTableBase` functions. No counted fail-fast stubs were needed. The Code reviewer found and the implementation fixed the mixed native/fallback instruction-cache and debug-IO `GetBasePageTable()` assertions; a three-line comment was also fixed. The heap-allocated fallback `KPageTable` is not freed because the `KProcess` slab release does not run a destructor, matching the former embedded table's `Common::PageTable` buffer limitation; this was not changed.
+
+JIT and no-JIT host trees rebuilt one at a time after the fixes with 0 errors and linked `suyu.exe` and `suyu-cmd.exe` (only known `LOG_*` C4005 warnings). `ninja -t deps` found no new `#deps 0,` entries under `src/core`, `src/common`, `src/video_core`, or `src/hid_core`; the only such entry is the pre-existing `video_core nsight_aftermath_tracker.cpp.obj`. No new unit test was added; the predicates are covered by dev14's `native_address_regions_unit`.
+
+Not run: any PLA session (JIT native on, JIT `SUYU_NATIVE_MEM=0`, or no-JIT AOT), the structural gate against the 127 `kernel_memory` baseline, and full `run.py`. PLA acceptance remains: native-on JIT must log `native_mem enabled` and `native_mem: KPageTable not constructed`, then end with `native_mem final unsupported_ops=0 inconsistency=0`; `SUYU_NATIVE_MEM=0` must work without native-memory lines; no-JIT AOT must pass before the gate report on the new `suyu-cmd-static.exe`.
 
 ## Stage 4a-2 results
 

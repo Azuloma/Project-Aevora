@@ -416,9 +416,8 @@ ArmDynarmic64::ArmDynarmic64(System& system, bool uses_wall_clock, Kernel::KProc
     , m_cb(std::make_optional<DynarmicCallbacks64>(*this, process))
     , m_core_index{core_index}
 {
-    auto& page_table = process->GetPageTable().GetBasePageTable();
-    auto& page_table_impl = page_table.GetImpl();
-    MakeJit(&page_table_impl, page_table.GetAddressSpaceWidth());
+    auto& page_table = process->GetPageTable();
+    MakeJit(&page_table.GetImpl(), page_table.GetAddressSpaceWidth());
 }
 
 ArmDynarmic64::~ArmDynarmic64() = default;

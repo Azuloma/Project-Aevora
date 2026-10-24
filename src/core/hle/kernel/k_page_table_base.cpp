@@ -83,7 +83,7 @@ void InvalidateInstructionCache(KernelCore& kernel, KPageTableBase* table, Addre
                                 u64 size) {
     // TODO: lock the process list
     for (auto& process : kernel.GetProcessList()) {
-        if (std::addressof(process->GetPageTable().GetBasePageTable()) != table) {
+        if (!process->GetPageTable().OwnsBasePageTable(table)) {
             continue;
         }
 
@@ -223,7 +223,10 @@ Result KPageTableBase::InitializeForKernel(bool is_64_bit, KVirtualAddress start
                                                m_memory_block_slab_manager));
 }
 
-Result KPageTableBase::InitializeForProcess(Svc::CreateProcessFlag as_type, bool enable_aslr, bool enable_das_merge, bool from_back, KMemoryManager::Pool pool, KProcessAddress code_address, size_t code_size, KSystemResource* system_resource, KResourceLimit* resource_limit, Core::Memory::Memory& memory, KProcessAddress aslr_space_start) {
+Result KPageTableBase::ComputeProcessLayout(Svc::CreateProcessFlag as_type, bool enable_aslr,
+                                            KProcessAddress code_address, size_t code_size,
+                                            KProcessAddress aslr_space_start,
+                                            NativeMemory::Layout& out_layout) {
     // Region placement lives in the native layout model so the kernel and native paths cannot drift.
     NativeMemory::LayoutParams layout_params;
     layout_params.type = ToNativeAddressSpaceType(as_type);
@@ -234,14 +237,30 @@ Result KPageTableBase::InitializeForProcess(Svc::CreateProcessFlag as_type, bool
     layout_params.extra_alias_region =
         (as_type & Svc::CreateProcessFlag::EnableAliasRegionExtraSize) != Svc::CreateProcessFlag{0};
 
-    NativeMemory::Layout layout;
     const NativeMemory::Result layout_result = NativeMemory::ComputeLayout(
         layout_params,
         [](u64 min, u64 max) { return static_cast<u64>(KSystemControl::GenerateRandomRange(min, max)); },
-        layout);
+        out_layout);
     R_UNLESS(layout_result != NativeMemory::Result::OutOfMemory, ResultOutOfMemory);
     ASSERT_MSG(layout_result == NativeMemory::Result::Success, "invalid process layout: {}",
                NativeMemory::ResultName(layout_result));
+    R_SUCCEED();
+}
+
+size_t KPageTableBase::ComputeAliasRegionExtraSize(Svc::CreateProcessFlag as_type,
+                                                   const NativeMemory::Layout& layout) {
+    const bool extra_alias_region =
+        (as_type & Svc::CreateProcessFlag::EnableAliasRegionExtraSize) != Svc::CreateProcessFlag{0};
+    return ToNativeAddressSpaceType(as_type) == NativeMemory::AddressSpaceType::Bits39 &&
+                   extra_alias_region
+               ? layout.address_space.size >> 3
+               : 0;
+}
+
+Result KPageTableBase::InitializeForProcess(Svc::CreateProcessFlag as_type, bool enable_aslr, bool enable_das_merge, bool from_back, KMemoryManager::Pool pool, KProcessAddress code_address, size_t code_size, KSystemResource* system_resource, KResourceLimit* resource_limit, Core::Memory::Memory& memory, KProcessAddress aslr_space_start) {
+    NativeMemory::Layout layout;
+    R_TRY(ComputeProcessLayout(as_type, enable_aslr, code_address, code_size, aslr_space_start,
+                               layout));
 
     // Set other basic fields.
     m_address_space_width = layout.width;
@@ -255,9 +274,8 @@ Result KPageTableBase::InitializeForProcess(Svc::CreateProcessFlag as_type, bool
     m_block_info_manager = system_resource->GetBlockInfoManagerPointer();
     m_resource_limit = resource_limit;
 
-    if (layout_params.type == NativeMemory::AddressSpaceType::Bits39 &&
-        layout_params.extra_alias_region) {
-        m_alias_region_extra_size = layout.address_space.size >> 3;
+    if (const size_t extra_size = ComputeAliasRegionExtraSize(as_type, layout); extra_size != 0) {
+        m_alias_region_extra_size = extra_size;
     }
 
     m_code_region_start = KProcessAddress(layout.code.start);
@@ -2941,7 +2959,7 @@ Result KPageTableBase::InvalidateProcessDataCache(KProcessAddress address, size_
 
 Result KPageTableBase::InvalidateCurrentProcessDataCache(KProcessAddress address, size_t size) {
     // Check pre-condition: this is being called on the current process.
-    ASSERT(this == std::addressof(GetCurrentProcess(m_system.Kernel()).GetPageTable().GetBasePageTable()));
+    ASSERT(GetCurrentProcess(m_system.Kernel()).GetPageTable().OwnsBasePageTable(this));
 
     // Check that the region is in range.
     R_UNLESS(this->Contains(address, size), ResultInvalidCurrentMemory);
@@ -3237,7 +3255,10 @@ Result KPageTableBase::ReadDebugIoMemory(KProcessAddress dst_address, KProcessAd
 
     // We need to lock both this table, and the current process's table, so set up some aliases.
     KPageTableBase& src_page_table = *this;
-    KPageTableBase& dst_page_table = GetCurrentProcess(m_system.Kernel()).GetPageTable().GetBasePageTable();
+    KPageTable* const current_table =
+        GetCurrentProcess(m_system.Kernel()).GetPageTable().GetBasePageTableOrNull();
+    R_UNLESS(current_table != nullptr, ResultNotImplemented);
+    KPageTableBase& dst_page_table = *current_table;
 
     // Acquire the table locks.
     KScopedLightLockPair lk(src_page_table.m_general_lock, dst_page_table.m_general_lock);
@@ -3279,7 +3300,10 @@ Result KPageTableBase::WriteDebugIoMemory(KProcessAddress dst_address, KProcessA
 
     // We need to lock both this table, and the current process's table, so set up some aliases.
     KPageTableBase& src_page_table = *this;
-    KPageTableBase& dst_page_table = GetCurrentProcess(m_system.Kernel()).GetPageTable().GetBasePageTable();
+    KPageTable* const current_table =
+        GetCurrentProcess(m_system.Kernel()).GetPageTable().GetBasePageTableOrNull();
+    R_UNLESS(current_table != nullptr, ResultNotImplemented);
+    KPageTableBase& dst_page_table = *current_table;
 
     // Acquire the table locks.
     KScopedLightLockPair lk(src_page_table.m_general_lock, dst_page_table.m_general_lock);
@@ -5660,6 +5684,20 @@ void KPageTableBase::FinalizeUpdate(PageLinkedList* page_list) {
 
 void KPageTableBase::InvalidateInstructionCacheRange(KProcessAddress address, size_t size) {
     InvalidateInstructionCache(m_system.Kernel(), this, address, size);
+}
+
+void InvalidateInstructionCacheOfProcessTable(KernelCore& kernel, const KProcessPageTable* owner,
+                                              KProcessAddress address, size_t size) {
+    for (auto& process : kernel.GetProcessList()) {
+        if (std::addressof(process->GetPageTable()) != owner) {
+            continue;
+        }
+        for (size_t i = 0; i < Core::Hardware::NUM_CPU_CORES; i++) {
+            if (auto* const interface = process->GetArmInterface(i)) {
+                interface->InvalidateCacheRange(GetInteger(address), size);
+            }
+        }
+    }
 }
 
 } // namespace Kernel

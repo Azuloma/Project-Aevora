@@ -372,7 +372,7 @@ ArmDynarmic32::ArmDynarmic32(System& system, bool uses_wall_clock, Kernel::KProc
     , m_cb(std::make_optional<DynarmicCallbacks32>(*this, process))
     , m_cp15(std::make_shared<DynarmicCP15>(*this)), m_core_index{core_index}
 {
-    auto& page_table_impl = process->GetPageTable().GetBasePageTable().GetImpl();
+    auto& page_table_impl = process->GetPageTable().GetImpl();
     MakeJit(&page_table_impl);
 }
 

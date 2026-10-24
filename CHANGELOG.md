@@ -2,6 +2,28 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev15 - Unreleased
+
+*Development entry 15 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Added
+
+- Added `KNativeAddressSpace`, which owns the shared process layout, `Common::PageTable`, native process-memory dependencies, allocation settings, and the native device-map lock.
+
+### Changed
+
+- Connected the native 39-bit process path to `KNativeAddressSpace` and construct `KPageTable` lazily only for the fallback path. Shared layout, region predicates, address conversion, heap forwarders, and process-table ownership now serve both modes; native processes no longer initialize the block manager or call `KPageTableBase::Finalize`.
+- Made the instruction-cache scan and debug-IO paths safe for mixed native/fallback processes; debug-IO returns `ResultNotImplemented` for a native current process.
+
+### Verification
+
+- JIT and no-JIT host trees rebuilt one at a time after the fixes with 0 errors; `suyu.exe` and `suyu-cmd.exe` linked, with only the known `LOG_*` C4005 warnings. `ninja -t deps` found no new zero-dependency entries under the checked source trees. No new unit test was added; the predicates are covered by dev14's `native_address_regions_unit`.
+- Forwarder classification was completed: `GetPhysicalAddress` uses the holder's `Common::PageTable`, while the three `Heap*` instance forwarders call static `KPageTableBase` functions; no counted fail-fast stubs were needed.
+
+### Not run
+
+- No PLA session (JIT native on, JIT `SUYU_NATIVE_MEM=0`, or no-JIT AOT), no structural gate against the 127 `kernel_memory` baseline, and no full `run.py`. The fixes were not reviewed a second time; the heap-allocated fallback `KPageTable` lifetime issue remains as the same slab-destructor limitation as the former embedded table.
+
 ## v0.0.3-dev14 - Unreleased
 
 *Development entry 14 toward v0.0.3. Not a release; no build artifacts are published.*

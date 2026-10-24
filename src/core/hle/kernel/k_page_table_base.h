@@ -21,6 +21,7 @@
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/result.h"
 #include "core/memory.h"
+#include "core/native_memory/native_address_space.h"
 
 namespace Kernel {
 
@@ -152,6 +153,7 @@ protected:
     static constexpr auto DefaultMemoryIgnoreAttr =
         KMemoryAttribute::IpcLocked | KMemoryAttribute::DeviceShared;
 
+public:
     static constexpr size_t GetAddressSpaceWidth(Svc::CreateProcessFlag as_type) {
         switch (static_cast<Svc::CreateProcessFlag>(as_type &
                                                     Svc::CreateProcessFlag::AddressSpaceMask)) {
@@ -166,6 +168,17 @@ protected:
             UNREACHABLE();
         }
     }
+
+    static constexpr size_t ProcessNumGuardPages = 4;
+
+    // Region placement shared by InitializeForProcess and the native address space; draws randoms in
+    // kernel order. Returns ResultOutOfMemory when no placement fits and asserts on invalid input.
+    static Result ComputeProcessLayout(Svc::CreateProcessFlag as_type, bool enable_aslr,
+                                       KProcessAddress code_address, size_t code_size,
+                                       KProcessAddress aslr_space_start,
+                                       Core::NativeMemory::Layout& out_layout);
+    static size_t ComputeAliasRegionExtraSize(Svc::CreateProcessFlag as_type,
+                                              const Core::NativeMemory::Layout& layout);
 
 private:
     class KScopedPageTableUpdater {
@@ -306,7 +319,9 @@ public:
     [[nodiscard]] Core::Memory::Memory const& GetMemory() const noexcept { return *m_memory; }
     [[nodiscard]] Common::PageTable& GetImpl() noexcept { return m_impl; }
     [[nodiscard]] Common::PageTable const& GetImpl() const noexcept { return m_impl; }
-    [[nodiscard]] size_t GetNumGuardPages() const noexcept { return this->IsKernel() ? 1 : 4; }
+    [[nodiscard]] size_t GetNumGuardPages() const noexcept {
+        return this->IsKernel() ? 1 : ProcessNumGuardPages;
+    }
 protected:
     // NOTE: These three functions (Operate, Operate, FinalizeUpdate) are virtual functions
     // in Nintendo's kernel. We devirtualize them, since KPageTable is the only derived
