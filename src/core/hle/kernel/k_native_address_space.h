@@ -5,7 +5,7 @@
 
 #include "common/page_table.h"
 #include "core/hle/kernel/k_light_lock.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_page_table_base.h"
 #include "core/hle/kernel/k_system_resource.h"
 #include "core/hle/kernel/k_typed_address.h"
@@ -27,16 +27,16 @@ public:
     KNativeAddressSpace& operator=(const KNativeAddressSpace&) = delete;
 
     Result Initialize(Svc::CreateProcessFlag as_type, bool enable_aslr, bool from_back,
-                      KMemoryManager::Pool pool, KProcessAddress code_address, size_t code_size,
+                      KPhysicalMemory::Pool pool, KProcessAddress code_address, size_t code_size,
                       KSystemResource* system_resource, Core::Memory::Memory& memory,
                       KProcessAddress aslr_space_start) {
         R_TRY(KPageTableBase::ComputeProcessLayout(as_type, enable_aslr, code_address, code_size,
                                                    aslr_space_start, m_layout));
         m_alias_region_extra_size = KPageTableBase::ComputeAliasRegionExtraSize(as_type, m_layout);
         m_block_info_manager = system_resource->GetBlockInfoManagerPointer();
-        m_allocate_option = KMemoryManager::EncodeOption(
-            pool, from_back ? KMemoryManager::Direction::FromBack
-                            : KMemoryManager::Direction::FromFront);
+        m_allocate_option = KPhysicalMemory::EncodeOption(
+            pool, from_back ? KPhysicalMemory::Direction::FromBack
+                            : KPhysicalMemory::Direction::FromFront);
         m_impl.Resize(m_layout.width, PageBits);
         m_memory = std::addressof(memory);
         R_SUCCEED();

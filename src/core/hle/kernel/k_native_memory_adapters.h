@@ -15,7 +15,7 @@
 #include "core/device_memory.h"
 #include "core/hle/kernel/k_memory_block.h"
 #include "core/hle/kernel/k_light_lock.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_page_group.h"
 #include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/kernel/k_scoped_lock.h"
@@ -193,7 +193,7 @@ public:
             return false;
         }
         KPageGroup group(m_kernel, m_block_info_manager);
-        if (m_kernel.MemoryManager()
+        if (m_kernel.PhysicalMemory()
                 .AllocateAndOpen(std::addressof(group), size / PageSize, m_allocate_option)
                 .IsError()) {
             return false;
@@ -207,7 +207,7 @@ public:
 
     void Free(const std::vector<Native::PhysicalExtent>& extents) override {
         for (const Native::PhysicalExtent& extent : extents) {
-            m_kernel.MemoryManager().Close(ToKernelPhysical(extent.phys), extent.size / PageSize);
+            m_kernel.PhysicalMemory().Close(ToKernelPhysical(extent.phys), extent.size / PageSize);
         }
     }
 

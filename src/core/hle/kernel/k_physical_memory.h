@@ -26,7 +26,7 @@ namespace Kernel {
 
 class KPageGroup;
 
-class KMemoryManager {
+class KPhysicalMemory {
 public:
     enum class Pool : u32 {
         Application = 0,
@@ -53,7 +53,7 @@ public:
 
     static constexpr size_t MaxManagerCount = 10;
 
-    explicit KMemoryManager(Core::System& system);
+    explicit KPhysicalMemory(Core::System& system);
 
     void Initialize(KVirtualAddress management_region, size_t management_region_size);
 

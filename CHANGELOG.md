@@ -2,6 +2,23 @@
 
 All notable changes to Aevora are recorded here. Versions follow the scheme in [README.md](README.md#releases-and-versioning): release versions `vX.Y.Z`, development versions `vX.Y.Z-devN`. Development entries are not releases and are not recommended for general use.
 
+## v0.0.3-dev17 - Unreleased
+
+*Development entry 17 toward v0.0.3. Not a release; no build artifacts are published.*
+
+### Changed
+
+- Renamed `KMemoryManager` to `KPhysicalMemory` (N2 stage 4c-1b), including its nested `Pool`, `Direction`, and `EncodeOption`, the files `k_memory_manager.{h,cpp}` to `k_physical_memory.{h,cpp}`, and the `KernelCore::MemoryManager()` accessor to `PhysicalMemory()`. This is a rename only; the native pool backend, the legacy buddy-manager fallback, and every call keep their behavior. The structural gate counts `KMemoryManager` by symbol name, so the type name had to leave the signatures of `KProcess::Initialize` and `KSecureSystemResource::Initialize` before 4c-2 can remove the legacy code from the no-JIT build.
+
+### Verification
+
+- `/EP` preprocess baselines of both host trees were taken before the edit and compared after the rebuild with `cmp.py`. Of 76 distinct differing signatures in each tree, 73 are exactly explained by the rename mapping (checked by applying the mapping to the "before" text); the other three are the `scm_rev.cpp` git hash strings, expected after the dev16 commit. The translation-unit set differs only by the renamed `.cpp`.
+- JIT (451 steps) and no-JIT (449 steps) host trees rebuilt one at a time with 0 errors, `GIT_REV` `b0e33ec`.
+
+### Not run
+
+- No PLA session (one JIT session with native on is planned), no Code reviewer pass, no full `tests/recompiler_smoke/run.py`, and no structural gate. Three comments naming the old class remain in the kernel-free `native_memory` headers and `native_pool_set_unit.cpp` as history. 4c-1c (moving the other `KPageTable` name matches out of shared code) is not started.
+
 ## v0.0.3-dev16 - Unreleased
 
 *Development entry 16 toward v0.0.3. Not a release; no build artifacts are published.*

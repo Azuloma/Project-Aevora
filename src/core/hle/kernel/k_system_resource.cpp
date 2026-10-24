@@ -10,7 +10,7 @@
 
 namespace Kernel {
 
-Result KSecureSystemResource::Initialize(KernelCore& kernel, size_t size, KResourceLimit* resource_limit, KMemoryManager::Pool pool) {
+Result KSecureSystemResource::Initialize(KernelCore& kernel, size_t size, KResourceLimit* resource_limit, KPhysicalMemory::Pool pool) {
     // Set members.
     m_resource_limit = resource_limit;
     m_resource_size = size;
@@ -93,7 +93,7 @@ void KSecureSystemResource::Finalize(KernelCore& kernel) {
     m_resource_limit->Close(kernel);
 }
 
-size_t KSecureSystemResource::CalculateRequiredSecureMemorySize(size_t size, KMemoryManager::Pool pool) {
+size_t KSecureSystemResource::CalculateRequiredSecureMemorySize(size_t size, KPhysicalMemory::Pool pool) {
     return KSystemControl::CalculateRequiredSecureMemorySize(size, static_cast<u32>(pool));
 }
 

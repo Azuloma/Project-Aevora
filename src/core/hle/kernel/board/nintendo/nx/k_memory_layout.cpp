@@ -7,7 +7,7 @@
 #include "common/alignment.h"
 #include "common/literals.h"
 #include "core/hle/kernel/k_memory_layout.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_system_control.h"
 #include "core/hle/kernel/k_trace.h"
 
@@ -151,7 +151,7 @@ void SetupPoolPartitionMemoryRegions(KMemoryLayout& memory_layout) {
             KMemoryRegionType_DramApplicationPool, KMemoryRegionType_VirtualDramApplicationPool,
             cur_pool_attr);
         total_overhead_size +=
-            KMemoryManager::CalculateManagementOverheadSize(application_pool_size);
+            KPhysicalMemory::CalculateManagementOverheadSize(application_pool_size);
     } else {
         const size_t first_application_pool_size = dram_midpoint - application_pool_start;
         const size_t second_application_pool_size =
@@ -165,26 +165,26 @@ void SetupPoolPartitionMemoryRegions(KMemoryLayout& memory_layout) {
             KMemoryRegionType_DramApplicationPool, KMemoryRegionType_VirtualDramApplicationPool,
             cur_pool_attr);
         total_overhead_size +=
-            KMemoryManager::CalculateManagementOverheadSize(first_application_pool_size);
+            KPhysicalMemory::CalculateManagementOverheadSize(first_application_pool_size);
         total_overhead_size +=
-            KMemoryManager::CalculateManagementOverheadSize(second_application_pool_size);
+            KPhysicalMemory::CalculateManagementOverheadSize(second_application_pool_size);
     }
 
     // Insert the applet pool.
     InsertPoolPartitionRegionIntoBothTrees(memory_layout, applet_pool_start, applet_pool_size,
                                            KMemoryRegionType_DramAppletPool,
                                            KMemoryRegionType_VirtualDramAppletPool, cur_pool_attr);
-    total_overhead_size += KMemoryManager::CalculateManagementOverheadSize(applet_pool_size);
+    total_overhead_size += KPhysicalMemory::CalculateManagementOverheadSize(applet_pool_size);
 
     // Insert the nonsecure system pool.
     InsertPoolPartitionRegionIntoBothTrees(
         memory_layout, unsafe_system_pool_start, unsafe_system_pool_size,
         KMemoryRegionType_DramSystemNonSecurePool, KMemoryRegionType_VirtualDramSystemNonSecurePool,
         cur_pool_attr);
-    total_overhead_size += KMemoryManager::CalculateManagementOverheadSize(unsafe_system_pool_size);
+    total_overhead_size += KPhysicalMemory::CalculateManagementOverheadSize(unsafe_system_pool_size);
 
     // Insert the pool management region.
-    total_overhead_size += KMemoryManager::CalculateManagementOverheadSize(
+    total_overhead_size += KPhysicalMemory::CalculateManagementOverheadSize(
         (unsafe_system_pool_start - pool_partitions_start) - total_overhead_size);
     const u64 pool_management_start = unsafe_system_pool_start - total_overhead_size;
     const size_t pool_management_size = total_overhead_size;

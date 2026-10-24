@@ -8,8 +8,8 @@ Determine whether PLA can run through Suyu-derived static CPU recompilation, the
 
 ## Status
 
-HEAD is `0a974bc` (v0.0.3-dev15, N2 stage 4b-3). Both host trees were reconfigured and rebuilt at `0a974bc` in session 49 (`GIT_REV` checked, 0 errors); documentation edits (CPU_RECOMPILER.md, the Stage 4c design) are uncommitted. Recent commits: dev13 `49370cb`, merge `9ca567a`, dev14 `78c7036` (4b-2), dev15 `0a974bc` (4b-3). Earlier commits and docs-only records remain listed in the archived history and prior status records.
-Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`, dev11 `eba359e`, dev12 `ec1fdc2`, dev13 `49370cb`, merge `9ca567a`, dev14 `78c7036`, dev15 `0a974bc`, docs-only records `5057b57` and `a0174a2`.
+HEAD is `b0e33ec` (v0.0.3-dev16, N2 stage 4c-1a). The tree holds the uncommitted 4c-1b rename (dev17); both host trees are built with it and report `GIT_REV` `b0e33ec`. Recent commits: dev13 `49370cb`, merge `9ca567a`, dev14 `78c7036` (4b-2), dev15 `0a974bc` (4b-3), dev16 `b0e33ec` (4c-1a). Earlier commits and docs-only records remain listed in the archived history and prior status records.
+Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots rename `8133d92`, dev5 `ca825f8`, dev6 `65a1f15`, dev7 `d051efb`, dev8 `ddfb960`, dev9 `aebd786`, dev10 `4362604`, dev11 `eba359e`, dev12 `ec1fdc2`, dev13 `49370cb`, merge `9ca567a`, dev14 `78c7036`, dev15 `0a974bc`, dev16 `b0e33ec`, docs-only records `5057b57` and `a0174a2`.
 
 ### N2 progress
 
@@ -19,7 +19,7 @@ Commits: dev1 `8796a8c`, dev2 `65854f3`, dev3 `ce4bfd6`, dev4 `56db155`, slots r
 | 1 | Done: standalone mapper, dev3, and mutants. |
 | 2 | Done: shadow, dev4-dev6; accepted after the recorded JIT PLA session. |
 | 3 | Done: Stage 3a, 3b-1, 3b-2, 3b-3, and 3c; JIT/AOT validation complete. |
-| 4 | 4a-1 (dev11) and 4a-2 (dev12) committed and PLA-validated; 4b-1 (dev13) committed and JIT-validated; 4b-2 dev14 `78c7036` committed; 4b-3 dev15 `0a974bc` committed; the user declared its test complete in session 49 (see [dev15 validation](#dev15-validation-session-49)); 4c is designed ([Stage 4c design](N2_DESIGN.md#stage-4c-design-agreed-with-the-user-implementation-not-started)) and awaits the user's go. |
+| 4 | 4a-1 (dev11) and 4a-2 (dev12) committed and PLA-validated; 4b-1 (dev13) committed and JIT-validated; 4b-2 dev14 `78c7036` committed; 4b-3 dev15 `0a974bc` committed; the user declared its test complete in session 49 (see [dev15 validation](#dev15-validation-session-49)); 4c is designed ([Stage 4c design](N2_DESIGN.md#stage-4c-design-agreed-with-the-user-implementation-not-started)); 4c-1a (dev16) `b0e33ec` is committed with its PLA check deferred, 4c-1b (dev17, the `KPhysicalMemory` rename) is built and uncommitted, and 4c-1c, 4c-2 and 4c-3 await the user's go. |
 | 5 | Not started; needs the user's go-ahead. |
 
 See [N2_DESIGN.md stage plan and verification](N2_DESIGN.md#stage-plan-and-verification).
@@ -57,9 +57,15 @@ N2 replaces the kernel memory model in the native 39-bit path while retaining ex
 
 1. Commit the documentation edits (the user commits); then check `git status` and `git log -5`. If a commit lands, reconfigure and rebuild both host trees one at a time and check `GIT_REV`.
 2. 4c-1a (dev16, shutdown statistics) is implemented and built on both host trees, uncommitted; the user deferred its PLA check. After the user commits it, reconfigure and rebuild both trees one at a time and check `GIT_REV`; the first later export should check for the `native_mem final` line on the X-button exit ([Stage 4c design](N2_DESIGN.md#stage-4c-design-agreed-with-the-user-implementation-not-started)).
-3. 4c-1b (dev17, the `KPhysicalMemory` rename) starts with the `pp_compare` `/EP` baseline taken before any source edit and a fresh no-JIT gate baseline: session 49 read `kernel_memory` 128 on the dev15 launcher, against 127 and 122 in earlier notes. Write no 4c-1b code before the user says go.
+3. 4c-1b (dev17, the `KMemoryManager` to `KPhysicalMemory` rename) is implemented and built on both host trees, uncommitted (see [4c-1b record](#4c-1b-record-session-49)). Its PLA check is one JIT session (native on). After the user commits it, reconfigure and rebuild both trees one at a time and check `GIT_REV`. Then 4c-1c (dev18, move the other `KPageTable` name matches out of shared code; [N2_DESIGN](N2_DESIGN.md#stage-4c-design-agreed-with-the-user-implementation-not-started)) needs a fresh no-JIT gate baseline first: session 49 read `kernel_memory` 128 on the dev15 launcher, against 127 and 122 in earlier notes. Write no 4c-1c code before the user says go.
 4. Optional cleanups: full `tests/recompiler_smoke/run.py` with `CPM_SOURCE_CACHE`, a real smoke CMake configure, `aot_cache_outcome` on the next export, unresolved GOT/PLT symbols, title confirmation, the unused `k_address_space_info.h` include, the `native_physical_pool.h` unit-suffix nit, decide fallback `KPageTable` ownership/reset, and re-review the dev14/dev15 fixes.
 5. After any commit, reconfigure and rebuild both host trees one at a time and check `GIT_REV`.
+
+### 4c-1b record (session 49)
+
+Base `b0e33ec` (dev16). `/EP` preprocess baselines of both trees were taken before any source edit (JIT 1,718 translation units, no-JIT 1,616, 2 moc units failing to preprocess in each run, as in earlier runs). The rename changed 23 source files plus two file renames, which forced a CMake reconfigure and a large rebuild. Both host trees rebuilt one at a time with 0 errors (JIT 451 steps, no-JIT 449) and `GIT_REV` `b0e33ec`.
+
+Comparison with `cmp.py` after the rebuild: JIT 439 flagged translation units in 76 distinct signatures, no-JIT 431 in 76. A normalizing check (apply the rename mapping to each "before" text, mask digits, compare with "after") explained 73 of 76 signatures in each tree; the other three in each tree are the `scm_rev.cpp` `GIT_REV`, `g_scm_desc` and `g_build_version` strings changing from `0a974bc` to `b0e33ec`, expected because the reconfigure picks up the dev16 commit. The translation-unit set differs by 2 (the renamed `.cpp`). Not run: any PLA session, the Code reviewer, the full `tests/recompiler_smoke/run.py`, and the structural gate.
 
 ### dev15 validation (session 49)
 

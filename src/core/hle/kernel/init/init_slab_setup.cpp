@@ -17,7 +17,7 @@
 #include "core/hle/kernel/k_event.h"
 #include "core/hle/kernel/k_event_info.h"
 #include "core/hle/kernel/k_memory_layout.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_object_name.h"
 #include "core/hle/kernel/k_page_buffer.h"
 #include "core/hle/kernel/k_port.h"
@@ -287,10 +287,10 @@ void KPageBufferSlabHeap::Initialize(Core::System& system) {
         kernel.GetSystemResourceLimit()->Reserve(kernel, LimitableResource::PhysicalMemoryMax, slab_size));
 
     // Allocate memory for the slab.
-    constexpr auto AllocateOption = KMemoryManager::EncodeOption(
-        KMemoryManager::Pool::System, KMemoryManager::Direction::FromFront);
+    constexpr auto AllocateOption = KPhysicalMemory::EncodeOption(
+        KPhysicalMemory::Pool::System, KPhysicalMemory::Direction::FromFront);
     const KPhysicalAddress slab_address =
-        kernel.MemoryManager().AllocateAndOpenContinuous(num_pages, 1, AllocateOption);
+        kernel.PhysicalMemory().AllocateAndOpenContinuous(num_pages, 1, AllocateOption);
     ASSERT(slab_address != 0);
 
     // Initialize the slabheap.

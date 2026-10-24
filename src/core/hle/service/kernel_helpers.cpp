@@ -7,7 +7,7 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/hle/kernel/k_event.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_readable_event.h"
 #include "core/hle/kernel/k_resource_limit.h"

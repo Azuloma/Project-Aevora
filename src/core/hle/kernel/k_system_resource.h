@@ -10,7 +10,7 @@
 #include "common/common_types.h"
 #include "core/hle/kernel/k_auto_object.h"
 #include "core/hle/kernel/k_dynamic_resource_manager.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_page_table_manager.h"
 #include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/kernel/slab_helpers.h"
@@ -96,7 +96,7 @@ public:
         this->SetSecureResource();
     }
 
-    Result Initialize(KernelCore& kernel, size_t size, KResourceLimit* resource_limit, KMemoryManager::Pool pool);
+    Result Initialize(KernelCore& kernel, size_t size, KResourceLimit* resource_limit, KPhysicalMemory::Pool pool);
     void Finalize(KernelCore& kernel);
 
     bool IsInitialized() const {
@@ -120,11 +120,11 @@ public:
     }
 
 public:
-    static size_t CalculateRequiredSecureMemorySize(size_t size, KMemoryManager::Pool pool);
+    static size_t CalculateRequiredSecureMemorySize(size_t size, KPhysicalMemory::Pool pool);
 
 private:
     bool m_is_initialized{};
-    KMemoryManager::Pool m_resource_pool{};
+    KPhysicalMemory::Pool m_resource_pool{};
     KDynamicPageManager m_dynamic_page_manager;
     KMemoryBlockSlabManager m_memory_block_slab_manager;
     KBlockInfoManager m_block_info_manager;

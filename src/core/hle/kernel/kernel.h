@@ -53,7 +53,7 @@ class KEventInfo;
 class KHandleTable;
 class KHardwareTimer;
 class KMemoryLayout;
-class KMemoryManager;
+class KPhysicalMemory;
 class KObjectName;
 class KObjectNameGlobalData;
 class KPageBuffer;
@@ -220,10 +220,10 @@ public:
     KObjectNameGlobalData& ObjectNameGlobalData();
 
     /// Gets the virtual memory manager for the kernel.
-    KMemoryManager& MemoryManager();
+    KPhysicalMemory& PhysicalMemory();
 
     /// Gets the virtual memory manager for the kernel.
-    const KMemoryManager& MemoryManager() const;
+    const KPhysicalMemory& PhysicalMemory() const;
 
     /// Gets the application resource manager.
     KSystemResource& GetAppSystemResource();

@@ -30,7 +30,7 @@
 #include "core/hle/kernel/k_handle_table.h"
 #include "core/hle/kernel/k_hardware_timer.h"
 #include "core/hle/kernel/k_memory_layout.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_object_name.h"
 #include "core/hle/kernel/k_page_buffer.h"
 #include "core/hle/kernel/k_process.h"
@@ -797,7 +797,7 @@ struct KernelCore::Impl {
     std::atomic<u32> next_host_thread_id{Core::Hardware::NUM_CPU_CORES};
 
     // Kernel memory management
-    std::optional<KMemoryManager> memory_manager;
+    std::optional<KPhysicalMemory> memory_manager;
 
     // Resource managers
     std::optional<KDynamicPageManager> resource_manager_page_manager;
@@ -1137,11 +1137,11 @@ KObjectNameGlobalData& KernelCore::ObjectNameGlobalData() {
     return *impl->object_name_global_data;
 }
 
-KMemoryManager& KernelCore::MemoryManager() {
+KPhysicalMemory& KernelCore::PhysicalMemory() {
     return *impl->memory_manager;
 }
 
-const KMemoryManager& KernelCore::MemoryManager() const {
+const KPhysicalMemory& KernelCore::PhysicalMemory() const {
     return *impl->memory_manager;
 }
 

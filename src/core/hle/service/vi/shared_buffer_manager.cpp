@@ -36,10 +36,10 @@ Result AllocateSharedBufferMemory(std::unique_ptr<Kernel::KPageGroup>* out_page_
         kernel, std::addressof(kernel.GetSystemSystemResource().GetBlockInfoManager()));
 
     // Allocate memory from secure pool.
-    R_TRY(kernel.MemoryManager().AllocateAndOpen(
+    R_TRY(kernel.PhysicalMemory().AllocateAndOpen(
         pg.get(), size / YUZU_PAGESIZE,
-        Kernel::KMemoryManager::EncodeOption(Kernel::KMemoryManager::Pool::Secure,
-                                             Kernel::KMemoryManager::Direction::FromBack)));
+        Kernel::KPhysicalMemory::EncodeOption(Kernel::KPhysicalMemory::Pool::Secure,
+                                             Kernel::KPhysicalMemory::Direction::FromBack)));
 
     // Initialize to fully transparent black to avoid covering content before first present.
     for (auto& block : *pg) {

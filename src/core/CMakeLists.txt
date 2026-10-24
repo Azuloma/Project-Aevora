@@ -298,8 +298,8 @@ add_library(core STATIC
     hle/kernel/k_memory_block_manager.h
     hle/kernel/k_memory_layout.cpp
     hle/kernel/k_memory_layout.h
-    hle/kernel/k_memory_manager.cpp
-    hle/kernel/k_memory_manager.h
+    hle/kernel/k_physical_memory.cpp
+    hle/kernel/k_physical_memory.h
     hle/kernel/k_memory_region.h
     hle/kernel/k_memory_region_type.h
     hle/kernel/k_object_name.cpp

@@ -6,7 +6,7 @@
 
 #include "core/core.h"
 #include "core/core_timing.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/kernel/svc.h"
@@ -281,8 +281,8 @@ Result GetSystemInfo(Core::System& system, uint64_t* out, SystemInfoType info_ty
     if (info_id < 2) {
         R_UNLESS(info_subtype <= 3, ResultInvalidCombination);
 
-        auto& memory_manager = system.Kernel().MemoryManager();
-        const auto pool = static_cast<KMemoryManager::Pool>(info_subtype);
+        auto& memory_manager = system.Kernel().PhysicalMemory();
+        const auto pool = static_cast<KPhysicalMemory::Pool>(info_subtype);
 
         switch (info_type) {
         case SystemInfoType::TotalPhysicalMemorySize:

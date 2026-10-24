@@ -147,7 +147,7 @@ void KProcess::Finalize(KernelCore& kernel) {
     if (m_system_resource) {
         if (m_system_resource->IsSecureResource()) {
             // Finalize optimized memory. If memory wasn't optimized, this is a no-op.
-            kernel.MemoryManager().FinalizeOptimizedMemory(this->GetId(), m_memory_pool);
+            kernel.PhysicalMemory().FinalizeOptimizedMemory(this->GetId(), m_memory_pool);
         }
 
         m_system_resource->Close(kernel);
@@ -272,7 +272,7 @@ Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParamete
 
 Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParameter& params, const KPageGroup& pg,
                             std::span<const u32> caps, KResourceLimit* res_limit,
-                            KMemoryManager::Pool pool, bool immortal) {
+                            KPhysicalMemory::Pool pool, bool immortal) {
     ASSERT(res_limit != nullptr);
     ASSERT((params.code_num_pages * PageSize) / PageSize ==
            static_cast<size_t>(params.code_num_pages));
@@ -365,7 +365,7 @@ Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParamete
 
 Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParameter& params,
                             std::span<const u32> user_caps, KResourceLimit* res_limit,
-                            KMemoryManager::Pool pool, KProcessAddress aslr_space_start) {
+                            KPhysicalMemory::Pool pool, KProcessAddress aslr_space_start) {
     ASSERT(res_limit != nullptr);
 
     // Set members.
@@ -460,7 +460,7 @@ Result KProcess::Initialize(KernelCore& kernel, const Svc::CreateProcessParamete
     // If we should optimize memory allocations, do so.
     if (m_system_resource->IsSecureResource() &&
         True(params.flags & Svc::CreateProcessFlag::OptimizeMemoryAllocation)) {
-        R_TRY(kernel.MemoryManager().InitializeOptimizedMemory(m_process_id, pool));
+        R_TRY(kernel.PhysicalMemory().InitializeOptimizedMemory(m_process_id, pool));
     }
 
     // Initialize the rest of the process.
@@ -1197,8 +1197,8 @@ KProcess::~KProcess() = default;
 
 Result KProcess::LoadFromMetadata(KernelCore& kernel, const FileSys::ProgramMetadata& metadata, std::size_t code_size, KProcessAddress aslr_space_start, size_t aslr_space_offset) {
     // Create a resource limit for the process.
-    const auto pool = static_cast<KMemoryManager::Pool>(metadata.GetPoolPartition());
-    const auto physical_memory_size = kernel.MemoryManager().GetSize(pool);
+    const auto pool = static_cast<KPhysicalMemory::Pool>(metadata.GetPoolPartition());
+    const auto physical_memory_size = kernel.PhysicalMemory().GetSize(pool);
     auto* res_limit =
         Kernel::CreateResourceLimitForProcess(kernel.System(), physical_memory_size);
 
@@ -1212,7 +1212,7 @@ Result KProcess::LoadFromMetadata(KernelCore& kernel, const FileSys::ProgramMeta
     u64 code_address{};
 
     // Determine if we are an application.
-    if (pool == KMemoryManager::Pool::Application) {
+    if (pool == KPhysicalMemory::Pool::Application) {
         flag |= Svc::CreateProcessFlag::IsApplication;
         m_is_application = true;
     }

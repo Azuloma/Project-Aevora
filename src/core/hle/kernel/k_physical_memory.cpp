@@ -15,7 +15,7 @@
 #include "core/core.h"
 #include "core/device_memory.h"
 #include "core/hle/kernel/initial_process.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_page_group.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/kernel.h"
@@ -25,15 +25,15 @@ namespace Kernel {
 
 namespace {
 
-constexpr KMemoryManager::Pool GetPoolFromMemoryRegionType(u32 type) {
+constexpr KPhysicalMemory::Pool GetPoolFromMemoryRegionType(u32 type) {
     if ((type | KMemoryRegionType_DramApplicationPool) == type) {
-        return KMemoryManager::Pool::Application;
+        return KPhysicalMemory::Pool::Application;
     } else if ((type | KMemoryRegionType_DramAppletPool) == type) {
-        return KMemoryManager::Pool::Applet;
+        return KPhysicalMemory::Pool::Applet;
     } else if ((type | KMemoryRegionType_DramSystemPool) == type) {
-        return KMemoryManager::Pool::System;
+        return KPhysicalMemory::Pool::System;
     } else if ((type | KMemoryRegionType_DramSystemNonSecurePool) == type) {
-        return KMemoryManager::Pool::SystemNonSecure;
+        return KPhysicalMemory::Pool::SystemNonSecure;
     } else {
         UNREACHABLE_MSG("InvalidMemoryRegionType for conversion to Pool");
     }
@@ -41,7 +41,7 @@ constexpr KMemoryManager::Pool GetPoolFromMemoryRegionType(u32 type) {
 
 } // namespace
 
-KMemoryManager::KMemoryManager(Core::System& system)
+KPhysicalMemory::KPhysicalMemory(Core::System& system)
     : m_system{system}, m_memory_layout{system.Kernel().MemoryLayout()},
       m_pool_locks{
           KLightLock{system.Kernel()},
@@ -53,7 +53,7 @@ KMemoryManager::KMemoryManager(Core::System& system)
     m_native = Common::EnvFlagDefaultOn(native_option != nullptr ? native_option : "");
 }
 
-bool KMemoryManager::FindUserPoolRegion(size_t index, KPhysicalAddress& address, size_t& size,
+bool KPhysicalMemory::FindUserPoolRegion(size_t index, KPhysicalAddress& address, size_t& size,
                                         Pool& pool) const {
     address = 0;
     size = 0;
@@ -93,7 +93,7 @@ bool KMemoryManager::FindUserPoolRegion(size_t index, KPhysicalAddress& address,
     return size != 0;
 }
 
-void KMemoryManager::InitializeNative() {
+void KPhysicalMemory::InitializeNative() {
     for (size_t index = 0; index != MaxManagerCount; ++index) {
         KPhysicalAddress region_address = 0;
         size_t region_size = 0;
@@ -121,7 +121,7 @@ void KMemoryManager::InitializeNative() {
              m_native_pools.FreeBytes() >> 20);
 }
 
-void KMemoryManager::Initialize(KVirtualAddress management_region, size_t management_region_size) {
+void KPhysicalMemory::Initialize(KVirtualAddress management_region, size_t management_region_size) {
     if (m_native) {
         this->InitializeNative();
         return;
@@ -217,27 +217,27 @@ void KMemoryManager::Initialize(KVirtualAddress management_region, size_t manage
     }
 }
 
-KMemoryManager::Pool KMemoryManager::NativePoolOf(KPhysicalAddress address) const {
+KPhysicalMemory::Pool KPhysicalMemory::NativePoolOf(KPhysicalAddress address) const {
     u32 pool_id = 0;
     const bool found = m_native_pools.FindPool(GetInteger(address), pool_id);
     ASSERT_MSG(found, "physical address {:#x} is in no native pool", GetInteger(address));
     return static_cast<Pool>(pool_id);
 }
 
-void KMemoryManager::NativeOpen(KPhysicalAddress address, size_t num_pages) {
+void KPhysicalMemory::NativeOpen(KPhysicalAddress address, size_t num_pages) {
     const bool opened = m_native_pools.Open(GetInteger(address), num_pages * PageSize);
     ASSERT_MSG(opened, "native_phys_pool: Open of {:#x}+{} pages was refused", GetInteger(address),
                num_pages);
 }
 
-void KMemoryManager::NativeClose(KPhysicalAddress address, size_t num_pages) {
+void KPhysicalMemory::NativeClose(KPhysicalAddress address, size_t num_pages) {
     const bool closed = m_native_pools.Close(GetInteger(address), num_pages * PageSize);
     ASSERT_MSG(closed, "native_phys_pool: Close of {:#x}+{} pages was refused", GetInteger(address),
                num_pages);
 }
 
 // Every page is returned opened once; the caller owns that reference.
-Result KMemoryManager::NativeAllocatePageGroup(KPageGroup* out, size_t num_pages, u32 option) {
+Result KPhysicalMemory::NativeAllocatePageGroup(KPageGroup* out, size_t num_pages, u32 option) {
     const auto [pool, dir] = DecodeOption(option);
     std::vector<Core::NativeMemory::PhysicalExtent> extents;
     R_UNLESS(m_native_pools.AllocateAndOpen(static_cast<u32>(pool), num_pages * PageSize,
@@ -257,7 +257,7 @@ Result KMemoryManager::NativeAllocatePageGroup(KPageGroup* out, size_t num_pages
     R_SUCCEED();
 }
 
-Result KMemoryManager::InitializeOptimizedMemory(u64 process_id, Pool pool) {
+Result KPhysicalMemory::InitializeOptimizedMemory(u64 process_id, Pool pool) {
     if (m_native) {
         LOG_ERROR(Kernel, "native_phys_pool does not support optimized process memory (pool {})",
                   static_cast<u32>(pool));
@@ -284,7 +284,7 @@ Result KMemoryManager::InitializeOptimizedMemory(u64 process_id, Pool pool) {
     R_SUCCEED();
 }
 
-void KMemoryManager::FinalizeOptimizedMemory(u64 process_id, Pool pool) {
+void KPhysicalMemory::FinalizeOptimizedMemory(u64 process_id, Pool pool) {
     if (m_native) {
         return;
     }
@@ -299,7 +299,7 @@ void KMemoryManager::FinalizeOptimizedMemory(u64 process_id, Pool pool) {
     }
 }
 
-KPhysicalAddress KMemoryManager::AllocateAndOpenContinuous(size_t num_pages, size_t align_pages,
+KPhysicalAddress KPhysicalMemory::AllocateAndOpenContinuous(size_t num_pages, size_t align_pages,
                                                            u32 option) {
     // Early return if we're allocating no pages.
     if (num_pages == 0) {
@@ -351,7 +351,7 @@ KPhysicalAddress KMemoryManager::AllocateAndOpenContinuous(size_t num_pages, siz
     return allocated_block;
 }
 
-Result KMemoryManager::AllocatePageGroupImpl(KPageGroup* out, size_t num_pages, Pool pool,
+Result KPhysicalMemory::AllocatePageGroupImpl(KPageGroup* out, size_t num_pages, Pool pool,
                                              Direction dir, bool unoptimized, bool random) {
     // Choose a heap based on our page size request.
     const s32 heap_index = KPageHeap::GetBlockIndex(num_pages);
@@ -406,7 +406,7 @@ Result KMemoryManager::AllocatePageGroupImpl(KPageGroup* out, size_t num_pages, 
     R_SUCCEED();
 }
 
-Result KMemoryManager::AllocateAndOpen(KPageGroup* out, size_t num_pages, u32 option) {
+Result KPhysicalMemory::AllocateAndOpen(KPageGroup* out, size_t num_pages, u32 option) {
     ASSERT(out != nullptr);
     ASSERT(out->GetNumPages() == 0);
 
@@ -447,7 +447,7 @@ Result KMemoryManager::AllocateAndOpen(KPageGroup* out, size_t num_pages, u32 op
     R_SUCCEED();
 }
 
-Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32 option,
+Result KPhysicalMemory::AllocateForProcess(KPageGroup* out, size_t num_pages, u32 option,
                                           u64 process_id, u8 fill_pattern) {
     ASSERT(out != nullptr);
     ASSERT(out->GetNumPages() == 0);
@@ -553,7 +553,7 @@ Result KMemoryManager::AllocateForProcess(KPageGroup* out, size_t num_pages, u32
     R_SUCCEED();
 }
 
-size_t KMemoryManager::Impl::Initialize(KPhysicalAddress address, size_t size,
+size_t KPhysicalMemory::Impl::Initialize(KPhysicalAddress address, size_t size,
                                         KVirtualAddress management, KVirtualAddress management_end,
                                         Pool p) {
     // Calculate management sizes.
@@ -579,14 +579,14 @@ size_t KMemoryManager::Impl::Initialize(KPhysicalAddress address, size_t size,
     return total_management_size;
 }
 
-void KMemoryManager::Impl::InitializeOptimizedMemory(KernelCore& kernel) {
+void KPhysicalMemory::Impl::InitializeOptimizedMemory(KernelCore& kernel) {
     auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
     auto* optimize_map = kernel.System().DeviceMemory().GetPointer<u64>(optimize_pa);
 
     std::memset(optimize_map, 0, CalculateOptimizedProcessOverheadSize(m_heap.GetSize()));
 }
 
-void KMemoryManager::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
+void KPhysicalMemory::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
                                                       size_t num_pages) {
     auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
     auto* optimize_map = kernel.System().DeviceMemory().GetPointer<u64>(optimize_pa);
@@ -605,7 +605,7 @@ void KMemoryManager::Impl::TrackUnoptimizedAllocation(KernelCore& kernel, KPhysi
     }
 }
 
-void KMemoryManager::Impl::TrackOptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
+void KPhysicalMemory::Impl::TrackOptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
                                                     size_t num_pages) {
     auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
     auto* optimize_map = kernel.System().DeviceMemory().GetPointer<u64>(optimize_pa);
@@ -624,7 +624,7 @@ void KMemoryManager::Impl::TrackOptimizedAllocation(KernelCore& kernel, KPhysica
     }
 }
 
-bool KMemoryManager::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
+bool KPhysicalMemory::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysicalAddress block,
                                                       size_t num_pages, u8 fill_pattern) {
     auto& device_memory = kernel.System().DeviceMemory();
     auto optimize_pa = KPageTable::GetHeapPhysicalAddress(kernel, m_management_region);
@@ -657,7 +657,7 @@ bool KMemoryManager::Impl::ProcessOptimizedAllocation(KernelCore& kernel, KPhysi
     return any_new;
 }
 
-size_t KMemoryManager::Impl::CalculateManagementOverheadSize(size_t region_size) {
+size_t KPhysicalMemory::Impl::CalculateManagementOverheadSize(size_t region_size) {
     const size_t ref_count_size = (region_size / PageSize) * sizeof(u16);
     const size_t optimize_map_size =
         (Common::AlignUp((region_size / PageSize), Common::BitSize<u64>()) /

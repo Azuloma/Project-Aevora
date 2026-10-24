@@ -333,7 +333,7 @@ public:
     KProcessPageTable(KernelCore& kernel) : m_kernel(kernel) {}
 
     Result Initialize(Svc::CreateProcessFlag as_type, bool enable_aslr, bool enable_das_merge,
-                      bool from_back, KMemoryManager::Pool pool, KProcessAddress code_address,
+                      bool from_back, KPhysicalMemory::Pool pool, KProcessAddress code_address,
                       size_t code_size, KSystemResource* system_resource,
                       KResourceLimit* resource_limit, Core::Memory::Memory& memory,
                       KProcessAddress aslr_space_start) {

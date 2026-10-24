@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "core/hle/kernel/k_dynamic_resource_manager.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_page_group.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/svc_results.h"
@@ -25,7 +25,7 @@ void KPageGroup::Finalize() {
 }
 
 void KPageGroup::CloseAndReset(KernelCore& kernel) {
-    auto& mm = kernel.MemoryManager();
+    auto& mm = kernel.PhysicalMemory();
 
     KBlockInfo* cur = m_first_block;
     while (cur != nullptr) {
@@ -80,19 +80,19 @@ Result KPageGroup::AddBlock(KPhysicalAddress addr, size_t num_pages) {
 }
 
 void KPageGroup::Open(KernelCore& kernel) const {
-    auto& mm = kernel.MemoryManager();
+    auto& mm = kernel.PhysicalMemory();
     for (const auto& it : *this)
         mm.Open(it.GetAddress(), it.GetNumPages());
 }
 
 void KPageGroup::OpenFirst(KernelCore& kernel) const {
-    auto& mm = kernel.MemoryManager();
+    auto& mm = kernel.PhysicalMemory();
     for (const auto& it : *this)
         mm.OpenFirst(it.GetAddress(), it.GetNumPages());
 }
 
 void KPageGroup::Close(KernelCore& kernel) const {
-    auto& mm = kernel.MemoryManager();
+    auto& mm = kernel.PhysicalMemory();
     for (const auto& it : *this)
         mm.Close(it.GetAddress(), it.GetNumPages());
 }

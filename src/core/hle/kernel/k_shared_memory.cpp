@@ -48,9 +48,9 @@ Result KSharedMemory::Initialize(KernelCore& kernel, Core::DeviceMemory& device_
     // Allocate the memory.
 
     //! HACK: Open continuous mapping from sysmodule pool.
-    auto option = KMemoryManager::EncodeOption(KMemoryManager::Pool::Secure,
-                                               KMemoryManager::Direction::FromBack);
-    m_physical_address = kernel.MemoryManager().AllocateAndOpenContinuous(num_pages, 1, option);
+    auto option = KPhysicalMemory::EncodeOption(KPhysicalMemory::Pool::Secure,
+                                               KPhysicalMemory::Direction::FromBack);
+    m_physical_address = kernel.PhysicalMemory().AllocateAndOpenContinuous(num_pages, 1, option);
     R_UNLESS(m_physical_address != 0, ResultOutOfMemory);
 
     //! Insert the result into our page group.

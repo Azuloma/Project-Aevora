@@ -104,7 +104,7 @@ private:
     u32 m_pointer_buffer_size = 0x8000;  // Default pointer buffer size (can be game-specific later)
     std::array<char, 13> m_name{};
     Svc::CreateProcessFlag m_flags{};
-    KMemoryManager::Pool m_memory_pool{};
+    KPhysicalMemory::Pool m_memory_pool{};
 
     KResourceLimit* m_resource_limit{};
     KSystemResource* m_system_resource{};
@@ -167,9 +167,9 @@ public:
 
     Result Initialize(KernelCore& kernel, const Svc::CreateProcessParameter& params, const KPageGroup& pg,
                       std::span<const u32> caps, KResourceLimit* res_limit,
-                      KMemoryManager::Pool pool, bool immortal);
+                      KPhysicalMemory::Pool pool, bool immortal);
     Result Initialize(KernelCore& kernel, const Svc::CreateProcessParameter& params, std::span<const u32> user_caps,
-                      KResourceLimit* res_limit, KMemoryManager::Pool pool,
+                      KResourceLimit* res_limit, KPhysicalMemory::Pool pool,
                       KProcessAddress aslr_space_start);
     void Exit(KernelCore& kernel);
 
@@ -236,7 +236,7 @@ public:
         return m_main_thread_stack_size;
     }
 
-    KMemoryManager::Pool GetMemoryPool() const {
+    KPhysicalMemory::Pool GetMemoryPool() const {
         return m_memory_pool;
     }
 

@@ -16,7 +16,7 @@
 #include "core/hle/kernel/k_memory_block.h"
 #include "core/hle/kernel/k_memory_block_manager.h"
 #include "core/hle/kernel/k_memory_layout.h"
-#include "core/hle/kernel/k_memory_manager.h"
+#include "core/hle/kernel/k_physical_memory.h"
 #include "core/hle/kernel/k_typed_address.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/result.h"
@@ -251,7 +251,7 @@ public:
                                Core::Memory::Memory& memory);
     Result InitializeForProcess(Svc::CreateProcessFlag as_type, bool enable_aslr,
                                 bool enable_device_address_space_merge, bool from_back,
-                                KMemoryManager::Pool pool, KProcessAddress code_address,
+                                KPhysicalMemory::Pool pool, KProcessAddress code_address,
                                 size_t code_size, KSystemResource* system_resource,
                                 KResourceLimit* resource_limit, Core::Memory::Memory& memory,
                                 KProcessAddress aslr_space_start);
